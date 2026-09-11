@@ -5,15 +5,14 @@ Generate historical or imagined views of a scene with a pretrained Stable Diffus
 ## Requirements
 
 - Python 3.10 or newer
-- A few gigabytes of disk space for the model download
-- An internet connection the first time the script runs
+- ~ 5 GB of disk space for the model download
 
 ## Setup
 
 Clone the repository and open a terminal in its directory:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/varunm18/diffusion-time-machine.git
 cd diffusion-time-machine
 ```
 
