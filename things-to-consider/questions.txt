@@ -1,0 +1,17 @@
+some questions and things to consider:
+
+do we have enough data?
+
+are we going to need a data pipeline?
+
+who can store all of the data (images? videos?)?
+
+note: if its a considerable amount of data, need to think about egress & ingress cost.
+
+if we build a data pipeline we can use a VLM to label data.
+
+which base OS model are we going to use? can consider DiT - classic FFN or FFN MOE??
+
+what will our input and output be?
+
+how will we divide work?
