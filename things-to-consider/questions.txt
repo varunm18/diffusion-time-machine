@@ -15,3 +15,5 @@ which base OS model are we going to use? can consider DiT - classic FFN or FFN M
 what will our input and output be?
 
 how will we divide work?
+
+need to decide soon bc we'll likely need to present on thurday (9/17)
