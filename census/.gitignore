@@ -1,0 +1,6 @@
+# Local mirror of the MegaScenes bucket (large; re-downloadable)
+data/MegaScenes/
+# Partial writes from an interrupted step 01
+*.csv.tmp
+__pycache__/
+.venv/

@@ -1,0 +1,22 @@
+# Pilot scenes for the date census: long-standing, heavily photographed landmarks.
+# One Wikimedia category name per line (as in categories.json).
+Cathédrale_Notre-Dame_de_Paris
+Sagrada_Família
+Eiffel_Tower
+Brooklyn_Bridge
+Times_Square
+Statue_of_Liberty
+Old_Town_Hall_(Prague)
+St._Paul's_Cathedral
+Tower_Bridge
+Washington_Monument
+Grand_Central_Terminal
+Empire_State_Building
+Saint_Peter's_Basilica
+Dam_Square
+Cathédrale_Notre-Dame_de_Strasbourg
+Prague_Castle
+Palace_of_Versailles
+Alhambra
+Rothenburg_ob_der_Tauber
+Taj_Mahal
