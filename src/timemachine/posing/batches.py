@@ -33,6 +33,41 @@ def anchor_features(c2ws: np.ndarray) -> np.ndarray:
     return np.concatenate([(centers - np.median(centers, 0)) / spread, c2ws[:, :3, 2]], axis=1)
 
 
+def make_retrieval_batches(
+    query_emb: np.ndarray, anchor_emb: np.ndarray, rng: np.random.Generator,
+    queries_per_batch: int = 8, anchors_per_batch: int = 24, repeats: int = 3,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Batches of visually similar queries with the anchors that look most like them.
+
+    Queries are grouped greedily around random seeds by descriptor similarity.
+    Each group's anchors are scored by their best similarity to any query in the
+    group; repeat ``r`` takes a random ``anchors_per_batch`` of the top
+    ``2 * anchors_per_batch`` (the first repeat takes the top ones), so repeats see
+    different but still relevant anchors.
+    """
+    sim_qq = query_emb @ query_emb.T
+    sim_qa = query_emb @ anchor_emb.T
+    batches = []
+    for r in range(repeats):
+        remaining = list(rng.permutation(len(query_emb)))
+        while remaining:
+            seed = remaining.pop(0)
+            if remaining:
+                ranked = sorted(remaining, key=lambda q: -sim_qq[seed, q])[: queries_per_batch - 1]
+                remaining = [q for q in remaining if q not in set(ranked)]
+            else:
+                ranked = []
+            group = np.array([seed, *ranked])
+            score = sim_qa[group].max(axis=0)
+            top = np.argsort(-score)[: 2 * anchors_per_batch]
+            if r == 0 or len(top) <= anchors_per_batch:
+                anchors = top[:anchors_per_batch]
+            else:
+                anchors = rng.choice(top, anchors_per_batch, replace=False)
+            batches.append((group, anchors))
+    return batches
+
+
 def make_batches(
     n_queries: int, anchor_c2ws: np.ndarray, rng: np.random.Generator,
     queries_per_batch: int = 32, anchors_per_batch: int = 32, repeats: int = 3,

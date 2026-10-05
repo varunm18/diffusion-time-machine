@@ -80,6 +80,54 @@ def ransac_umeyama(
     return umeyama(src[best], dst[best]), best
 
 
+def rotation_first_alignment(
+    pred_c2w: np.ndarray, target_c2w: np.ndarray, rng: np.random.Generator,
+    rotation_threshold_deg: float = 10.0, center_threshold: float = 0.15, iterations: int = 300,
+) -> tuple[Sim3, np.ndarray]:
+    """Similarity transform fitted rotation-first, for when predicted *positions* are noisy.
+
+    Feed-forward models predict orientations more reliably than positions for
+    wide-baseline images. Each anchor implies a global rotation
+    ``R_i = R_target_i @ R_pred_i^T``; we take the largest set of anchors whose
+    implied rotations agree within ``rotation_threshold_deg``, average them, and
+    only then fit scale and translation to the camera centres (RANSAC over
+    anchor pairs, inlier if within ``center_threshold * scene_size``).
+
+    Returns the transform and the inlier mask (agrees on rotation *and* position).
+    """
+    R_pred, R_tgt = pred_c2w[:, :3, :3], target_c2w[:, :3, :3]
+    implied = R_tgt @ np.swapaxes(R_pred, -1, -2)                       # (N, 3, 3)
+    agree = rotation_error_deg(implied[:, None], implied[None, :]) < rotation_threshold_deg
+    rot_inliers = agree[np.argmax(agree.sum(axis=1))]
+    R = mean_rotation(implied[rot_inliers])
+
+    src = pred_c2w[:, :3, 3] @ R.T                                       # rotated predicted centres
+    dst = target_c2w[:, :3, 3]
+    size = np.median(np.linalg.norm(dst - dst.mean(0), axis=1)) or 1.0
+    candidates = np.flatnonzero(rot_inliers)
+
+    def fit(idx: np.ndarray) -> tuple[float, np.ndarray]:
+        xs, xd = src[idx] - src[idx].mean(0), dst[idx] - dst[idx].mean(0)
+        scale = float((xs * xd).sum() / max((xs ** 2).sum(), 1e-12))
+        return scale, dst[idx].mean(0) - scale * src[idx].mean(0)
+
+    best = np.zeros(len(src), dtype=bool)
+    if len(candidates) >= 2:
+        for _ in range(iterations):
+            pair = rng.choice(candidates, 2, replace=False)
+            scale, t = fit(pair)
+            if scale <= 0:
+                continue
+            inliers = rot_inliers & (np.linalg.norm(scale * src + t - dst, axis=1) < center_threshold * size)
+            if inliers.sum() > best.sum():
+                best = inliers
+    if best.sum() >= 2:
+        scale, t = fit(np.flatnonzero(best))
+    else:
+        scale, t = fit(candidates) if len(candidates) >= 2 else (1.0, np.zeros(3))
+    return Sim3(max(scale, 1e-12), R, t), best
+
+
 # ----------------------------------------------------------------------------
 # Error metrics
 # ----------------------------------------------------------------------------

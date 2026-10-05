@@ -6,6 +6,7 @@
 #   sbatch slurm/pose_vggt.sbatch                              # Notre-Dame model 0, eval
 #   MODE=register sbatch slurm/pose_vggt.sbatch
 #   SCENE=216687 MODEL=0 sbatch slurm/pose_vggt.sbatch         # Dam Square
+#   EXTRA_ARGS="--no-retrieval --tag spread" sbatch slurm/pose_vggt.sbatch
 #
 #SBATCH --job-name=dtm_vggt
 #SBATCH --partition=vulcan-ampere
@@ -26,9 +27,10 @@ export PYTHONDONTWRITEBYTECODE=1
 SCENE=${SCENE:-25512}
 MODEL=${MODEL:-0}
 MODE=${MODE:-eval}
+EXTRA_ARGS=${EXTRA_ARGS:-}
 
-echo "[vggt] $(date) host=$(hostname) scene=$SCENE model=$MODEL mode=$MODE"
+echo "[vggt] $(date) host=$(hostname) scene=$SCENE model=$MODEL mode=$MODE extra=$EXTRA_ARGS"
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
 .venv/bin/python -c "import torch; assert torch.cuda.is_available(), 'CUDA unavailable (driver too old for this torch build?)'; print('torch', torch.__version__, 'cuda', torch.version.cuda)"
-.venv/bin/python scripts/pose_with_vggt.py --scene "$SCENE" --model "$MODEL" --mode "$MODE"
+.venv/bin/python scripts/pose_with_vggt.py --scene "$SCENE" --model "$MODEL" --mode "$MODE" $EXTRA_ARGS
 echo "[vggt] done $(date)"

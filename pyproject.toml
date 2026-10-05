@@ -18,7 +18,7 @@ dev = ["pytest>=8"]
 torch = ["torch>=2.4", "pillow>=10"]
 # Posing old photos with VGGT-Omega (src/timemachine/posing); VGGT-Omega itself comes
 # from an existing checkout via VGGT_OMEGA_ROOT
-posing = ["torch>=2.4", "pillow>=10", "torchvision"]
+posing = ["torch>=2.4", "pillow>=10", "torchvision", "transformers>=4.45"]
 
 [build-system]
 requires = ["hatchling"]

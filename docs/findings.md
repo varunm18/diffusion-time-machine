@@ -345,8 +345,9 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - ~1K files dated before 1840 are artworks our type detector missed ("unknown" type).
 
 **Go/no-go gate** (≥10 pre-1970 and ≥10 2000+ photos)
-- **Posed today in one COLMAP model: 149 of 802 scenes.**
-- **With our own posing: 491 of 802.**
+- **Posed today in one COLMAP model: 148 of 802 scenes.**
+- **With our own posing: 482 of 802.**
+- (149 and 491 before re-dating with the rule that undated-type images from before 1839 are artworks, not photos.)
 
 | Scenes with at least… | ≥10 | ≥50 | ≥100 | ≥200 |
 |---|---|---|---|---|
@@ -363,3 +364,54 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - This census covers only scenes with big reconstructions. Scenes with *no* reconstruction can still have many old photos (Eiffel Tower: 10.8K files, no COLMAP model at all), but we'd have to reconstruct them from scratch.
 
 **Robustness fixes found at scale:** models listed in the web viewer's index but missing on S3, a malformed month in a date string, control characters and one truly malformed metadata file on S3. All are now handled (skipped and reported).
+
+
+## VGGT-Omega evaluation, first try (2026-10-05)
+*Notre-Dame model 0; the 107 old photos COLMAP did register are re-posed and compared with their COLMAP poses. One A6000, ~4 min.*
+
+**Settings:** 32 queries + 32 anchors per batch, anchors spread over the scene, similarity transform fitted on camera positions only (5% threshold).
+
+**Result: weak.**
+- Only 3 of 12 batches aligned (median 6 consistent anchors), so only **42% of photos got placed**.
+- Among placed photos: **rotation error median 5.4°**, but **position error median 0.41 scene-widths** (too far off to use).
+- Overall, 37% are within 10°.
+
+**Diagnosis**
+- VGGT's *rotations* are decent even in rejected batches (anchor rotation errors mostly 3–6°). Its *positions* are not.
+- Spreading anchors over the whole scene means few of them overlap with each other or with the queries, the hardest case for a feed-forward model.
+- Batches with fewer queries (11 instead of 32) aligned much better.
+
+**Next try** (now running): 8 queries + 24 anchors per batch, with anchors picked by visual similarity (DINOv2 embeddings), and alignment that fits rotation first from the anchors' orientations, then scale/position with a looser 15% threshold.
+
+## VGGT-Omega evaluation, second try: it works for rotation (2026-10-05)
+*Same 107 old Notre-Dame photos with known COLMAP poses.*
+
+| Setting | Batches aligned | Placed | Rotation error (median) | Within 10° | Position error (median, scene-widths) |
+|---|---|---|---|---|---|
+| First try (32+32, spread anchors, fit on positions) | 3/12 | 42% | 5.4° | 37% | 0.41 |
+| 8+24, spread anchors, rotation-first | 42/42 | 100% | 3.1° | 84% | 0.35 |
+| **8+24, look-alike anchors (DINOv2), rotation-first** | **42/42** | **100%** | **2.4°** | **94%** | **0.21** |
+
+- **Rotation is solved well enough:**
+  - 94% of old photos are within 10° and 99% within 20°.
+  - Pre-1900 photos: 3.6° median; 1900–1944: 1.7°.
+- **Position is the weak part.** Median error ≈ 17% of the camera's distance to the building. The 1945–69 group is worse (0.89 scene-widths; few photos, many taken from far away).
+- **The confidence score works:** keeping photos whose position varies little across batches (spread ≤ 0.1) keeps 49% with median position error 0.11 (vs 0.32 for the rest). Spread ≤ 0.05 keeps 27% at 0.06.
+- **Takeaway:** picking anchors that *look like* the old photo is what makes feed-forward posing work across decades.
+- **Possible upgrade for positions:** match each old photo to its retrieved anchors with RoMa (weights already cached) and solve for position against COLMAP's 3D points (PnP), keeping VGGT's good rotation as the starting point.
+- This is, as far as we know, the first measurement of a feed-forward 3D model (VGGT-Omega) registering 19th-century photos against a modern reconstruction.
+
+## VGGT-Omega registration of the old photos COLMAP missed (Notre-Dame, 2026-10-05)
+- 558 old photos (9 failed to download). All were placed and 189/210 batches aligned, but these photos are **much harder** than the evaluation set:
+  - Median rotation spread across batches: 12.8° (vs ~1° on the evaluation set).
+  - Median position spread: 0.46 (vs 0.10).
+- Passing the confidence filter: **80** at spread ≤ 0.1 (52 pre-1900, 22 from 1900–44, 6 from 1945–69); 114 at ≤ 0.2; 139 at ≤ 0.3.
+- **Visual check of 8 "confident" ones** (`docs/figures/vggt_register_check_notredame.jpg`, old photo next to the modern anchor nearest its estimated pose):
+  - 4 clearly right (apse with fountain 1847, river view 1892, portals with a 1930s car 1936, facade tower 1918).
+  - 2 plausible (statue close-up, flying buttresses).
+  - **2 wrong:** a 1910 *interior* (model 0 is exterior only) and an 1857 *book page with an engraving* that was typed as a photo.
+- **Lesson: the confidence filter alone isn't enough.** Images that don't show the scene's exterior get placed *consistently wrong*. Repeats share their best-matching anchors, so their spread underestimates the error.
+- **Needed before these poses join the training data:**
+  1. A **content filter** (VLM or CLIP): exterior view vs interior / document / close-up detail. Needed for training views in general.
+  2. **Geometric verification:** feature matches (RoMa/LightGlue) between the old photo and its nearest anchors.
+- So far the dataset uses only COLMAP-posed views; VGGT poses are not merged yet. `build_scene_dataset.py --vggt-tag retrieval` can merge them once verified.

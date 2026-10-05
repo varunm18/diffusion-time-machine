@@ -99,7 +99,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 25007,1,Wrocław_Cathedral,0,1,0,1,226,2,1,230
 25016,0,Utrecht_Dom_church,0,3,18,8,210,22,21,262
 25037,0,St._Mark's_Basilica_(Venice),0,0,1,25,1077,11,1,1116
-25037,1,St._Mark's_Basilica_(Venice),1,0,0,19,104,1,1,126
+25037,1,St._Mark's_Basilica_(Venice),0,0,0,19,104,1,0,126
 25037,3,St._Mark's_Basilica_(Venice),0,0,0,2,111,1,0,114
 25041,0,Santa_Maria_del_Fiore_(Florence),0,2,0,0,159,5,2,350
 25041,1,Santa_Maria_del_Fiore_(Florence),23,8,5,31,1545,18,36,1634
@@ -132,7 +132,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 25247,0,St_Giles'_Cathedral,2,1,0,4,232,0,3,239
 25247,1,St_Giles'_Cathedral,0,0,0,0,187,1,0,189
 25290,2,Cathédrale_Notre-Dame_de_Senlis,0,0,0,0,204,2,0,207
-25298,1,Cathedral_(Pisa),5,2,0,2,337,9,7,359
+25298,1,Cathedral_(Pisa),4,2,0,2,337,9,6,359
 25298,2,Cathedral_(Pisa),3,3,3,9,399,11,9,428
 25301,0,"Cathedral_of_Saint_George,_Lviv",0,1,0,0,262,4,1,267
 25424,0,Basilica_of_Our_Lady_of_Aparecida,0,0,0,1,170,0,0,171
@@ -207,7 +207,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 25819,0,Cathédrale_Notre-Dame_de_Chartres,5,1,0,0,263,0,6,269
 25819,1,Cathédrale_Notre-Dame_de_Chartres,0,0,0,0,48,2,0,50
 25819,3,Cathédrale_Notre-Dame_de_Chartres,0,1,0,0,236,0,1,237
-25819,4,Cathédrale_Notre-Dame_de_Chartres,1,0,0,0,50,0,1,51
+25819,4,Cathédrale_Notre-Dame_de_Chartres,0,0,0,0,50,0,0,51
 25819,21,Cathédrale_Notre-Dame_de_Chartres,0,0,0,0,74,0,0,74
 25819,28,Cathédrale_Notre-Dame_de_Chartres,3,0,0,1,181,3,3,188
 25826,0,Cathedral_of_Seville,0,1,0,0,218,1,1,222
@@ -265,7 +265,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 27339,1,Assumption_Cathedral_in_Moscow,0,0,2,14,162,1,2,228
 27342,0,Cathedral_of_the_Dormition_of_the_Theotokos_(Vladimir),0,1,0,1,384,5,1,391
 27343,0,Saint_Sophia_Cathedral_in_Kyiv,1,0,1,8,577,2,2,591
-27343,1,Saint_Sophia_Cathedral_in_Kyiv,1,0,1,2,50,2,2,60
+27343,1,Saint_Sophia_Cathedral_in_Kyiv,0,0,1,2,50,2,1,60
 27357,0,Svetitskhoveli,1,1,2,1,277,3,4,285
 27357,3,Svetitskhoveli,0,0,0,0,50,0,0,61
 27367,0,Uspenski_Cathedral,0,1,0,1,56,2,1,60
@@ -299,7 +299,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 27756,3,St._Paul's_Cathedral,0,0,0,1,125,2,0,128
 27775,0,Helsinki_Cathedral,11,7,37,40,616,5,55,716
 27775,1,Helsinki_Cathedral,0,2,0,2,49,1,2,55
-27785,0,"Storkyrkan,_Stockholm",0,5,14,2,175,11,19,212
+27785,0,"Storkyrkan,_Stockholm",0,5,14,2,175,10,19,212
 27785,1,"Storkyrkan,_Stockholm",0,0,0,1,87,1,0,89
 27919,0,Gloucester_Cathedral,2,0,0,1,186,1,2,191
 27919,1,Gloucester_Cathedral,0,0,0,0,76,2,0,78
@@ -348,7 +348,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 28086,2,Santa_Maria_del_Mar,2,0,0,0,131,0,2,133
 28097,0,Basilique_Notre-Dame_de_la_Garde,0,0,0,0,146,0,0,146
 28097,1,Basilique_Notre-Dame_de_la_Garde,4,1,0,1,184,2,5,192
-28121,0,Santa_Maria_in_Trastevere_(Rome),3,0,0,0,181,7,3,200
+28121,0,Santa_Maria_in_Trastevere_(Rome),1,0,0,0,181,7,1,200
 28121,2,Santa_Maria_in_Trastevere_(Rome),0,0,0,0,70,3,0,73
 28122,0,Saint_Mary_Basilica_in_Kraków,0,1,1,3,658,4,2,667
 28122,7,Saint_Mary_Basilica_in_Kraków,0,0,0,0,114,1,0,115
@@ -366,7 +366,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 28258,3,San_Petronio_(Bologna),0,0,0,0,58,0,0,60
 28258,4,San_Petronio_(Bologna),1,0,0,0,82,0,1,84
 28265,0,Sant'Antonio_(Padua),0,1,0,0,218,0,1,222
-28268,0,Santa_Maria_sopra_Minerva_(Rome),5,0,0,0,175,1,5,201
+28268,0,Santa_Maria_sopra_Minerva_(Rome),0,0,0,0,175,1,0,201
 28314,0,Yererouk_Basilica,0,0,0,0,288,0,0,288
 28328,0,Santuário_do_Bom_Jesus_do_Monte,1,1,0,1,210,1,2,214
 28328,1,Santuário_do_Bom_Jesus_do_Monte,0,0,0,0,102,0,0,107
@@ -400,11 +400,11 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 33242,0,"Saint-Martin,_Colmar",0,0,0,0,83,0,0,83
 33242,3,"Saint-Martin,_Colmar",0,0,0,0,52,0,0,52
 33398,1,Sint-Gerlachuskerk_(Houthem),0,0,3,58,14,1,3,356
-34533,0,Sistine_Chapel,24,4,0,1,168,37,28,414
+34533,0,Sistine_Chapel,5,4,0,1,168,36,9,414
 35061,0,Saints_Peter_and_Paul_church_in_Kraków,0,0,0,0,194,2,0,197
 35068,0,"Jesuit_Church,_Vienna",0,0,0,0,177,3,0,193
 35068,1,"Jesuit_Church,_Vienna",0,0,0,0,58,0,0,58
-35072,0,Igreja_de_São_Roque_(Lisbon),1,0,15,0,239,1,16,257
+35072,0,Igreja_de_São_Roque_(Lisbon),0,0,15,0,239,1,15,257
 35131,0,"Iglesia_de_la_Compañía_de_Jesús,_Cochabamba",1,0,0,0,290,0,1,291
 35260,0,Sainte-Chapelle_(Paris),5,0,0,3,557,10,5,576
 35260,4,Sainte-Chapelle_(Paris),0,0,0,0,85,0,0,85
@@ -465,7 +465,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 91615,0,Fontana_dei_fiumi_(Rome),0,0,3,4,264,2,3,273
 91683,0,Jet_d'eau_de_Genève,0,0,0,1,175,8,0,184
 91693,0,Neptune_Monument_in_Gdańsk,2,2,1,0,200,0,5,205
-91716,0,Fontana_del_Nettuno_(Bologna),1,0,3,4,321,0,4,330
+91716,0,Fontana_del_Nettuno_(Bologna),0,0,3,4,321,0,3,330
 91765,0,Fontana_pretoria_(Palermo),2,0,1,4,313,3,3,323
 92506,0,Fountain_in_Piazza_De_Ferrari_(Genoa),0,0,0,0,265,1,0,266
 95437,0,Manneken_Pis_(Brussels),7,2,0,3,188,4,9,206
@@ -506,7 +506,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 102327,3,Persepolis,0,0,0,1,81,0,0,82
 102327,5,Persepolis,0,0,0,1,82,0,0,83
 102327,8,Persepolis,0,1,0,4,147,1,1,153
-102328,0,Tomb_of_Hafez,1,0,0,2,338,0,1,341
+102328,0,Tomb_of_Hafez,0,0,0,2,338,0,0,341
 102330,0,CN_Tower,0,0,0,5,471,8,0,484
 102343,1,Tokyo_Tower,0,0,0,0,239,9,0,248
 102343,2,Tokyo_Tower,0,0,0,0,63,0,0,63
@@ -658,8 +658,8 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 139979,10,"Humayun's_Tomb,_Delhi",0,0,0,0,147,1,0,148
 140350,0,Newgrange,0,0,0,8,207,1,0,218
 140350,1,Newgrange,0,0,0,0,130,0,0,130
-140351,0,El_Deir,2,3,0,2,228,1,5,236
-140381,0,Al_Khazneh,3,4,1,8,558,4,8,578
+140351,0,El_Deir,1,3,0,2,228,1,4,236
+140381,0,Al_Khazneh,2,4,1,8,558,4,7,578
 141135,0,"Tomb_of_Maximilian_I,_Holy_Roman_Emperor",2,0,0,1,146,0,2,149
 141868,0,Isa_Khan_Niyazi's_tomb,0,0,0,0,605,2,0,609
 141868,1,Isa_Khan_Niyazi's_tomb,0,0,0,0,48,0,0,58
@@ -682,7 +682,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 170103,4,Prague_Castle,0,0,0,0,200,3,0,203
 170103,7,Prague_Castle,0,0,0,0,81,1,0,82
 171780,0,Colossi_of_Memnon,0,0,0,10,221,9,0,240
-174752,0,Hagia_Sophia,1,0,0,3,80,1,1,89
+174752,0,Hagia_Sophia,0,0,0,3,80,0,0,89
 174752,1,Hagia_Sophia,0,0,0,1,80,0,0,84
 174752,2,Hagia_Sophia,14,9,1,10,981,18,24,1037
 174752,4,Hagia_Sophia,0,0,0,2,66,0,0,68
@@ -713,9 +713,9 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 174934,0,Jameh_Mosque_of_Isfahan,0,2,6,16,429,0,8,454
 174939,0,Mustafa_Pasha_Mosque_(Skopje),0,0,0,0,200,0,0,200
 174943,0,Zitouna_Mosque,0,1,0,2,276,1,1,281
-175047,0,Vakil_Mosque,2,0,0,0,373,0,2,376
-175058,0,Nasir-ol-Molk_Mosque,4,0,0,0,432,3,4,439
-175058,1,Nasir-ol-Molk_Mosque,1,0,0,0,77,0,1,78
+175047,0,Vakil_Mosque,0,0,0,0,373,0,0,376
+175058,0,Nasir-ol-Molk_Mosque,0,0,0,0,432,3,0,439
+175058,1,Nasir-ol-Molk_Mosque,0,0,0,0,77,0,0,78
 175058,3,Nasir-ol-Molk_Mosque,0,0,0,0,98,0,0,98
 175061,0,"Blue_Mosque,_Yerevan",2,0,0,0,214,0,2,216
 175096,1,Wazir_Khan_Mosque,8,0,0,0,418,0,8,433
@@ -744,7 +744,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 177746,3,Palácio_Nacional_de_Sintra,0,0,1,5,307,0,1,317
 177746,9,Palácio_Nacional_de_Sintra,0,0,0,0,68,0,0,70
 177768,0,Palace_of_Versailles,3,1,0,0,168,8,4,183
-177768,1,Palace_of_Versailles,2,0,0,0,39,0,2,57
+177768,1,Palace_of_Versailles,0,0,0,0,39,0,0,57
 177768,3,Palace_of_Versailles,0,0,0,0,48,1,0,53
 177768,7,Palace_of_Versailles,0,4,0,3,489,2,4,500
 177768,9,Palace_of_Versailles,3,2,2,2,210,3,7,232
@@ -940,7 +940,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 198039,0,Montreal_City_Hall,0,1,0,2,235,1,1,244
 200849,0,Hôtel-Dieu_de_Beaune,2,5,0,7,201,5,7,220
 200849,3,Hôtel-Dieu_de_Beaune,0,0,0,0,82,2,0,86
-202828,0,Greenwich_Hospital,1,0,0,0,169,3,1,180
+202828,0,Greenwich_Hospital,0,0,0,0,169,2,0,180
 202828,1,Greenwich_Hospital,0,0,0,1,385,0,0,388
 202828,2,Greenwich_Hospital,0,1,0,0,101,0,1,110
 203574,0,"Chennakesava_Temple,_Somanathapura",0,0,0,0,711,4,0,719
@@ -1002,7 +1002,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 207761,0,Varadharaja_Perumal_Temple,0,0,0,0,200,0,0,200
 207761,2,Varadharaja_Perumal_Temple,0,0,0,0,93,0,0,93
 207971,1,Mosteiro_da_Batalha,0,0,4,10,507,5,4,526
-207971,2,Mosteiro_da_Batalha,1,0,0,0,203,1,1,205
+207971,2,Mosteiro_da_Batalha,0,0,0,0,203,1,0,205
 207971,4,Mosteiro_da_Batalha,0,0,0,2,184,0,0,186
 208021,0,Gangaikonda_Cholapuram_Temple,0,0,0,0,382,2,0,384
 208021,8,Gangaikonda_Cholapuram_Temple,0,0,0,0,54,0,0,54
@@ -1249,7 +1249,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 260907,4,Chichén_Itzá,0,0,0,1,101,1,0,103
 260907,5,Chichén_Itzá,2,3,0,0,60,2,5,67
 260907,15,Chichén_Itzá,0,0,1,3,105,2,1,111
-260909,0,Statue_of_Liberty,1,0,1,6,763,5,2,776
+260909,0,Statue_of_Liberty,0,0,1,6,763,5,1,776
 260911,0,Grand_Central_Terminal,0,3,0,2,220,0,3,225
 260911,3,Grand_Central_Terminal,0,3,2,2,684,0,5,693
 261045,0,Mont_Saint-Michel,2,2,4,16,687,16,8,727
@@ -1331,7 +1331,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 261187,4,Canal_Grande_(Venice),0,0,0,0,67,0,0,67
 261187,5,Canal_Grande_(Venice),0,0,0,1,64,0,0,65
 261187,6,Canal_Grande_(Venice),0,0,0,0,67,0,0,67
-261187,8,Canal_Grande_(Venice),4,0,1,2,85,2,5,94
+261187,8,Canal_Grande_(Venice),3,0,1,2,85,2,4,94
 261187,10,Canal_Grande_(Venice),0,0,0,0,76,0,0,76
 261187,17,Canal_Grande_(Venice),0,1,1,0,60,0,2,62
 261188,0,Jardin_du_Luxembourg,7,11,0,2,151,2,18,173
@@ -1364,7 +1364,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 272650,0,Leaning_Tower_(Pisa),3,2,3,30,942,8,8,988
 272651,0,Ghirlandina_(Modena),0,0,0,1,251,0,0,252
 272653,0,Prague_Astronomical_Clock,2,1,3,6,902,4,6,924
-272656,0,Giralda,5,2,1,11,365,2,8,387
+272656,0,Giralda,4,2,1,11,365,2,7,387
 272656,1,Giralda,0,0,2,5,219,1,2,227
 272887,0,Saint_Sophia_Cathedral_in_Kyiv_bell_tower,0,0,0,2,230,1,0,233
 273147,0,Torre_dos_Clérigos,0,2,2,4,525,7,4,540
@@ -1377,7 +1377,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 277487,0,Nagoya_TV_Tower,0,0,0,0,246,0,0,246
 278641,0,"Five-storied_Pagoda,_Toji",0,0,0,1,214,3,0,218
 278758,0,Jan_Hus_Memorial_(Old_Town_Square),0,1,2,3,231,5,3,242
-278791,0,Michelangelo's_David,4,2,0,3,423,10,6,477
+278791,0,Michelangelo's_David,3,2,0,3,423,10,5,477
 278797,0,Nike_of_Samothrace,0,1,1,6,189,3,2,209
 278901,0,Puits_de_Moïse,0,0,0,0,193,1,0,194
 279835,0,Monument_à_la_République,4,2,0,0,175,2,6,184
@@ -1393,7 +1393,7 @@ scene_id,model,scene,pre-1900,1900-1944,1945-1969,1970-1999,2000+,undated,pre-19
 311918,0,Grossmünster,0,0,2,1,416,0,2,419
 311918,5,Grossmünster,1,0,0,0,49,1,1,51
 314781,0,"Karlskirche,_Vienna",0,3,1,2,330,5,4,341
-316801,0,St._Georg_(Ochsenhausen),3,0,0,2,158,2,3,190
+316801,0,St._Georg_(Ochsenhausen),0,0,0,2,158,2,0,190
 317522,0,"Saint_Gregory_Church,_Sisian",0,0,0,0,242,0,0,242
 321122,0,Holy_Mother_of_God_in_Noravank_Monastery,0,0,0,7,286,1,0,294
 322496,0,"St._Hripsime_church,_Vagharshapat",1,0,0,0,280,1,1,282

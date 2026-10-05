@@ -3,7 +3,9 @@ import numpy as np
 import pytest
 
 from timemachine.data.cameras import c2w_to_colmap, colmap_to_c2w, quat_to_rotmat, rotmat_to_quat
-from timemachine.posing.align import Sim3, mean_rotation, ransac_umeyama, rotation_error_deg, umeyama
+from timemachine.posing.align import (
+    Sim3, mean_rotation, ransac_umeyama, rotation_error_deg, rotation_first_alignment, umeyama,
+)
 from timemachine.posing.batches import farthest_point_sample, make_batches
 from timemachine.posing.register import (
     RegistrationConfig, evaluate_registration, register_images, scene_size, summarize_errors,
@@ -93,11 +95,40 @@ def test_register_images_with_fake_predictor():
                 c2w[k, :3, 3] += 5.0
         return {"c2w": c2w, "focal": np.full(len(batch_paths), 500.0)}
 
-    cfg = RegistrationConfig(queries_per_batch=8, anchors_per_batch=16, repeats=2, min_inliers=6)
-    queries, batches = register_images(fake_predict, paths[:n_queries], paths[n_queries:], gt[n_queries:], cfg)
-    assert batches["used"].all()
-    evaluated = evaluate_registration(queries, gt[:n_queries], scene_size(gt[n_queries:]))
-    summary = summarize_errors(evaluated)
-    assert summary["placed"] == 1.0
-    assert summary["rot_err_median_deg"] < 0.5 and summary["center_err_median"] < 0.01
-    assert (queries["n_batches"] == 2).all()
+    for alignment in ("rotation_first", "centers"):
+        cfg = RegistrationConfig(queries_per_batch=8, anchors_per_batch=16, repeats=2, min_inliers=6,
+                                 alignment=alignment, center_threshold=0.05)
+        queries, batches = register_images(fake_predict, paths[:n_queries], paths[n_queries:], gt[n_queries:], cfg)
+        assert batches["used"].all(), alignment
+        evaluated = evaluate_registration(queries, gt[:n_queries], scene_size(gt[n_queries:]))
+        summary = summarize_errors(evaluated)
+        assert summary["placed"] == 1.0
+        assert summary["rot_err_median_deg"] < 0.5 and summary["center_err_median"] < 0.01
+        assert (queries["n_batches"] == 2).all()
+
+
+def test_rotation_first_alignment_tolerates_noisy_positions():
+    rng = np.random.default_rng(6)
+    gt = random_cameras(rng, 30)
+    frame = Sim3(1.7, random_rotation(rng), rng.normal(size=3))
+    pred = gt.copy()                                  # gt expressed in a scrambled frame
+    pred[:, :3, :3] = frame.R.T @ gt[:, :3, :3]
+    pred[:, :3, 3] = ((gt[:, :3, 3] - frame.t) @ frame.R) / frame.scale
+    pred[:, :3, 3] += rng.normal(scale=0.3, size=(30, 3))   # noisy positions, exact rotations
+    pred[:5, :3, :3] = pred[:5, :3, :3] @ random_rotation(rng)  # a few anchors with wrong rotations
+    sim, inliers = rotation_first_alignment(pred, gt, rng)
+    assert not inliers[:5].any() and inliers.sum() >= 15
+    assert rotation_error_deg(sim.R, frame.R) < 1e-6
+
+
+def test_retrieval_batches_group_similar_queries():
+    from timemachine.posing.batches import make_retrieval_batches
+    rng = np.random.default_rng(7)
+    centers = np.eye(4)[:2] * 10                       # two visual clusters
+    q = np.concatenate([centers[0] + rng.normal(size=(8, 4)), centers[1] + rng.normal(size=(8, 4))])
+    a = np.concatenate([centers[0] + rng.normal(size=(20, 4)), centers[1] + rng.normal(size=(20, 4))])
+    q /= np.linalg.norm(q, axis=1, keepdims=True); a /= np.linalg.norm(a, axis=1, keepdims=True)
+    batches = make_retrieval_batches(q, a, rng, queries_per_batch=8, anchors_per_batch=10, repeats=2)
+    for group, anchors in batches:
+        cluster = group[0] >= 8
+        assert np.all((group >= 8) == cluster) and np.all((anchors >= 20) == cluster)

@@ -30,11 +30,25 @@ from timemachine.megascenes.s3 import MegaScenesBucket
 from timemachine.posing.register import (
     RegistrationConfig, evaluate_registration, register_images, scene_size, summarize_errors,
 )
+from timemachine.posing.retrieval import GlobalDescriptor
 from timemachine.posing.vggt import VGGTOmegaRunner
 
 
 def view_c2ws(views: pd.DataFrame) -> np.ndarray:
     return colmap_to_c2w(views[["qw", "qx", "qy", "qz"]].to_numpy(), views[["tx", "ty", "tz"]].to_numpy())
+
+
+def load_or_compute_embeddings(cache: Path, images: pd.DataFrame) -> dict[str, np.ndarray]:
+    """DINOv2 descriptors per file_key, cached in an .npz next to the posing outputs."""
+    emb = dict(np.load(cache)) if cache.exists() else {}
+    todo = images.drop_duplicates("file_key")
+    todo = todo[~todo["file_key"].isin(emb)]
+    if len(todo):
+        print(f"embedding {len(todo)} images with DINOv2")
+        vectors = GlobalDescriptor().embed(todo["image_path"].tolist())
+        emb.update(zip(todo["file_key"], vectors))
+        np.savez(cache, **emb)
+    return emb
 
 
 def main() -> None:
@@ -44,9 +58,15 @@ def main() -> None:
     parser.add_argument("--mode", choices=["eval", "register"], required=True)
     parser.add_argument("--before", type=float, default=1970.0, help="old = dated before this year")
     parser.add_argument("--checkpoint", type=Path, help="VGGT-Omega checkpoint (default: HF cache)")
-    parser.add_argument("--queries-per-batch", type=int, default=32)
-    parser.add_argument("--anchors-per-batch", type=int, default=32)
-    parser.add_argument("--repeats", type=int, default=3)
+    defaults = RegistrationConfig()
+    parser.add_argument("--queries-per-batch", type=int, default=defaults.queries_per_batch)
+    parser.add_argument("--anchors-per-batch", type=int, default=defaults.anchors_per_batch)
+    parser.add_argument("--repeats", type=int, default=defaults.repeats)
+    parser.add_argument("--alignment", choices=["rotation_first", "centers"], default=defaults.alignment)
+    parser.add_argument("--center-threshold", type=float, default=defaults.center_threshold)
+    parser.add_argument("--no-retrieval", action="store_true",
+                        help="spread anchors over the scene instead of picking look-alikes (DINOv2)")
+    parser.add_argument("--tag", default="", help="suffix for output files (to compare settings)")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -60,24 +80,36 @@ def main() -> None:
         queries = download_view_images(MegaScenesBucket(), paths, queries).reset_index(drop=True)
     print(f"{len(queries)} queries, {len(anchors)} candidate anchors")
 
+    out_dir = paths.posing_dir(args.scene, args.model)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    query_emb = anchor_emb = None
+    if not args.no_retrieval:
+        emb = load_or_compute_embeddings(out_dir / "dinov2_embeddings.npz",
+                                         pd.concat([queries, anchors])[["file_key", "image_path"]])
+        query_emb = np.stack([emb[k] for k in queries["file_key"]])
+        anchor_emb = np.stack([emb[k] for k in anchors["file_key"]])
+
     runner = VGGTOmegaRunner(args.checkpoint)
-    config = RegistrationConfig(args.queries_per_batch, args.anchors_per_batch, args.repeats, seed=args.seed)
+    config = RegistrationConfig(args.queries_per_batch, args.anchors_per_batch, args.repeats,
+                                alignment=args.alignment, center_threshold=args.center_threshold,
+                                seed=args.seed)
     anchor_c2ws = view_c2ws(anchors)
     results, batches = register_images(runner.predict, queries["image_path"].tolist(),
-                                       anchors["image_path"].tolist(), anchor_c2ws, config)
+                                       anchors["image_path"].tolist(), anchor_c2ws, config,
+                                       query_emb, anchor_emb)
     print(f"batches used: {batches['used'].sum()}/{len(batches)}; "
           f"median inlier anchors {batches['n_inliers'].median():.0f}")
 
-    out_dir = paths.posing_dir(args.scene, args.model)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    batches.to_csv(out_dir / f"{args.mode}_batches.csv", index=False)
+    name = f"{args.mode}{'_' + args.tag if args.tag else ''}"
+    batches.to_csv(out_dir / f"{name}_batches.csv", index=False)
     table = pd.concat([queries[["file_key", "date_mid", "medium"]], results.drop(columns=["query"])], axis=1)
 
     if args.mode == "eval":
         table = evaluate_registration(table, view_c2ws(queries), scene_size(anchor_c2ws))
         summary = summarize_errors(table)
         print(json.dumps(summary, indent=2))
-        (out_dir / "eval_summary.json").write_text(json.dumps(summary, indent=2))
+        summary["config"] = {k: v for k, v in vars(args).items() if k not in ("checkpoint",)}
+        (out_dir / f"{name}_summary.json").write_text(json.dumps(summary, indent=2, default=str))
 
     # Store poses COLMAP-style so they can join the view table later.
     placed = table["c2w"].notna()
@@ -86,13 +118,13 @@ def main() -> None:
     table[["qw", "qx", "qy", "qz"]] = np.stack([q for q, _ in qt])
     table[["tx", "ty", "tz"]] = np.stack([t for _, t in qt])
     table = table.drop(columns=["c2w"]).assign(pose_source="vggt_omega")
-    table.to_parquet(out_dir / f"{args.mode}_poses.parquet", index=False)
-    print(f"wrote {out_dir / f'{args.mode}_poses.parquet'}")
+    table.to_parquet(out_dir / f"{name}_poses.parquet", index=False)
+    print(f"wrote {out_dir / f'{name}_poses.parquet'}")
     if args.mode == "register":
         # Full view-table rows, ready to be merged into the scene dataset.
         views_out = registered_to_views(queries, table, args.model)
-        views_out.to_parquet(out_dir / "register_views.parquet", index=False)
-        print(f"wrote {out_dir / 'register_views.parquet'} "
+        views_out.to_parquet(out_dir / f"{name}_views.parquet", index=False)
+        print(f"wrote {out_dir / f'{name}_views.parquet'} "
               f"({len(confident_registrations(views_out))} of {len(views_out)} pass the default confidence filter)")
 
 

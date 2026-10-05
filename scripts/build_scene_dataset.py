@@ -21,7 +21,7 @@ from timemachine.data.dataset import DatedViewsDataset
 from timemachine.data.images import download_view_images
 from timemachine.data.preview import save_sample_previews
 from timemachine.data.sampling import SamplingConfig
-from timemachine.data.views import build_view_table
+from timemachine.data.views import build_view_table, confident_registrations
 from timemachine.megascenes.index import select_scenes
 from timemachine.megascenes.s3 import MegaScenesBucket
 
@@ -33,6 +33,10 @@ def main() -> None:
     parser.add_argument("--max-modern", type=int, help="keep at most this many 2000+ views (random subset)")
     parser.add_argument("--max-side", type=int, default=1024, help="longest side of cached images")
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--vggt-tag", help="also add confident VGGT-Omega registrations from "
+                        "<data>/posing/<id>_model<m>/register_<tag>_views.parquet")
+    parser.add_argument("--max-center-spread", type=float, default=0.1,
+                        help="confidence filter for VGGT poses (fraction of the scene size)")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -55,11 +59,18 @@ def main() -> None:
     views = download_view_images(MegaScenesBucket(), paths, views, args.max_side, args.workers)
     if views.attrs.get("failed"):
         print(f"{len(views.attrs['failed'])} images failed to download (skipped)")
+    if args.vggt_tag:
+        registered = pd.read_parquet(paths.posing_dir(sid, model) / f"register_{args.vggt_tag}_views.parquet")
+        confident = confident_registrations(registered, max_center_spread=args.max_center_spread)
+        confident = confident[~confident["file_key"].isin(views["file_key"])]
+        print(f"adding {len(confident)} of {len(registered)} VGGT-registered views (confidence filter)")
+        views = pd.concat([views, confident], ignore_index=True)
     out = paths.dataset_dir(sid, model)
     out.mkdir(parents=True, exist_ok=True)
     views.to_parquet(out / "views.parquet", index=False)
 
-    summary = views.groupby("era").agg(views=("file_key", "size"), monochrome=("is_monochrome", "mean"))
+    summary = views.groupby(["era", "pose_source"]).agg(views=("file_key", "size"),
+                                                        monochrome=("is_monochrome", "mean"))
     print(f"\nwrote {out / 'views.parquet'}\n{summary.round(2).to_string()}")
 
     dataset = DatedViewsDataset(views, SamplingConfig(old_target_fraction=0.5), seed=args.seed)

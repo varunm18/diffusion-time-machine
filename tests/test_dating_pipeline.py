@@ -77,3 +77,12 @@ def test_reprint_postcard_is_flagged_for_review(dated):
     result, med = get(dated, "32342-Dresden-2000")
     assert result.interval == Y(2000, 2000)
     assert "weak_conflict:title" in result.flags and med.medium == "postcard"
+
+
+def test_unknown_type_before_photography_is_artwork():
+    from timemachine.megascenes.metadata import ImageMetadata
+    meta = ImageMetadata(pageid=1, title="View of the cathedral.jpg", file_key="View_of_the_cathedral.jpg",
+                         upload_time="2015-01-01T00:00:00Z", width=100, height=100,
+                         date_text="1750", date_source="commons-desc-page")
+    result, med = date_image(meta)
+    assert int(result.interval.lo) == 1750 and med.medium == "artwork"

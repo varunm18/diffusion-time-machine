@@ -23,19 +23,23 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from timemachine.posing.align import mean_rotation, ransac_umeyama, rotation_error_deg
-from timemachine.posing.batches import make_batches
+from timemachine.posing.align import (
+    mean_rotation, ransac_umeyama, rotation_error_deg, rotation_first_alignment,
+)
+from timemachine.posing.batches import make_batches, make_retrieval_batches
 
 PredictFn = Callable[[list[str]], dict[str, np.ndarray]]
 
 
 @dataclass(frozen=True)
 class RegistrationConfig:
-    queries_per_batch: int = 32
-    anchors_per_batch: int = 32
+    queries_per_batch: int = 8
+    anchors_per_batch: int = 24
     repeats: int = 3
-    ransac_threshold: float = 0.05   # fraction of the scene size
-    min_inliers: int = 8             # anchors that must agree for a batch to count
+    alignment: str = "rotation_first"   # or "centers" (plain RANSAC Umeyama on camera centres)
+    center_threshold: float = 0.15      # inlier distance, as a fraction of the scene size
+    rotation_threshold_deg: float = 10.0
+    min_inliers: int = 6                # anchors that must agree for a batch to count
     seed: int = 0
 
 
@@ -48,8 +52,13 @@ def scene_size(c2ws: np.ndarray) -> float:
 def register_images(
     predict: PredictFn, query_paths: list[str], anchor_paths: list[str], anchor_c2ws: np.ndarray,
     config: RegistrationConfig = RegistrationConfig(),
+    query_emb: np.ndarray | None = None, anchor_emb: np.ndarray | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Pose ``query_paths`` in the frame of ``anchor_c2ws``.
+
+    With global descriptors (``query_emb``, ``anchor_emb``), batches group similar
+    queries with the anchors that look most like them; otherwise anchors are
+    spread over the scene (farthest-point sampling).
 
     Returns ``(queries, batches)``:
     * ``queries``: one row per query with ``c2w`` (4x4, or None if never placed),
@@ -63,12 +72,21 @@ def register_images(
     focals: dict[int, list[float]] = defaultdict(list)
     log = []
 
-    for b, (qi, ai) in enumerate(make_batches(len(query_paths), anchor_c2ws, rng, config.queries_per_batch,
-                                              config.anchors_per_batch, config.repeats)):
+    if query_emb is not None and anchor_emb is not None:
+        plan = make_retrieval_batches(query_emb, anchor_emb, rng, config.queries_per_batch,
+                                      config.anchors_per_batch, config.repeats)
+    else:
+        plan = make_batches(len(query_paths), anchor_c2ws, rng, config.queries_per_batch,
+                            config.anchors_per_batch, config.repeats)
+    for b, (qi, ai) in enumerate(plan):
         pred = predict([query_paths[i] for i in qi] + [anchor_paths[j] for j in ai])
         nq = len(qi)
-        sim, inliers = ransac_umeyama(pred["c2w"][nq:, :3, 3], anchor_c2ws[ai, :3, 3], rng,
-                                      threshold=config.ransac_threshold)
+        if config.alignment == "rotation_first":
+            sim, inliers = rotation_first_alignment(pred["c2w"][nq:], anchor_c2ws[ai], rng,
+                                                    config.rotation_threshold_deg, config.center_threshold)
+        else:
+            sim, inliers = ransac_umeyama(pred["c2w"][nq:, :3, 3], anchor_c2ws[ai, :3, 3], rng,
+                                          threshold=config.center_threshold)
         aligned = sim.apply_c2w(pred["c2w"])
         anchor_rot = rotation_error_deg(aligned[nq:, :3, :3], anchor_c2ws[ai, :3, :3])
         used = int(inliers.sum()) >= config.min_inliers

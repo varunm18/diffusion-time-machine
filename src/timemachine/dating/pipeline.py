@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 
 import pandas as pd
 
@@ -18,6 +19,7 @@ from timemachine.megascenes.metadata import ImageMetadata, frame_to_records
 
 SUBCATEGORY_CONFIDENCE_SCALE = 0.8  # a parent folder is weaker evidence than a direct category
 MIN_CREATOR_AGE = 10               # years; works made before this age are implausible
+PHOTOGRAPHY_INVENTED = 1839.0      # public announcement of the daguerreotype
 
 
 def gather_candidates(meta: ImageMetadata, subcats: Iterable[str] = ()) -> list[DateCandidate]:
@@ -60,6 +62,9 @@ def date_image(meta: ImageMetadata, subcats: Iterable[str] = ()) -> tuple[DateRe
     result = resolve(gather_candidates(meta, subcats), meta.upload_time,
                      historical_hint=medium.historical_hint or artwork,
                      floor_year=floor, ceiling_year=ceiling, artwork=artwork)
+    if medium.medium == Medium.UNKNOWN and result.interval and result.interval.hi <= PHOTOGRAPHY_INVENTED:
+        # Made before photography existed: whatever it is, it is not a photo.
+        medium = replace(medium, medium=Medium.ARTWORK, evidence="predates photography")
     return result, medium
 
 
