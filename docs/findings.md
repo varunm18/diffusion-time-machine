@@ -300,3 +300,66 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - Some old prints are scanned **with their cardboard mount** (borders around the photo). COLMAP registered them anyway, but the border is junk for training. We'll want border detection/cropping (VLM or simple heuristics) later.
 - Old photos are portrait/odd aspect more often. The centre crop to a square cuts some content; fine for now.
 - Cached images match their COLMAP cameras' aspect ratio within 1.2%, so intrinsics scale cleanly.
+
+---
+
+## Posing old photos with VGGT-Omega: setup (2026-10-04)
+**Method** (`src/timemachine/posing/`, `scripts/pose_with_vggt.py`, `slurm/pose_vggt.sbatch`)
+1. Run VGGT-Omega on batches of 32 old "query" photos plus 32 modern "anchor" photos. The anchors already have COLMAP poses and are spread around the scene by camera position and direction.
+2. Fit a robust similarity transform (scale + rotation + translation, RANSAC) from VGGT's anchor cameras to their COLMAP cameras, and use it to move the queries into the COLMAP frame.
+3. Pose each query in 3 different batches. The spread of its poses across batches serves as a confidence score.
+- **Evaluation mode:** re-pose the old photos COLMAP *did* register and compare with their COLMAP poses (rotation error in degrees, position error relative to scene size). This gives the cross-decade accuracy number the literature lacks.
+- Tested on CPU with a fake model: it recovers poses exactly even with 10% wildly wrong anchors.
+
+**Notre-Dame targets:** 567 dated old photos are *not* registered in model 0 (400 pre-1900, 133 from 1900–1944, 34 from 1945–1969). Some are close-ups (the roof angel, gargoyles) that may not register at all.
+
+**Practicalities**
+- VGGT-Omega (1B, 512 px; checkpoint already in the HF cache) runs from your checkout via `VGGT_OMEGA_ROOT`, read-only. Its only extra dependency is `torchvision`.
+- Memory: ~11 GB for 64 frames, so one A6000 is plenty.
+- Gotcha: importing code from another folder makes Python write `__pycache__` files into it. The wrapper now disables that.
+
+---
+
+## Census at scale: the 800 scenes with the largest reconstructions (2026-10-04)
+*Slurm job on `vulcan-cpu` (~35 min), plus the 42 pilot scenes = 802 scenes. Tables are committed in `docs/census/` (per scene and per COLMAP model), so nobody needs to rerun this.*
+
+**Totals** (unique files)
+- 892K files: 764K photos, 101K of unknown type, the rest paintings, artworks, postcards, plans, prints, drawings.
+- **~47.5K dated pre-1970 photos, of which ~7.1K (15%) already have a pose.**
+
+| Era | Photos | Posed |
+|---|---|---|
+| pre-1900 | 15.8K | 2.3K |
+| 1900–1944 | 19.3K | 2.1K |
+| 1945–1969 | 12.4K | 2.7K |
+| 1970–1999 | 17.0K | 4.4K |
+| 2000+ | 788K | 364K |
+
+**How old?** Photos per decade (posed in brackets):
+
+| 1840s | 1850s | 1860s | 1870s | 1880s | 1890s | 1900s | 1910s | 1920s | 1930s | 1940s | 1950s | 1960s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0.8K (18) | 1.7K (197) | 1.9K (335) | 2.6K (568) | 2.4K (308) | 4.3K (816) | 5.7K (641) | 4.2K (389) | 3.9K (358) | 4.2K (511) | 3.2K (598) | 4.8K (945) | 5.8K (1.3K) |
+
+- Real photo coverage starts in the 1840s and is steady from the 1890s on.
+- ~1K files dated before 1840 are artworks our type detector missed ("unknown" type).
+
+**Go/no-go gate** (≥10 pre-1970 and ≥10 2000+ photos)
+- **Posed today in one COLMAP model: 149 of 802 scenes.**
+- **With our own posing: 491 of 802.**
+
+| Scenes with at least… | ≥10 | ≥50 | ≥100 | ≥200 |
+|---|---|---|---|---|
+| pre-1970 photos | 492 | 214 | 125 | 64 |
+| …posed in one model | 151 | 29 | 6 | 4 |
+| pre-1900 photos | 298 | 77 | 34 | 12 |
+
+- **Answer to "how much old data is there really":** a lot of old photos (125 scenes with 100+), but few are posed (6 scenes with 100+ in one model). **Posing old photos ourselves is the main lever.**
+
+**Biases to keep in mind**
+- **Amsterdam dominates** the posed old photos: 10 of the top 50 scenes are Dutch (Dam Square, Nationaal Monument, Royal Palace, Munttoren, Westerkerk, Nieuwe Kerk, …), thanks to the Nationaal Archief's huge, well-dated photo archive on Commons. A model trained mostly on these will learn "old Amsterdam".
+- Other strong scenes: Notre-Dame, Lincoln Memorial, Arc de Triomphe, Great Sphinx, Potala Palace, Zwinger, Semperoper, Sydney Harbour Bridge, Altes Rathaus Leipzig.
+- Dendera has 304 posed old photos but 0 posed modern ones in that model (an old-only reconstruction).
+- This census covers only scenes with big reconstructions. Scenes with *no* reconstruction can still have many old photos (Eiffel Tower: 10.8K files, no COLMAP model at all), but we'd have to reconstruct them from scratch.
+
+**Robustness fixes found at scale:** models listed in the web viewer's index but missing on S3, a malformed month in a date string, control characters and one truly malformed metadata file on S3. All are now handled (skipped and reported).

@@ -200,9 +200,9 @@ def harvest_scene(
 
     Downloads each subcategory's ``raw_metadata.json`` in parallel (cached), parses
     it, and deduplicates files that appear in several subcategories. The
-    ``subcats`` column lists every subcategory a file was found in. Missing
-    metadata files are skipped and reported in the ``attrs["missing_subcats"]``
-    of the returned frame. Cached at ``paths.image_metadata_table(scene_id)``.
+    ``subcats`` column lists every subcategory a file was found in. Missing or
+    malformed metadata files are skipped and reported in the
+    ``attrs["missing_subcats"]`` of the returned frame. Cached at ``paths.image_metadata_table(scene_id)``.
     """
     out = paths.image_metadata_table(scene_id)
     if out.exists() and not overwrite:
@@ -213,7 +213,7 @@ def harvest_scene(
     def load(subcat: str) -> tuple[str, list[ImageMetadata] | None]:
         try:
             return subcat, parse_raw_metadata(fetch_raw_metadata(bucket, paths, scene_id, subcat))
-        except FileNotFoundError:
+        except (FileNotFoundError, json.JSONDecodeError):  # missing, or malformed on S3
             return subcat, None
 
     found: dict[str, ImageMetadata] = {}
