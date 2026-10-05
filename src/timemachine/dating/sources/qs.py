@@ -46,10 +46,13 @@ def parse_time(value: str) -> tuple[DateInterval, str] | None:
     year, month, day, precision = int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5))
     if not MIN_YEAR <= year <= MAX_YEAR:
         return None
-    if precision >= 11 and month and day:
-        return DateInterval.from_date(year, month, day), Precision.DAY
-    if precision >= 10 and month:
-        return DateInterval.from_date(year, month), Precision.MONTH
+    try:
+        if precision >= 11 and month and day:
+            return DateInterval.from_date(year, month, day), Precision.DAY
+        if precision >= 10 and month:
+            return DateInterval.from_date(year, month), Precision.MONTH
+    except ValueError:  # malformed month/day (e.g. "+1934-13-00"): fall back to the year
+        return DateInterval.from_years(year, year), Precision.YEAR
     if precision >= 9:
         return DateInterval.from_years(year, year), Precision.YEAR
     if precision == 8:

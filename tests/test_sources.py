@@ -134,3 +134,8 @@ def test_title(title, expected):
 ])
 def test_title_ignores_noise(title):
     assert parse_title(title) is None
+
+
+def test_qs_malformed_month_falls_back_to_year():
+    c = parse_qs("P571,+1934-13-00T00:00:00Z/10")
+    assert c.interval == Y(1934, 1934) and c.precision == Precision.YEAR

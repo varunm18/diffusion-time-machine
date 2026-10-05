@@ -111,6 +111,10 @@ class DataPaths:
     def dates_table(self, scene_id: int) -> Path:
         return self.tables / "dates" / f"{scene_id}.parquet"
 
+    def posing_dir(self, scene_id: int, model: int) -> Path:
+        """Outputs of registering extra images (e.g. VGGT-Omega) into one COLMAP model."""
+        return self.root / "posing" / f"{scene_id}_model{model}"
+
     # --- Training datasets -------------------------------------------------
     def dataset_dir(self, scene_id: int, model: int) -> Path:
         """View table + previews of a single-scene dataset (one COLMAP model)."""

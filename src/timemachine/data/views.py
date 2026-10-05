@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import pandas as pd
 
-from timemachine.analysis.census import assign_era
+from timemachine.analysis.census import assign_era, load_scene
 from timemachine.config import DataPaths
 from timemachine.dating.medium import PHOTOGRAPHIC
+from timemachine.megascenes.index import load_image_index
 
 VIEW_COLUMNS = [
     "scene_id", "model", "file_key", "path", "title",
@@ -54,3 +55,20 @@ def build_view_table(
     views = views.rename(columns={"width": "camera_width", "height": "camera_height"})
     views["pose_source"] = "megascenes_colmap"
     return views[VIEW_COLUMNS].reset_index(drop=True)
+
+
+def unposed_candidates(paths: DataPaths, scene_id: int, model: int, before: float,
+                       max_date_width: float = 30.0) -> pd.DataFrame:
+    """Dated photographic files of a scene older than ``before`` that ``model`` did not register.
+
+    These are the images to place with a feed-forward model (e.g. VGGT-Omega).
+    Includes the image ``path`` from the MegaScenes index so they can be downloaded.
+    """
+    files = load_scene(paths, scene_id)
+    keep = ((files["date_mid"] < before) & (files["date_width"] <= max_date_width)
+            & files["photographic"] & ~files["models"].apply(lambda m: model in m))
+    scene_name = pd.read_parquet(paths.scene_table).set_index("scene_id").loc[scene_id, "scene"]
+    index = load_image_index(paths.images_index, columns=["cat", "image"])
+    index = index[index["cat"] == scene_name].drop_duplicates("file_key")
+    found = files[keep].merge(index[["file_key", "image"]].rename(columns={"image": "path"}), on="file_key")
+    return found.assign(scene_id=scene_id).reset_index(drop=True)

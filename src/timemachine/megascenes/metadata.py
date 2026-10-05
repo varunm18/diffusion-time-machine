@@ -182,14 +182,14 @@ def fetch_raw_metadata(bucket: MegaScenesBucket, paths: DataPaths, scene_id: int
     cache = paths.raw_metadata_dir(scene_id) / f"{safe_filename(subcat)}.json.gz"
     if cache.exists():
         with gzip.open(cache, "rt", encoding="utf-8") as f:
-            return json.load(f)
+            return json.load(f, strict=False)  # some descriptions contain raw control characters
     data = bucket.get(raw_metadata_key(scene_id, subcat))
     cache.parent.mkdir(parents=True, exist_ok=True)
     tmp = cache.with_name(cache.name + ".part")
     with gzip.open(tmp, "wb") as f:
         f.write(data)
     tmp.replace(cache)
-    return json.loads(data)
+    return json.loads(data, strict=False)
 
 
 def harvest_scene(

@@ -16,6 +16,9 @@ dependencies = [
 dev = ["pytest>=8"]
 # PyTorch dataset of posed, dated views (src/timemachine/data)
 torch = ["torch>=2.4", "pillow>=10"]
+# Posing old photos with VGGT-Omega (src/timemachine/posing); VGGT-Omega itself comes
+# from an existing checkout via VGGT_OMEGA_ROOT
+posing = ["torch>=2.4", "pillow>=10", "torchvision"]
 
 [build-system]
 requires = ["hatchling"]

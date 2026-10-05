@@ -46,6 +46,33 @@ def colmap_to_c2w(qvec: np.ndarray, tvec: np.ndarray) -> np.ndarray:
     return c2w
 
 
+def rotmat_to_quat(R: np.ndarray) -> np.ndarray:
+    """Rotation matrix (3, 3) -> unit quaternion (w, x, y, z) with w >= 0."""
+    m = np.asarray(R, dtype=np.float64)
+    trace = np.trace(m)
+    if trace > 0:
+        s = 2.0 * np.sqrt(trace + 1.0)
+        q = [0.25 * s, (m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s]
+    else:
+        i = int(np.argmax(np.diag(m)))
+        j, k = (i + 1) % 3, (i + 2) % 3
+        s = 2.0 * np.sqrt(1.0 + m[i, i] - m[j, j] - m[k, k])
+        q = np.empty(4)
+        q[0] = (m[k, j] - m[j, k]) / s
+        q[1 + i] = 0.25 * s
+        q[1 + j] = (m[j, i] + m[i, j]) / s
+        q[1 + k] = (m[k, i] + m[i, k]) / s
+    q = np.asarray(q, dtype=np.float64)
+    return q * (1 if q[0] >= 0 else -1) / np.linalg.norm(q)
+
+
+def c2w_to_colmap(c2w: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Camera-to-world 4x4 -> COLMAP world-to-camera (q, t). Inverse of :func:`colmap_to_c2w`."""
+    R = np.asarray(c2w)[:3, :3].T
+    t = -R @ np.asarray(c2w)[:3, 3]
+    return rotmat_to_quat(R), t
+
+
 def intrinsics_matrix(fx: float, fy: float, cx: float, cy: float) -> np.ndarray:
     return np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
 

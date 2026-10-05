@@ -53,12 +53,22 @@ def fetch_scene_poses(
     bucket: MegaScenesBucket, paths: DataPaths, scene_id: int, models: Iterable[int],
     overwrite: bool = False,
 ) -> pd.DataFrame:
-    """All models of a scene in one table, cached at ``paths.poses_table(scene_id)``."""
+    """All models of a scene in one table, cached at ``paths.poses_table(scene_id)``.
+
+    Models listed in ``recon_metadata.json`` but missing from the bucket are
+    skipped and reported in ``attrs["missing_models"]``.
+    """
     out = paths.poses_table(scene_id)
     if out.exists() and not overwrite:
         return pd.read_parquet(out)
-    frames = [load_model(bucket, paths, scene_id, m) for m in models]
+    frames, missing = [], []
+    for m in models:
+        try:
+            frames.append(load_model(bucket, paths, scene_id, m))
+        except FileNotFoundError:
+            missing.append(m)
     table = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=POSE_COLUMNS)
     out.parent.mkdir(parents=True, exist_ok=True)
     table.to_parquet(out, index=False)
+    table.attrs["missing_models"] = missing
     return table
