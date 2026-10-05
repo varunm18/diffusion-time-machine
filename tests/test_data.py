@@ -138,3 +138,20 @@ def test_color_stats_flags_toned_prints_not_color_photos():
     color = Image.fromarray(rng.integers(0, 255, (96, 96, 3), dtype=np.uint8))
     assert color_stats(gray)["chroma_minor"] < MONOCHROME_CHROMA
     assert color_stats(sepia)["chroma_minor"] < MONOCHROME_CHROMA < color_stats(color)["chroma_minor"]
+
+
+def test_registered_to_views_and_confidence_filter():
+    from timemachine.data.views import VIEW_COLUMNS, confident_registrations, registered_to_views
+    queries = pd.DataFrame({
+        "scene_id": [1, 1], "file_key": ["a.jpg", "b.jpg"], "path": ["p/a.jpg", "p/b.jpg"], "title": ["a", "b"],
+        "date_lo": [1890.0, 1900.0], "date_hi": [1891.0, 1910.0], "date_mid": [1890.5, 1905.0],
+        "date_width": [1.0, 10.0], "date_confidence": [0.85, 0.6], "medium": ["photo", "postcard"],
+        "color_hint": ["bw", "unknown"], "image_path": ["x", "y"], "image_width": [800, 600], "image_height": [600, 800],
+    })
+    poses = pd.DataFrame({"qw": [1.0, np.nan], "qx": [0.0, np.nan], "qy": [0.0, np.nan], "qz": [0.0, np.nan],
+                          "tx": [0.0, np.nan], "ty": [0.0, np.nan], "tz": [1.0, np.nan], "focal": [700.0, np.nan],
+                          "rot_spread_deg": [2.0, np.nan], "center_spread": [0.02, np.nan], "n_batches": [3, 0]})
+    views = registered_to_views(queries, poses, model=0)
+    assert set(VIEW_COLUMNS) <= set(views.columns)
+    assert views.loc[0, "cx"] == 400 and views.loc[0, "fx"] == 700 and (views["pose_source"] == "vggt_omega").all()
+    assert confident_registrations(views)["file_key"].tolist() == ["a.jpg"]

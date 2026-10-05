@@ -25,7 +25,7 @@ import pandas as pd
 from timemachine.config import DataPaths
 from timemachine.data.cameras import c2w_to_colmap, colmap_to_c2w
 from timemachine.data.images import download_view_images
-from timemachine.data.views import unposed_candidates
+from timemachine.data.views import confident_registrations, registered_to_views, unposed_candidates
 from timemachine.megascenes.s3 import MegaScenesBucket
 from timemachine.posing.register import (
     RegistrationConfig, evaluate_registration, register_images, scene_size, summarize_errors,
@@ -88,6 +88,12 @@ def main() -> None:
     table = table.drop(columns=["c2w"]).assign(pose_source="vggt_omega")
     table.to_parquet(out_dir / f"{args.mode}_poses.parquet", index=False)
     print(f"wrote {out_dir / f'{args.mode}_poses.parquet'}")
+    if args.mode == "register":
+        # Full view-table rows, ready to be merged into the scene dataset.
+        views_out = registered_to_views(queries, table, args.model)
+        views_out.to_parquet(out_dir / "register_views.parquet", index=False)
+        print(f"wrote {out_dir / 'register_views.parquet'} "
+              f"({len(confident_registrations(views_out))} of {len(views_out)} pass the default confidence filter)")
 
 
 if __name__ == "__main__":

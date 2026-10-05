@@ -72,3 +72,35 @@ def unposed_candidates(paths: DataPaths, scene_id: int, model: int, before: floa
     index = index[index["cat"] == scene_name].drop_duplicates("file_key")
     found = files[keep].merge(index[["file_key", "image"]].rename(columns={"image": "path"}), on="file_key")
     return found.assign(scene_id=scene_id).reset_index(drop=True)
+
+
+def registered_to_views(queries: pd.DataFrame, poses: pd.DataFrame, model: int) -> pd.DataFrame:
+    """View-table rows for images placed by a feed-forward model (e.g. VGGT-Omega).
+
+    ``queries`` are the registered images (with dates and cached-image columns, as
+    produced by :func:`unposed_candidates` + ``download_view_images``); ``poses``
+    holds, row-aligned, COLMAP-style ``qw..tz``, ``focal`` (pixels of the cached
+    image) and the confidence columns ``rot_spread_deg`` / ``center_spread``.
+    Intrinsics assume a centred principal point (all VGGT-Omega predicts).
+    """
+    views = queries.reset_index(drop=True).copy()
+    poses = poses.reset_index(drop=True)
+    for col in ("qw", "qx", "qy", "qz", "tx", "ty", "tz", "rot_spread_deg", "center_spread", "n_batches"):
+        views[col] = poses[col].to_numpy()
+    views["model"] = model
+    views["camera_width"], views["camera_height"] = views["image_width"], views["image_height"]
+    views["fx"] = views["fy"] = poses["focal"].to_numpy()
+    views["cx"], views["cy"] = views["image_width"] / 2, views["image_height"] / 2
+    views["era"] = assign_era(views["date_mid"], views["date_width"])
+    views["pose_source"] = "vggt_omega"
+    extra = [c for c in ("image_path", "image_width", "image_height", "saturation", "chroma_minor",
+                         "is_monochrome", "rot_spread_deg", "center_spread", "n_batches") if c in views]
+    return views[VIEW_COLUMNS + extra]
+
+
+def confident_registrations(views: pd.DataFrame, max_rot_spread: float = 10.0,
+                            max_center_spread: float = 0.1, min_batches: int = 2) -> pd.DataFrame:
+    """Keep registered views whose pose was consistent across batches."""
+    keep = ((views["n_batches"] >= min_batches) & (views["rot_spread_deg"] <= max_rot_spread)
+            & (views["center_spread"] <= max_center_spread) & views["qw"].notna())
+    return views[keep].reset_index(drop=True)
