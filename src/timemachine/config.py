@@ -110,3 +110,8 @@ class DataPaths:
 
     def dates_table(self, scene_id: int) -> Path:
         return self.tables / "dates" / f"{scene_id}.parquet"
+
+    # --- Training datasets -------------------------------------------------
+    def dataset_dir(self, scene_id: int, model: int) -> Path:
+        """View table + previews of a single-scene dataset (one COLMAP model)."""
+        return self.root / "datasets" / f"{scene_id}_model{model}"

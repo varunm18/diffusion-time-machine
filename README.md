@@ -90,7 +90,13 @@ to put it elsewhere.
 python scripts/fetch_index.py                                        # 0. index files + scene table (~310 MB, once)
 python scripts/process_scenes.py --scene-file configs/scenes_pilot.txt  # 1-3. metadata, poses, dates per scene
 python scripts/census.py                                             # 4. era counts + go/no-go summary
+uv pip install -e ".[torch]"                                         # torch + pillow for the dataset
+python scripts/build_scene_dataset.py --scene Cathédrale_Notre-Dame_de_Paris --max-modern 800
+                                                                     # 5. single-scene dataset + previews
 ```
+
+For a full-scale census, submit `slurm/census_cpu.sbatch` (CPU job) instead of
+running on a submission node.
 
 `process_scenes.py` also accepts `--scenes NAME_OR_ID ...` or `--top N` (the N
 scenes with the largest reconstructions). Every step is cached per scene, so
@@ -105,6 +111,7 @@ reruns only do new work.
 | `poses/<scene_id>.parquet` | registered image entry | COLMAP model, intrinsics, world-to-camera pose |
 | `dates/<scene_id>.parquet` | unique Commons file | date interval, confidence, source, flags, medium, color hint |
 | `census_scenes.csv`, `census_models.csv` | scene / model | files per era, posed files per era, gate results |
+| `../datasets/<id>_model<m>/views.parquet` | view | posed + dated photo of one model, with local image path |
 
 ### Code layout
 
@@ -115,6 +122,7 @@ src/timemachine/
   dating/            interval types, sources/ (one parser per evidence source),
                      resolve (combine evidence), medium (image type), pipeline
   analysis/census.py era counts and the go/no-go gate
+  data/              view table, image cache, SEVA camera conventions, sampling, torch Dataset
 scripts/             thin command-line entry points, one per step
 tests/               pytest; fixtures are real Commons pages
 docs/                proposal, literature review, findings log, plans

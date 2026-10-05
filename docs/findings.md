@@ -261,3 +261,42 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 **Engineering notes**
 - Speed: ~2 MB of metadata per subcategory file, ~30 files/s at best; the 42 scenes took ~25 min. It's network-bound.
 - This machine is a **submission node** (asks for no long or heavy jobs). For a full-scale census (hundreds or thousands of scenes) use `slurm/census_cpu.sbatch` (CPU job on `vulcan-cpu`).
+
+---
+
+## Single-scene dataset: Notre-Dame (2026-10-04)
+*`scripts/build_scene_dataset.py --scene Cathédrale_Notre-Dame_de_Paris --max-modern 800` → `data/datasets/25512_model0/` (view table + preview contact sheets).*
+
+**Why Notre-Dame:** old and modern photos are posed in one COLMAP model (model 0), and the building really changed:
+- 3,332 posed, dated photos in model 0, grouped by the spire's history:
+
+  | Period | Photos |
+  |---|---|
+  | Before 1859 (no spire yet; Baldus, Collard, 1840s–50s) | **16** |
+  | 1859–1944 (Viollet-le-Duc's spire) | 75 |
+  | 1945–1989 | 27 |
+  | 1990–2009 | 579 |
+  | 2010 to the April 2019 fire | 2,151 |
+  | After the fire (spire gone; 2019–2023) | **484** |
+
+- The MegaScenes crawl ended mid-2024, so it has no photos of the rebuilt spire (Dec 2024).
+
+**What a sample looks like**
+- 8 views = 3 inputs + 5 targets, all in one coordinate frame.
+- Targets share one date: within 1 year for modern photos, 5 years for pre-1990. Inputs come from any date.
+- Cameras are normalized exactly like SEVA (centre on the mean camera position, reference camera at distance 2). Intrinsics are normalized. Plücker rays are ported from SEVA and tested.
+- Each view carries its date interval, image type and a monochrome hint.
+- Optional knobs: a share of samples with old targets, and a minimum date gap between inputs and targets.
+- The first build used a cap of 800 modern photos to keep the download small: 934 views, 911 can anchor a sample. The preview sheets look right, e.g. 1960–64 targets with 2011/2017/1890s inputs.
+
+**Black-and-white / sepia detection from pixels is weak**
+- Plain saturation misses sepia: brown albumen prints are strongly tinted.
+- Better cue: toned prints vary along a single color axis, so the Lab chroma spread along the *minor* axis is near 0.
+  - It flags 90% of 1900–1944 photos, but only 33% of pre-1900 prints (card mounts, stereo cards and hand-colored photochroms break it).
+  - It also flags 7% of modern photos (grey stone, overcast skies).
+- Conclusion: keep it as a weak hint (`is_monochrome`, plus continuous `chroma_minor`). **Real B&W/sepia labels should come from the VLM or a small CLIP classifier.**
+
+**Other observations**
+- Some old prints are scanned **with their cardboard mount** (borders around the photo). COLMAP registered them anyway, but the border is junk for training. We'll want border detection/cropping (VLM or simple heuristics) later.
+- Old photos are portrait/odd aspect more often. The centre crop to a square cuts some content; fine for now.
+- Cached images match their COLMAP cameras' aspect ratio within 1.2%, so intrinsics scale cleanly.

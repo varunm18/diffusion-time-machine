@@ -92,8 +92,8 @@ tests/                   # pytest, fixtures from real Commons examples
   - Targets in one sample share one date.
   - A VLM joins the pipeline later (curation, spotting real scene change).
 - **Next:**
-  1. Run the census at scale (`slurm/census_cpu.sbatch`).
-  2. Pick the single scene. Proposal: Notre-Dame, with real structural change (no spire before 1859, spire 1859–2019, fire 2019) and old + modern photos posed in one model.
-  3. Download its images and build the PyTorch dataset with SEVA's camera conventions.
+  1. Run the census at scale (`slurm/census_cpu.sbatch`). Submitted for the top 800 scenes.
+  2. ~~Pick the single scene.~~ Notre-Dame: real structural change (no spire before 1859, spire 1859–2019, fire 2019) and old + modern photos posed in one model.
+  3. ~~Download its images and build the PyTorch dataset with SEVA's camera conventions.~~ Done for Notre-Dame (see findings).
   4. Pose its unposed old photos with VGGT-Omega.
   5. Hand-label ~200 images to measure date accuracy.

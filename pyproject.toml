@@ -14,6 +14,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# PyTorch dataset of posed, dated views (src/timemachine/data)
+torch = ["torch>=2.4", "pillow>=10"]
 
 [build-system]
 requires = ["hatchling"]
