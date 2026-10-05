@@ -30,15 +30,26 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - This is a **lower bound**. Most old photos sit in generic subcategories like `Exterior_of_X`, and only their own Commons metadata will date them.
 - The first, looser keyword pass gave inflated numbers: "histor" matched `Natural_History_Museum`, and ship names like `(ship, 1869)` looked like dates. Patterns must be strict.
 
-**Old photos mostly aren't in the 3D reconstructions**
-- Example scene: Dresden Frauenkirche (destroyed 1945, rebuilt 2005). 2,850 images; 1,900 (67%) are registered in 11 COLMAP models.
-- `Frauenkirche_Dresden_(before_1945)`: **0 of 103** registered. `Ruin_of_the_Frauenkirche`: **4 of 117**. `Vorgängerbau` (the earlier building): **0 of 37**.
-- Modern year subcategories (e.g. `..._in_2012`, `..._in_2011`) are **~95–100%** registered.
-- This confirms the proposal's guess: classic SIFT/COLMAP doesn't match 1900 photos to 2020 photos. **We will need our own pose estimation for old images** (MASt3R / DUSt3R / VGGT). That's a core task, not a side task.
+**Whether old photos get poses varies a lot by scene** *(corrected 2026-10-04)*
+- Bad case: Dresden Frauenkirche (destroyed 1945, rebuilt 2005). 2,850 images; 1,900 (67%) registered in 11 COLMAP models.
+  - `Frauenkirche_Dresden_(before_1945)`: **0 of 103** registered. `Ruin_of_the_Frauenkirche`: **4 of 117**. `Vorgängerbau` (the earlier building): **0 of 37**.
+  - Modern year subcategories (e.g. `..._in_2012`, `..._in_2011`) are **~95–100%** registered.
+- Good cases, from Kevin's 20-scene pilot (`kevin-calderon` branch, `census/`):
+  - **Dam Square model 0 has 656 unique pre-1970 registered images**; Notre-Dame model 0 has 113 (vs 3,133 from 2000+).
+  - Taj Mahal, Alhambra, St. Peter's, St. Paul's, Rothenburg, Tower Bridge and Strasbourg each have a model with ~17–47 pre-1970 images. Some of those counts are before removing duplicates.
+- Pattern: **scenes that changed least register old photos fine; scenes that changed most register almost none.** Sagrada Família has 4 in its main model, Times Square 0, Frauenkirche 0. Those changed scenes are exactly the interesting ones for us.
+- So we still need our own pose estimation (**VGGT-Omega**, already installed at `/vulcanscratch/ltahboub/vggt-omega`), mainly to bring in the old photos of *changed* scenes.
+
+**Duplicate files are common** *(verified 2026-10-04)*
+- MegaScenes stores a file once per subcategory it appears in, so the same Commons file shows up under several paths.
+- Overall, 661K of 8.7M index rows (7.6%) are extra copies. In big scenes it's much worse: Notre-Dame 32%, Rothenburg 35%, Alhambra 34%, Sagrada Família 35%, Mong Kok 51%, Agha Bozorg Mosque 80%.
+- **COLMAP registers every copy.** Frauenkirche model 1 has 1,297 registered entries but only 1,002 unique files (295 copies). That's also why some images showed up in two models.
+- 303K files (3.8%) appear in more than one scene.
+- After removing duplicates, scenes with ≥500 images drop from 1,319 to 1,208.
+- **Rules:** count, sample and split train/test by unique file, never by path. Never let a sample's input and target be the same file (trivial copying). Near-duplicates (same photo re-uploaded under another name, crops) won't be caught by name and need image hashing later.
 
 **Technical gotchas**
-- COLMAP image names replace spaces with underscores. Index: `2007-04-29 Dresden 05.jpg`; COLMAP: `2007-04-29_Dresden_05.jpg`. Normalize before joining.
-- Some images are registered in more than one COLMAP model of the same scene (94 duplicates in the Frauenkirche scene).
+- COLMAP image names (and S3 keys) replace spaces with underscores. Index: `2007-04-29 Dresden 05.jpg`; COLMAP: `2007-04-29_Dresden_05.jpg`. Normalize before joining (also Unicode NFC, as Kevin found).
 
 **Commons has changed since the MegaScenes crawl**
 - Several categories were reorganized after MegaScenes was built. `Brandenburg_Gate_in_the_1950s` now holds only per-year subcategories, and `Historical_photographs_of_Notre-Dame_de_Paris` is now empty.
@@ -183,3 +194,70 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 ## Engineering notes (2026-10-04)
 - **Poses without the huge files.** `reconstruct_aux/.../images.minibin` is COLMAP's image list (id, rotation, translation, camera id, name) **without the 2D keypoints**. 210 KB vs 211 MB for the same Frauenkirche model. With `cameras.bin`, it's all we need for poses.
 - **Per-scene registration counts without downloads.** The MegaScenes web-viewer repo ships `recon_metadata.json`: scene id → `[name, n_reconstructions, (n_images, n_points) per reconstruction…]`.
+
+---
+
+## SEVA training: what the authors say (2026-10-04)
+- In GitHub issue #27, SEVA's authors say they can't release the training script. But **SEVA was adapted from Stability's open `generative-models` (sgm) repo.** They suggest building training from its SD2.1 example config (`configs/example_training/txt2img-clipl.yaml`) and its training guide.
+- Other pointers they gave: `generative-models` issues #239 and #249, and **SVD_Xtend** (a community training script for Stable Video Diffusion with a similar structure).
+- Takeaway: training is "assemble from known parts" (sgm trainer + SEVA's model and conditioning + our dataloader), not research from scratch. Still real engineering work.
+
+---
+
+## Pilot census: 42 scenes (2026-10-04)
+*Pipeline: `scripts/process_scenes.py` + `scripts/census.py` (see README). Scenes: `configs/scenes_pilot.txt` = Kevin's 20 + 10 scenes with big physical changes + 12 well-photographed landmarks. Counts are unique Commons files, not paths.*
+
+**How much old material is there?**
+- 162K unique files. 97% photos or unknown type; the rest are paintings, prints, drawings, plans.
+- Photos (incl. postcards) by era:
+
+  | Era | Photos | Posed in MegaScenes |
+  |---|---|---|
+  | pre-1900 | 4,125 | 370 |
+  | 1900–1944 | 3,846 | 339 |
+  | 1945–1969 | 2,912 | 868 |
+  | 1970–1999 | 4,196 | 1,090 |
+  | 2000+ | 140,730 | 62,393 |
+  | undated / too vague | 2,365 | 441 |
+
+- So about **10.9K pre-1970 photos in 42 scenes, ~1.6K of them already posed (15%)**, vs ~44% of modern photos posed.
+- 98–100% of files get *some* date. "Too vague" means the interval is wider than 30 years (e.g. "before 1945").
+
+**Go/no-go gate** (≥10 pre-1970 and ≥10 2000+ photos)
+- **Posed today in one COLMAP model: 22 of 42 scenes pass.**
+- **With our own posing of old photos (VGGT-Omega): all 42 pass.**
+- Best scenes with posed old photos (pre-1970 / 2000+ in the best model):
+
+  | Scene | pre-1970 | 2000+ |
+  |---|---|---|
+  | Dam Square | **649** | 87 |
+  | Notre-Dame | 107 | 3,202 |
+  | Arc de Triomphe | 88 | 1,112 |
+  | Zwinger | 74 | 1,022 |
+  | Semperoper | 68 | 544 |
+  | Sydney Harbour Bridge | 67 | 415 |
+  | Taj Mahal | 43 | 4,616 |
+  | Florence Cathedral | 36 | 1,545 |
+  | Alhambra | 30 | 919 |
+
+- These agree with Kevin's independent pilot (Dam Square 656, Notre-Dame 113).
+
+**The scenes that changed most are the ones without posed old photos**
+- 1–2 posed pre-1970 photos each: Frauenkirche, Reichstag, Alexanderplatz, Cologne Cathedral, Sagrada Família. Times Square has 0.
+- Yet they have plenty of old photos: Frauenkirche 176, Reichstag 253, Alexanderplatz 337, Cologne 296.
+- **Posing old photos ourselves is what unlocks the interesting scenes.**
+
+**What the posed old photos look like** (spot-check of ~40)
+- Dates look right. They come mostly from archives with curated dates: Nationaal Archief, Rijksmuseum, Fortepan, Bundesarchiv, Library of Congress, State Library NSW, Brück & Sohn postcards.
+- Many are **events with the landmark in the background** (ceremonies on Dam Square, ships under the Sydney Harbour Bridge), so lots of people, vehicles and other transient content. Valid views of the scene at that time, but harder training data.
+- Dam Square's best model is unusual: mostly old photos (649 pre-1970 vs 87 modern).
+
+**Date-parsing lessons from running at scale**
+- Page date and EXIF often differ by a day or a few weeks (time zones, typed from memory). We now treat dates within ~5 weeks as agreeing; before that, ~140 photos in 2 scenes were wrongly flagged as conflicts.
+- **Unset camera clocks**: EXIF dates of 1 January 2000/2001 are common. Any 1 January EXIF date is now ignored.
+- Hidden "Pages with maps" category made photos look like maps. Maintenance categories are now ignored for image type.
+- Some subcategory names contain `:` or `"`, which this filesystem rejects in file names, so cache names are now encoded.
+
+**Engineering notes**
+- Speed: ~2 MB of metadata per subcategory file, ~30 files/s at best; the 42 scenes took ~25 min. It's network-bound.
+- This machine is a **submission node** (asks for no long or heavy jobs). For a full-scale census (hundreds or thousands of scenes) use `slurm/census_cpu.sbatch` (CPU job on `vulcan-cpu`).

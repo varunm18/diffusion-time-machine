@@ -81,3 +81,19 @@ tests/                   # pytest, fixtures from real Commons examples
 - Posing old images (MASt3R-SfM / VGGT + Doppelgangers++), validated by angular error.
 - Re-crawling Commons beyond MegaScenes' 4-level depth for our chosen scenes, to find more old images.
 - SEVA training loop (no official training code exists).
+
+---
+
+## Status (2026-10-04)
+- **Done (steps 1–5, pilot of 42 scenes):** scene table, metadata harvest from S3 (no API calls), date + type parsing with tests, pose join via `images.minibin`, census with the gate counted both ways. Results in `docs/findings.md`.
+- **Changes agreed with the team since the plan:**
+  - Dummy dataset → **a single scene with many dates first**; the model must overfit it before scaling.
+  - Pose old images with **VGGT-Omega**.
+  - Targets in one sample share one date.
+  - A VLM joins the pipeline later (curation, spotting real scene change).
+- **Next:**
+  1. Run the census at scale (`slurm/census_cpu.sbatch`).
+  2. Pick the single scene. Proposal: Notre-Dame, with real structural change (no spire before 1859, spire 1859–2019, fire 2019) and old + modern photos posed in one model.
+  3. Download its images and build the PyTorch dataset with SEVA's camera conventions.
+  4. Pose its unposed old photos with VGGT-Omega.
+  5. Hand-label ~200 images to measure date accuracy.

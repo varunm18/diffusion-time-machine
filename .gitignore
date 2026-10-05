@@ -1,2 +1,7 @@
 .venv/
 __pycache__/
+# Local data root (see src/timemachine/config.py) and repo-local caches
+/data/
+/.cache/
+*.egg-info/
+.pytest_cache/

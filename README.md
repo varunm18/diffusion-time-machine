@@ -64,3 +64,60 @@ When you are finished:
 ```bash
 deactivate
 ```
+
+## Data pipeline: dated MegaScenes
+
+The `timemachine` package (in `src/`) builds a table of **when each MegaScenes
+image was made** (as a date interval with a confidence), **what kind of image it
+is** (photo, postcard, painting, ...), and **whether it has a camera pose** in
+MegaScenes' COLMAP reconstructions. Everything is read from the public
+MegaScenes bucket; no images are downloaded for this step.
+
+### Setup (uv)
+
+```bash
+uv venv --python 3.11 .venv
+uv pip install -e ".[dev]"          # package + pytest
+.venv/bin/python -m pytest          # run the tests
+```
+
+Data goes to `data/` in the repo (git-ignored). Set `TIMEMACHINE_DATA=/some/path`
+to put it elsewhere.
+
+### Run
+
+```bash
+python scripts/fetch_index.py                                        # 0. index files + scene table (~310 MB, once)
+python scripts/process_scenes.py --scene-file configs/scenes_pilot.txt  # 1-3. metadata, poses, dates per scene
+python scripts/census.py                                             # 4. era counts + go/no-go summary
+```
+
+`process_scenes.py` also accepts `--scenes NAME_OR_ID ...` or `--top N` (the N
+scenes with the largest reconstructions). Every step is cached per scene, so
+reruns only do new work.
+
+### Outputs (`data/tables/`)
+
+| File | One row per | Contents |
+|---|---|---|
+| `scenes.parquet` | scene | image counts (raw and deduplicated), COLMAP model sizes |
+| `image_metadata/<scene_id>.parquet` | unique Commons file | date fields, categories, EXIF, author, license |
+| `poses/<scene_id>.parquet` | registered image entry | COLMAP model, intrinsics, world-to-camera pose |
+| `dates/<scene_id>.parquet` | unique Commons file | date interval, confidence, source, flags, medium, color hint |
+| `census_scenes.csv`, `census_models.csv` | scene / model | files per era, posed files per era, gate results |
+
+### Code layout
+
+```
+src/timemachine/
+  config.py          paths, URLs, User-Agent
+  megascenes/        s3 (bucket access), index, metadata (Commons records), colmap, poses
+  dating/            interval types, sources/ (one parser per evidence source),
+                     resolve (combine evidence), medium (image type), pipeline
+  analysis/census.py era counts and the go/no-go gate
+scripts/             thin command-line entry points, one per step
+tests/               pytest; fixtures are real Commons pages
+docs/                proposal, literature review, findings log, plans
+```
+
+See `docs/findings.md` for what we have learned about the data so far.
