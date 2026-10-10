@@ -76,24 +76,37 @@ def export_to_3dgs_workspace(optimized_results: OptimizedResult, original_image_
     print(f"Saved {len(all_pts)} points to {ply_path}")
 
     # Extract Camera Poses (world_T_cam_b44) and Intrinsics (K_b33)
+    # Extract Camera Poses (world_T_cam_b44) and Intrinsics (K_b33)
     transforms = {"camera_model": "OPENCV", "frames": []}
     image_files = sorted([f.name for f in Path(original_image_dir).iterdir() if f.is_file()])
-
+    
     poses = optimized_results.world_T_cam_b44
     intrinsics = optimized_results.K_b33
+    rgb_images = optimized_results.rgb_hw3_list
 
     for i in range(len(image_files)):
         pose_np = poses[i].detach().cpu().numpy() if hasattr(poses[i], 'detach') else np.asarray(poses[i])
         K_np = intrinsics[i].detach().cpu().numpy() if hasattr(intrinsics[i], 'detach') else np.asarray(intrinsics[i])
         
-        # Focal lengths are at K[0,0] and K[1,1] in the intrinsics matrix
+        # Focal lengths are at K[0,0] and K[1,1]
         fl_x = float(K_np[0, 0])
         fl_y = float(K_np[1, 1])
+        
+        # Principal points (image center) are at K[0,2] and K[1,2]
+        cx = float(K_np[0, 2])
+        cy = float(K_np[1, 2])
+        
+        # Extract height and width from the image tensor shape (H, W, 3)
+        h, w = int(rgb_images[i].shape[0]), int(rgb_images[i].shape[1])
         
         frame = {
             "file_path": f"images/{image_files[i]}",
             "fl_x": fl_x,
             "fl_y": fl_y,
+            "cx": cx,
+            "cy": cy,
+            "w": w,
+            "h": h,
             "transform_matrix": pose_np.tolist()
         }
         transforms["frames"].append(frame)
