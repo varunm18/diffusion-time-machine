@@ -24,7 +24,7 @@ if __name__ == '__main__':
     # you can put the path to a local checkpoint in model_name if needed
     model = AsymmetricCroCo3DStereo.from_pretrained(model_name).to(device)
     # load_images can take a list of images or a directory
-    dir_path = Path("/Users/varun/Documents/673/diffusion-time-machine/3d_visualizer/test_workspace/images")
+    dir_path = Path("/Users/varun/Documents/673/diffusion-time-machine/3d_visualizer/testing/images/riverview")
     # Get string of filenames separated by a newline
     files_string = [str(f) for f in dir_path.iterdir() if f.is_file()]
     print(files_string)

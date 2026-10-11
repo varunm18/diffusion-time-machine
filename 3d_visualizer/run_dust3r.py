@@ -1,10 +1,15 @@
 import sys
 import json
+import argparse
 from pathlib import Path
 import numpy as np
 import torch
 import trimesh
 import rerun as rr
+
+# PyTorch 2.6+ compatibility for unpickling DUSt3R checkpoints
+if hasattr(torch.serialization, "add_safe_globals"):
+    torch.serialization.add_safe_globals([argparse.Namespace])
 
 # Ensure dust3r submodule can be imported
 DUST3R_ROOT = Path(__file__).resolve().parent / "submodules" / "dust3r"
@@ -39,9 +44,17 @@ class DUST3R:
         self.view_output = view_output
 
     def run(self, image_dir, output_workspace="test_workspace", niter=300):
-        image_dir = Path(image_dir)
-        workspace = Path(output_workspace)
+        image_dir = Path(image_dir).resolve()
+        workspace = Path(output_workspace).resolve()
         workspace.mkdir(parents=True, exist_ok=True)
+
+        # Create or update symlink to shared images folder (0 bytes copied)
+        images_link = workspace / "images"
+        if images_link.is_symlink() and images_link.resolve() != image_dir:
+            images_link.unlink()
+        if not images_link.exists() and image_dir != images_link:
+            images_link.symlink_to(image_dir, target_is_directory=True)
+            print(f"[DUSt3R] Linked shared images: {images_link} -> {image_dir}")
 
         if self.mode == "mini_dust3r":
             return self._run_mini(image_dir, workspace)
