@@ -1,1 +1,1 @@
-Rquires AnySplat download here -> 
+3dgs Visualization Pipeline 
