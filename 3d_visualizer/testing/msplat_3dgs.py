@@ -26,4 +26,4 @@ def train_3dgs_metal(workspace_dir, output_ply_path):
     print(f"Success! 3DGS scene saved to {output_ply_path}")
 
 # Call the training function
-train_3dgs_metal("test_workspace", "final_historical_scene.ply")
+train_3dgs_metal("3d_visualizer/test_workspace", "3d_visualizer/test_scene.ply")

@@ -29,7 +29,7 @@ def main(image_dir: Path):
     log_optimized_result(optimized_results, Path("world"))
 
     output_dir = "test_workspace"
-    export_to_3dgs_workspace(optimized_results, args.image_dir, output_dir)
+    # export_to_3dgs_workspace(optimized_results, args.image_dir, output_dir)
 
 
 def export_to_3dgs_workspace(optimized_results: OptimizedResult, original_image_dir, output_workspace_dir):
