@@ -1,3 +1,10 @@
+"""
+Interactive 3D Gaussian Splatting and Scene Visualizer using Rerun.
+
+Renders 3D Gaussian Splats (with native EWA splatting), sparse/dense point clouds,
+camera frustums, intrinsics, and aligned input images in a unified coordinate frame.
+"""
+
 import argparse
 import json
 from pathlib import Path
@@ -6,11 +13,20 @@ import numpy as np
 from plyfile import PlyData
 import rerun as rr
 
+# Degree-0 Spherical Harmonics normalizer: sqrt(1 / (4 * pi))
 SH_C0 = 0.28209479177387814
 
 
-def log_ply_file(ply_file: Path, opacity_mult: float = 3.0, scale_mult: float = 1.0):
-    """Log a 3DGS PLY or point cloud PLY with controllable opacity and scale."""
+def log_ply_file(ply_file: Path, opacity_mult: float = 3.0, scale_mult: float = 1.0) -> None:
+    """
+    Log a 3DGS PLY or point cloud PLY to Rerun.
+
+    Automatically identifies Gaussian Splats vs standard point clouds:
+    - For 3DGS: extracts positions, rotations (quaternions), scales, SH colors,
+      and applies opacity scaling so splats appear solid and non-translucent.
+    - For Point Clouds: computes an adaptive sphere radius so points render as
+      solid 3D spheres instead of 1-pixel screen dots.
+    """
     print(f"[Rerun] Reading {ply_file.name}...")
     plydata = PlyData.read(str(ply_file))
     v = plydata["vertex"]
@@ -27,7 +43,7 @@ def log_ply_file(ply_file: Path, opacity_mult: float = 3.0, scale_mult: float = 
         norms = np.linalg.norm(quats, axis=-1, keepdims=True)
         quats = np.where(norms > 1e-8, quats / norms, np.array([[0.0, 0.0, 0.0, 1.0]], dtype=np.float32))
 
-        # Base RGB from spherical harmonics C0
+        # Base RGB from spherical harmonics degree 0
         r = np.clip(0.5 + SH_C0 * v["f_dc_0"], 0.0, 1.0) * 255.0
         g = np.clip(0.5 + SH_C0 * v["f_dc_1"], 0.0, 1.0) * 255.0
         b = np.clip(0.5 + SH_C0 * v["f_dc_2"], 0.0, 1.0) * 255.0
@@ -71,12 +87,15 @@ def log_ply_file(ply_file: Path, opacity_mult: float = 3.0, scale_mult: float = 
         )
 
 
-def visualize(target_path="test_workspace", opacity_mult: float = 3.0, scale_mult: float = 1.0):
+def visualize(target_path: str | Path = "workspace", opacity_mult: float = 3.0, scale_mult: float = 1.0) -> None:
     """
-    Visualize 3D Gaussian Splats (.ply) and camera poses in Rerun.
-    target_path: Path to workspace directory or .ply file.
-    opacity_mult: Multiplier for splat opacity (default 3.0 to make scene opaque/solid).
-    scale_mult: Multiplier for splat size/scales.
+    Launch interactive 3D viewer in Rerun for a workspace folder or PLY file.
+
+    Args:
+        target_path: Path to workspace folder (containing scene_3dgs.ply and transforms.json)
+                     or direct path to a .ply file.
+        opacity_mult: Multiplier for splat opacity (default 3.0 to make surfaces solid).
+        scale_mult: Multiplier for splat scales/radii (default 1.0).
     """
     target = Path(target_path).resolve()
 
@@ -93,6 +112,7 @@ def visualize(target_path="test_workspace", opacity_mult: float = 3.0, scale_mul
         raise FileNotFoundError(f"Could not find 3D PLY file at {ply_file}")
 
     print(f"[Rerun] Initializing viewer for: {ply_file.name}")
+    # Safely clean up any previous recording sessions to avoid severed gRPC socket crashes
     try:
         from rerun import bindings
         bindings.disconnect_orphaned_recordings()
@@ -106,6 +126,7 @@ def visualize(target_path="test_workspace", opacity_mult: float = 3.0, scale_mul
     try:
         rr.init("3dgs_visualizer", spawn=True)
     except RuntimeError:
+        # Fallback if a previously closed viewer window left an unflushable socket
         from rerun import bindings
         try:
             bindings.disconnect_orphaned_recordings()
@@ -169,7 +190,7 @@ def visualize(target_path="test_workspace", opacity_mult: float = 3.0, scale_mul
                 static=True,
             )
 
-            # Log camera RGB image if found
+            # Log camera RGB image aligned inside frustum
             img_rel = frame.get("file_path", "")
             img_path = workspace / img_rel
             if img_path.exists():
@@ -181,7 +202,7 @@ def visualize(target_path="test_workspace", opacity_mult: float = 3.0, scale_mul
     print(f"[Rerun] Scene loaded successfully! Displaying in Rerun viewer.")
 
 
-# Alias
+# Alias for backward compatibility
 visualize_splats = visualize
 
 
@@ -196,4 +217,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     visualize(args.target, opacity_mult=args.opacity_mult, scale_mult=args.scale_mult)
-

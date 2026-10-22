@@ -1,3 +1,19 @@
+"""
+End-to-End 3D Scene Reconstruction and Gaussian Splatting CLI.
+
+Orchestrates the entire 3D pipeline:
+1. Reconstruction: mini-DUSt3R pose estimation & sparse point cloud (transforms.json + points3D.ply).
+2. Optimization: Metal-accelerated msplat 3D Gaussian Splatting (scene_3dgs.ply + scene_3dgs.splat).
+3. Visualization: Interactive Rerun 3D viewer with camera frustums and non-transparent splats.
+
+Example usage:
+    python scripts/run_3d_pipeline.py \
+      --image_dir data/sample_images/riverview \
+      --workspace workspace/riverview \
+      --msplat \
+      --visualize
+"""
+
 import sys
 from pathlib import Path
 import argparse
@@ -33,17 +49,20 @@ def main():
     image_dir = Path(args.image_dir).resolve()
     workspace = Path(args.workspace).resolve()
 
-    # 1. Initialize and run DUSt3R reconstruction
+    # Step 1: Camera Pose Estimation & Point Cloud Reconstruction
+    print(f"\n=== Step 1: DUSt3R Reconstruction ===")
     dust3r = DUST3R(device=args.device, view_output=args.view_output)
     dust3r.run(image_dir=image_dir, output_workspace=workspace)
 
-    # 2. If requested, train 3D Gaussians with msplat
+    # Step 2: 3D Gaussian Splatting Optimization (Metal GPU)
     if args.msplat:
+        print(f"\n=== Step 2: MSplat 3DGS Training ===")
         splatter = MSplat()
         splatter.train(workspace_dir=workspace)
 
-    # 3. If requested, launch interactive 3D visualizer in Rerun
+    # Step 3: Interactive Rerun Visualization
     if args.visualize:
+        print(f"\n=== Step 3: Rerun 3D Visualization ===")
         visualize(workspace, opacity_mult=args.opacity_mult, scale_mult=args.scale_mult)
 
 

@@ -1,3 +1,11 @@
+"""
+DUSt3R 3D Reconstruction and Pose Estimation.
+
+Takes a set of uncalibrated 2D images and estimates camera intrinsics,
+camera extrinsic poses (transforms.json), and a dense 3D point cloud (points3D.ply)
+using mini-DUSt3R.
+"""
+
 import json
 import argparse
 from pathlib import Path
@@ -8,7 +16,8 @@ from mini_dust3r.model import AsymmetricCroCo3DStereo
 from mini_dust3r.api import inferece_dust3r
 
 
-def save_transforms(frames, output_path):
+def save_transforms(frames: list[dict], output_path: str | Path) -> None:
+    """Save camera poses and intrinsics to a transforms.json file in standard format."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
@@ -17,7 +26,22 @@ def save_transforms(frames, output_path):
 
 
 class DUST3R:
-    def __init__(self, device=None, model_name=None, view_output=False):
+    """
+    3D scene reconstructor powered by mini-DUSt3R.
+
+    Handles camera calibration, pose estimation, point cloud extraction,
+    and optional visualization via Rerun.
+    """
+
+    def __init__(self, device: str | None = None, model_name: str | None = None, view_output: bool = False):
+        """
+        Initialize the DUSt3R model.
+
+        Args:
+            device: Computing device ('mps', 'cuda', 'cpu', or auto-detected).
+            model_name: HuggingFace model checkpoint (defaults to ViT-Large 512).
+            view_output: If True, opens a Rerun 3D viewer showing the reconstructed scene.
+        """
         self.device = device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
         print(f"[DUSt3R] Initializing mini-DUSt3R on device='{self.device}'")
 
@@ -25,7 +49,17 @@ class DUST3R:
         self.model = AsymmetricCroCo3DStereo.from_pretrained(ckpt).to(self.device)
         self.view_output = view_output
 
-    def run(self, image_dir, output_workspace="test_workspace"):
+    def run(self, image_dir: str | Path, output_workspace: str | Path = "test_workspace"):
+        """
+        Run 3D reconstruction on a folder of images.
+
+        Args:
+            image_dir: Path to directory containing JPEG or PNG images.
+            output_workspace: Output directory for transforms.json and sparse/0/points3D.ply.
+
+        Returns:
+            OptimizedResult from mini-DUSt3R containing point cloud and camera parameters.
+        """
         image_dir = Path(image_dir).resolve()
         workspace = Path(output_workspace).resolve()
         workspace.mkdir(parents=True, exist_ok=True)
@@ -37,7 +71,7 @@ class DUST3R:
         if not image_files:
             raise FileNotFoundError(f"No images found in {image_dir}")
 
-        # Create or update symlink to shared images folder (0 bytes copied)
+        # Symlink original images into workspace so training tools can locate them without copying
         images_link = workspace / "images"
         if images_link.is_symlink() and images_link.resolve() != image_dir:
             images_link.unlink()
@@ -45,16 +79,17 @@ class DUST3R:
             images_link.symlink_to(image_dir, target_is_directory=True)
             print(f"[DUSt3R] Linked shared images: {images_link} -> {image_dir}")
 
+        # Run pairwise inference and global scene alignment
         print(f"[DUSt3R] Running mini-DUSt3R inference on {len(image_files)} images from {image_dir}...")
         results = inferece_dust3r(image_dir, model=self.model, device=self.device)
 
-        # 1. Save point cloud (results.point_cloud is a trimesh.PointCloud)
+        # 1. Export point cloud (sparse/0/points3D.ply matches standard COLMAP convention)
         ply_path = workspace / "sparse" / "0" / "points3D.ply"
         ply_path.parent.mkdir(parents=True, exist_ok=True)
         results.point_cloud.export(str(ply_path))
         print(f"[DUSt3R] Saved {len(results.point_cloud.vertices):,} points to {ply_path}")
 
-        # 2. Save camera poses & intrinsics
+        # 2. Extract camera poses and pinhole intrinsics into transforms.json
         frames = []
         for i, img_file in enumerate(image_files):
             pose = results.world_T_cam_b44[i]
@@ -73,7 +108,7 @@ class DUST3R:
 
         save_transforms(frames, workspace / "transforms.json")
 
-        # 3. Optional viewer
+        # 3. Optional interactive preview via Rerun
         if self.view_output:
             import rerun as rr
             print("[DUSt3R] Spawning Rerun 3D viewer...")
@@ -105,7 +140,7 @@ class DUST3R:
 
             rr.log("world", rr.ViewCoordinates.RDF, static=True)
 
-            # Set radius so points render as solid 3D spheres instead of 1-pixel see-through dots
+            # Assign a physical radius so points render as solid 3D spheres instead of 1-pixel dots
             pts = results.point_cloud.vertices
             bbox_diag = np.linalg.norm(pts.max(axis=0) - pts.min(axis=0)) if len(pts) > 0 else 1.0
             radius = max(0.005, float(bbox_diag / 400.0))
@@ -166,4 +201,3 @@ if __name__ == "__main__":
 
     dust3r = DUST3R(device=args.device, view_output=args.view_output)
     dust3r.run(image_dir=args.image_dir, output_workspace=args.workspace)
-

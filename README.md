@@ -65,7 +65,8 @@ Reconstruct 3D scenes from images, train 3D Gaussian Splats, and visualize them 
 # Run the full end-to-end 3D pipeline
 python scripts/run_3d_pipeline.py \
   --image_dir data/sample_images/riverview \
-  --workspace workspace/riverview \
+  --workspace data/workspaces/riverview \
+  --view_output \
   --msplat \
   --visualize
 ```

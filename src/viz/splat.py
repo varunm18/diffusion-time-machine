@@ -1,20 +1,42 @@
+"""
+Metal-Accelerated 3D Gaussian Splatting Optimization.
+
+Trains a 3D Gaussian Splatting scene on Apple Silicon via `msplat`,
+exporting both standard PLY checkpoints and compact binary .splat files.
+"""
+
 from pathlib import Path
 import msplat
 
 
 class MSplat:
-    def __init__(self, iterations=7000, num_downscales=0, eval_mode=True):
+    """
+    3D Gaussian Splatting trainer utilizing Apple Metal compute shaders.
+    """
+
+    def __init__(self, iterations: int = 7000, num_downscales: int = 0, eval_mode: bool = True):
         """
-        iterations: Number of training steps (default: 7000)
-        num_downscales: Number of resolution downscales (default: 0 = full resolution)
-        eval_mode: Whether to evaluate periodically (default: True)
+        Args:
+            iterations: Number of optimization steps (default: 7000).
+            num_downscales: Image resolution downscale levels (0 = full resolution).
+            eval_mode: Whether to evaluate PSNR/SSIM periodically on test views.
         """
         self.iterations = iterations
         self.num_downscales = num_downscales
         self.eval_mode = eval_mode
 
-    def train(self, workspace_dir, output_ply=None, callback_every=100):
-        """Train 3D Gaussian Splatting model using Apple Metal acceleration."""
+    def train(self, workspace_dir: str | Path, output_ply: str | Path | None = None, callback_every: int = 100):
+        """
+        Train 3D Gaussian Splats from a workspace containing transforms.json and points3D.ply.
+
+        Args:
+            workspace_dir: Directory containing images, transforms.json, and sparse/0/points3D.ply.
+            output_ply: Custom path for exported .ply (default: <workspace>/scene_3dgs.ply).
+            callback_every: Print progress every N iterations.
+
+        Returns:
+            Path to the exported .ply file.
+        """
         workspace = Path(workspace_dir).resolve()
         if output_ply is None:
             output_ply = workspace / "scene_3dgs.ply"
@@ -28,11 +50,13 @@ class MSplat:
         config = msplat.TrainingConfig(iterations=self.iterations, num_downscales=self.num_downscales)
         trainer = msplat.GaussianTrainer(dataset, config)
 
+        # Run training loop on Metal GPU
         trainer.train(
             lambda s: print(f"step={s.iteration} splats={s.splat_count:,}"),
             callback_every=callback_every,
         )
 
+        # Export both .ply and lightweight .splat formats
         output_ply.parent.mkdir(parents=True, exist_ok=True)
         trainer.export_ply(str(output_ply))
         output_splat = output_ply.with_suffix(".splat")
@@ -54,4 +78,3 @@ if __name__ == "__main__":
 
     splatter = MSplat(iterations=args.iterations)
     splatter.train(args.workspace, args.output_ply)
-
