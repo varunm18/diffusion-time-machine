@@ -22,3 +22,4 @@ def test_viewer_missing_file():
     from src.viz import visualize
     with pytest.raises(FileNotFoundError):
         visualize("non_existent_workspace_path_12345")
+

@@ -196,3 +196,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     visualize(args.target, opacity_mult=args.opacity_mult, scale_mult=args.scale_mult)
+

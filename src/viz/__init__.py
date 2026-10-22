@@ -7,3 +7,4 @@ from .splat import MSplat
 from .viewer import visualize, visualize_splats
 
 __all__ = ["DUST3R", "MSplat", "visualize", "visualize_splats"]
+

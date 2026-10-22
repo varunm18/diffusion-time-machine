@@ -166,3 +166,4 @@ if __name__ == "__main__":
 
     dust3r = DUST3R(device=args.device, view_output=args.view_output)
     dust3r.run(image_dir=args.image_dir, output_workspace=args.workspace)
+

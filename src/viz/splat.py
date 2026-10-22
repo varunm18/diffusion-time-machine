@@ -54,3 +54,4 @@ if __name__ == "__main__":
 
     splatter = MSplat(iterations=args.iterations)
     splatter.train(args.workspace, args.output_ply)
+
