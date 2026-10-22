@@ -59,18 +59,33 @@ The first run downloads `runwayml/stable-diffusion-v1-5` from Hugging Face and m
 
 ## 3D Scene Reconstruction & Gaussian Splatting
 
-Reconstruct 3D scenes from images and visualize them as 3D Gaussian Splats:
+Reconstruct 3D scenes from images, train 3D Gaussian Splats, and visualize them in Rerun:
 
 ```bash
-python 3d_visualizer/main.py \
-  --image_dir 3d_visualizer/testing/images/riverview \
-  --workspace 3d_visualizer/testing/test_ws \
-  --view_output \
+# Run the full end-to-end 3D pipeline
+python scripts/run_3d_pipeline.py \
+  --image_dir data/sample_images/riverview \
+  --workspace workspace/riverview \
   --msplat \
   --visualize
 ```
 
-For full options and step-by-step commands, see [3d_visualizer/README.md](3d_visualizer/README.md).
+You can also import components directly into Python:
+
+```python
+from src.viz import DUST3R, MSplat, visualize
+
+# 1. Pose estimation & point cloud
+dust3r = DUST3R()
+dust3r.run(image_dir="data/sample_images/riverview", output_workspace="workspace/riverview")
+
+# 2. Metal 3DGS optimization
+splatter = MSplat()
+splatter.train("workspace/riverview")
+
+# 3. Interactive visualization in Rerun
+visualize("workspace/riverview")
+```
 
 ## Deactivate the environment
 

@@ -1,9 +1,11 @@
 .venv/
 __pycache__/
-data/
+data/*
+!data/sample_images
+!data/sample_images/**
 *.ply
 *.splat
 *workspace*/
 test*_ws/
 submodules/
-3d_visualizer/submodules/
+3d_visualizer/

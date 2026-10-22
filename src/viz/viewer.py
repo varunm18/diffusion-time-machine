@@ -106,7 +106,6 @@ def visualize(target_path="test_workspace", opacity_mult: float = 3.0, scale_mul
     try:
         rr.init("3dgs_visualizer", spawn=True)
     except RuntimeError:
-        # If previous window was closed, force new recording & spawn
         from rerun import bindings
         try:
             bindings.disconnect_orphaned_recordings()
@@ -182,10 +181,13 @@ def visualize(target_path="test_workspace", opacity_mult: float = 3.0, scale_mul
     print(f"[Rerun] Scene loaded successfully! Displaying in Rerun viewer.")
 
 
+# Alias
+visualize_splats = visualize
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="3D Gaussian Splatting Visualizer with Rerun")
-    parser.add_argument("target", nargs="?", default="test_workspace",
+    parser.add_argument("target", nargs="?", default="workspace",
                         help="Path to workspace folder or .ply file")
     parser.add_argument("--opacity_mult", type=float, default=3.0,
                         help="Multiplier for splat opacity (default 3.0 to reduce transparency)")

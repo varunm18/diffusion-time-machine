@@ -1,6 +1,7 @@
 from pathlib import Path
 import msplat
 
+
 class MSplat:
     def __init__(self, iterations=7000, num_downscales=0, eval_mode=True):
         """
@@ -43,7 +44,7 @@ class MSplat:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Train 3D Gaussian Splats with msplat")
-    parser.add_argument("--workspace", type=str, default="test_workspace",
+    parser.add_argument("--workspace", type=str, default="workspace",
                         help="Path to workspace folder with transforms.json and sparse/0/points3D.ply")
     parser.add_argument("--output_ply", type=str, default=None,
                         help="Path for exported .ply file (default: <workspace>/scene_3dgs.ply)")
@@ -53,4 +54,3 @@ if __name__ == "__main__":
 
     splatter = MSplat(iterations=args.iterations)
     splatter.train(args.workspace, args.output_ply)
-

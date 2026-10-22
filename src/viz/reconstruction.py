@@ -102,7 +102,9 @@ class DUST3R:
                 )
                 from rerun.sinks import spawn as _spawn
                 _spawn(default_blueprint=None)
+
             rr.log("world", rr.ViewCoordinates.RDF, static=True)
+
             # Set radius so points render as solid 3D spheres instead of 1-pixel see-through dots
             pts = results.point_cloud.vertices
             bbox_diag = np.linalg.norm(pts.max(axis=0) - pts.min(axis=0)) if len(pts) > 0 else 1.0
@@ -152,9 +154,9 @@ class DUST3R:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DUSt3R 3D Reconstruction Pipeline (via mini-DUSt3R)")
-    parser.add_argument("--image_dir", type=str, default="test_workspace/images",
+    parser.add_argument("--image_dir", type=str, default="data/sample_images/riverview",
                         help="Path to folder containing input images")
-    parser.add_argument("--workspace", type=str, default="test_workspace",
+    parser.add_argument("--workspace", type=str, default="workspace",
                         help="Output workspace folder for 3DGS points3D.ply and transforms.json")
     parser.add_argument("--device", type=str, default=None,
                         help="Device to use ('mps', 'cuda', 'cpu', or auto-detect)")
