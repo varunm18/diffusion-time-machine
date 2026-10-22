@@ -42,13 +42,10 @@ def main():
         splatter = MSplat()
         splatter.train(workspace_dir=workspace)
 
-    # 3. If requested, launch interactive 3D visualizer
+    # 3. If requested, launch interactive 3D visualizer in Rerun
     if args.visualize:
-        from run_visualization import visualize_splats
-        ply_file = workspace / "scene_3dgs.ply"
-        if not ply_file.exists():
-            ply_file = workspace / "sparse/0/points3D.ply"
-        visualize_splats(str(ply_file))
+        from run_visualization import visualize
+        visualize(workspace)
 
 
 if __name__ == "__main__":
