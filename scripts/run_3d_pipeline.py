@@ -36,7 +36,7 @@ def main():
                         help="Train 3D Gaussian Splatting with msplat after reconstruction")
     parser.add_argument("--device", type=str, default=None,
                         help="Device to use ('mps', 'cuda', 'cpu', or auto-detect by default)")
-    parser.add_argument("--view_reconstruction", "--view_output", dest="view_reconstruction", action="store_true",
+    parser.add_argument("--view_reconstruction", action="store_true",
                         help="View output of reconstruction in Rerun")
     parser.add_argument("--visualize", action="store_true",
                         help="Launch interactive 3D visualization after training")

@@ -50,7 +50,6 @@ def test_dust3r_init_custom_device(mock_pretrained):
 
     assert dust3r.device == "cpu"
     assert dust3r.view_reconstruction is True
-    assert dust3r.view_output is True
     assert dust3r.model == mock_model
     mock_pretrained.assert_called_once_with("custom/model_ckpt")
 
@@ -106,7 +105,7 @@ def test_dust3r_run_success(mock_pretrained, mock_inference, tmp_path: Path):
     mock_inference.return_value = mock_results
 
     workspace = tmp_path / "output_ws"
-    dust3r = DUST3R(device="cpu", view_output=False)
+    dust3r = DUST3R(device="cpu", view_reconstruction=False)
     results = dust3r.run(image_dir=img_dir, output_workspace=workspace)
 
     assert results == mock_results

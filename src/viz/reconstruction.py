@@ -38,7 +38,6 @@ class DUST3R:
         device: str | None = None,
         model_name: str | None = None,
         view_reconstruction: bool = False,
-        view_output: bool | None = None,
     ):
         """
         Initialize the DUSt3R model.
@@ -47,15 +46,13 @@ class DUST3R:
             device: Computing device ('mps', 'cuda', 'cpu', or auto-detected).
             model_name: HuggingFace model checkpoint (defaults to ViT-Large 512).
             view_reconstruction: If True, opens a Rerun 3D viewer showing the reconstructed scene.
-            view_output: Deprecated alias for view_reconstruction.
         """
         self.device = device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
         print(f"[DUSt3R] Initializing mini-DUSt3R on device='{self.device}'")
 
         ckpt = model_name or "nielsr/DUSt3R_ViTLarge_BaseDecoder_512_dpt"
         self.model = AsymmetricCroCo3DStereo.from_pretrained(ckpt).to(self.device)
-        self.view_reconstruction = view_reconstruction or (view_output is True)
-        self.view_output = self.view_reconstruction
+        self.view_reconstruction = view_reconstruction
 
     def run(self, image_dir: str | Path, output_workspace: str | Path = "test_workspace"):
         """
@@ -203,7 +200,7 @@ if __name__ == "__main__":
                         help="Output workspace folder for 3DGS points3D.ply and transforms.json")
     parser.add_argument("--device", type=str, default=None,
                         help="Device to use ('mps', 'cuda', 'cpu', or auto-detect)")
-    parser.add_argument("--view_reconstruction", "--view_output", dest="view_reconstruction", action="store_true",
+    parser.add_argument("--view_reconstruction", action="store_true",
                         help="View output in Rerun 3D viewer")
     args = parser.parse_args()
 
