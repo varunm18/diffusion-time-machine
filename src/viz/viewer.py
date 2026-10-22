@@ -172,10 +172,17 @@ def visualize(target_path: str | Path = "workspace", opacity_mult: float = 3.0, 
                 static=True,
             )
 
-            # Camera intrinsics (pinhole)
+            # Camera intrinsics (pinhole) - check frame or root level metadata
+            fl_x = float(frame.get("fl_x", data.get("fl_x", 800.0)))
+            fl_y = float(frame.get("fl_y", data.get("fl_y", 800.0)))
+            cx = float(frame.get("cx", data.get("cx", 400.0)))
+            cy = float(frame.get("cy", data.get("cy", 300.0)))
+            w = int(frame.get("w", data.get("w", 800)))
+            h = int(frame.get("h", data.get("h", 600)))
+
             K = np.array([
-                [frame["fl_x"], 0, frame["cx"]],
-                [0, frame["fl_y"], frame["cy"]],
+                [fl_x, 0, cx],
+                [0, fl_y, cy],
                 [0, 0, 1]
             ], dtype=np.float32)
 
@@ -183,8 +190,8 @@ def visualize(target_path: str | Path = "workspace", opacity_mult: float = 3.0, 
                 f"{cam_path}/pinhole",
                 rr.Pinhole(
                     image_from_camera=K,
-                    width=int(frame["w"]),
-                    height=int(frame["h"]),
+                    width=w,
+                    height=h,
                     camera_xyz=rr.ViewCoordinates.RDF,
                 ),
                 static=True,
