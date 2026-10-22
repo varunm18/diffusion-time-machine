@@ -4,7 +4,7 @@ Generate historical or imagined views of a scene with a pretrained Stable Diffus
 
 ## Requirements
 
-- Python 3.10 or newer
+- Python 3.11 or 3.12 (recommended; required by Metal packages like `msplat`)
 - ~ 5 GB of disk space for the model download
 
 ## Setup
@@ -21,7 +21,7 @@ Create and activate a virtual environment.
 ### macOS and Linux
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -62,11 +62,10 @@ The first run downloads `runwayml/stable-diffusion-v1-5` from Hugging Face and m
 Reconstruct 3D scenes from images and visualize them as 3D Gaussian Splats:
 
 ```bash
-pip install -r requirements.txt
-
 python 3d_visualizer/main.py \
   --image_dir 3d_visualizer/testing/images/riverview \
-  --workspace 3d_visualizer/test_ws \
+  --workspace 3d_visualizer/testing/test_ws \
+  --view_output \
   --msplat \
   --visualize
 ```
