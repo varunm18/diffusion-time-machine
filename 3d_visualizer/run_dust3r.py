@@ -77,7 +77,31 @@ class DUST3R:
         if self.view_output:
             import rerun as rr
             print("[DUSt3R] Spawning Rerun 3D viewer...")
-            rr.init("mini-dust3r", spawn=True)
+            try:
+                from rerun import bindings
+                bindings.disconnect_orphaned_recordings()
+            except Exception:
+                pass
+            try:
+                rr.disconnect()
+            except Exception:
+                pass
+            try:
+                rr.init("mini-dust3r", spawn=True)
+            except RuntimeError:
+                from rerun import bindings
+                bindings.disconnect_orphaned_recordings()
+                bindings.new_recording(
+                    application_id="mini-dust3r",
+                    recording_id=None,
+                    make_default=True,
+                    make_thread_default=False,
+                    default_enabled=True,
+                    send_properties=True,
+                    batcher_config=None,
+                )
+                from rerun.sinks import spawn as _spawn
+                _spawn(default_blueprint=None)
             rr.log("world", rr.ViewCoordinates.RDF, static=True)
             # Set radius so points render as solid 3D spheres instead of 1-pixel see-through dots
             pts = results.point_cloud.vertices

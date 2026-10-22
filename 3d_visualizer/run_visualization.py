@@ -93,7 +93,36 @@ def visualize(target_path="test_workspace", opacity_mult: float = 3.0, scale_mul
         raise FileNotFoundError(f"Could not find 3D PLY file at {ply_file}")
 
     print(f"[Rerun] Initializing viewer for: {ply_file.name}")
-    rr.init("3dgs_visualizer", spawn=True)
+    try:
+        from rerun import bindings
+        bindings.disconnect_orphaned_recordings()
+    except Exception:
+        pass
+    try:
+        rr.disconnect()
+    except Exception:
+        pass
+
+    try:
+        rr.init("3dgs_visualizer", spawn=True)
+    except RuntimeError:
+        # If previous window was closed, force new recording & spawn
+        from rerun import bindings
+        try:
+            bindings.disconnect_orphaned_recordings()
+            bindings.new_recording(
+                application_id="3dgs_visualizer",
+                recording_id=None,
+                make_default=True,
+                make_thread_default=False,
+                default_enabled=True,
+                send_properties=True,
+                batcher_config=None,
+            )
+            from rerun.sinks import spawn as _spawn
+            _spawn(default_blueprint=None)
+        except Exception as e:
+            print(f"[Rerun] Fallback init warning: {e}")
 
     # Set coordinate system convention to RDF (Right, Down, Forward - OpenCV standard)
     rr.log("world", rr.ViewCoordinates.RDF, static=True)
