@@ -46,9 +46,10 @@ def test_dust3r_init_custom_device(mock_pretrained):
     mock_model = MagicMock()
     mock_pretrained.return_value.to.return_value = mock_model
 
-    dust3r = DUST3R(device="cpu", model_name="custom/model_ckpt", view_output=True)
+    dust3r = DUST3R(device="cpu", model_name="custom/model_ckpt", view_reconstruction=True)
 
     assert dust3r.device == "cpu"
+    assert dust3r.view_reconstruction is True
     assert dust3r.view_output is True
     assert dust3r.model == mock_model
     mock_pretrained.assert_called_once_with("custom/model_ckpt")
@@ -131,8 +132,8 @@ def test_dust3r_run_success(mock_pretrained, mock_inference, tmp_path: Path):
 @patch("rerun.log")
 @patch("src.viz.reconstruction.inferece_dust3r")
 @patch("src.viz.reconstruction.AsymmetricCroCo3DStereo.from_pretrained")
-def test_dust3r_run_with_view_output(mock_pretrained, mock_inference, mock_rr_log, mock_rr_init, tmp_path: Path):
-    """Test DUST3R reconstruction with view_output=True triggering Rerun preview."""
+def test_dust3r_run_with_view_reconstruction(mock_pretrained, mock_inference, mock_rr_log, mock_rr_init, tmp_path: Path):
+    """Test DUST3R reconstruction with view_reconstruction=True triggering Rerun preview."""
     img_dir = tmp_path / "images"
     img_dir.mkdir()
     (img_dir / "001.jpg").write_bytes(b"dummy_image_data")
@@ -151,7 +152,7 @@ def test_dust3r_run_with_view_output(mock_pretrained, mock_inference, mock_rr_lo
     mock_inference.return_value = mock_results
 
     workspace = tmp_path / "output_ws_preview"
-    dust3r = DUST3R(device="cpu", view_output=True)
+    dust3r = DUST3R(device="cpu", view_reconstruction=True)
     dust3r.run(image_dir=img_dir, output_workspace=workspace)
 
     assert mock_rr_init.called

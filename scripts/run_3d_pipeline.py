@@ -36,7 +36,7 @@ def main():
                         help="Train 3D Gaussian Splatting with msplat after reconstruction")
     parser.add_argument("--device", type=str, default=None,
                         help="Device to use ('mps', 'cuda', 'cpu', or auto-detect by default)")
-    parser.add_argument("--view_output", action="store_true",
+    parser.add_argument("--view_reconstruction", "--view_output", dest="view_reconstruction", action="store_true",
                         help="View output of reconstruction in Rerun")
     parser.add_argument("--visualize", action="store_true",
                         help="Launch interactive 3D visualization after training")
@@ -51,7 +51,7 @@ def main():
 
     # Step 1: Camera Pose Estimation & Point Cloud Reconstruction
     print(f"\n=== Step 1: DUSt3R Reconstruction ===")
-    dust3r = DUST3R(device=args.device, view_output=args.view_output)
+    dust3r = DUST3R(device=args.device, view_reconstruction=args.view_reconstruction)
     dust3r.run(image_dir=image_dir, output_workspace=workspace)
 
     # Step 2: 3D Gaussian Splatting Optimization (Metal GPU)
