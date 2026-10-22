@@ -1,7 +1,7 @@
 """Tests for the summary logic in data_pipeline/audit_date_coverage.py.
 
 `summarize` is a pure function, so we test it with a few hand-made rows instead
-of a real CSV. Run with:   pytest tests/test_audit.py
+of a real CSV. Run with:   pytest tests/data_pipeline/test_audit.py
 """
 
 from data_pipeline.audit_date_coverage import summarize

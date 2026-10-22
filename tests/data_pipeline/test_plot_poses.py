@@ -1,6 +1,6 @@
 """Tests for the math in data_pipeline/plot_poses.py (no plotting needed).
 
-Run with:   pytest tests/test_plot_poses.py
+Run with:   pytest tests/data_pipeline/test_plot_poses.py
 """
 
 import numpy as np

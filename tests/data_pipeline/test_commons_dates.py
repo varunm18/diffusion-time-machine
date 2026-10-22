@@ -5,7 +5,7 @@ Instead we feed `parse_batch` a MOCKED API response shaped like the real one.
 That mock was written from the API's documentation, and the live behavior was
 then confirmed by running the script on 20 real images (it worked).
 
-Run with:   pytest tests/test_commons_dates.py
+Run with:   pytest tests/data_pipeline/test_commons_dates.py
 """
 
 from data_pipeline.commons_dates import (

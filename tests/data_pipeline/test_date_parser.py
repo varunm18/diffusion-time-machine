@@ -9,7 +9,7 @@ the valuable tests: each one pins down a mistake the parser actually made once
 (a broken camera clock, an artist's lifespan mistaken for a date, ...) so it
 can never quietly come back.
 
-Run with:   pytest tests/test_date_parser.py
+Run with:   pytest tests/data_pipeline/test_date_parser.py
 """
 
 import random

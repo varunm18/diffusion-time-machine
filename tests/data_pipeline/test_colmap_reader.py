@@ -9,7 +9,7 @@ format spec. The proof against REAL MegaScenes data is running
 data_pipeline/inspect_reconstruction.py on a downloaded model (we did: 5,334
 images and 3,560 cameras read without error).
 
-Run with:   pytest tests/test_colmap_reader.py
+Run with:   pytest tests/data_pipeline/test_colmap_reader.py
 """
 
 import struct

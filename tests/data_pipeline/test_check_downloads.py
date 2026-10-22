@@ -1,6 +1,6 @@
 """Tests for the helpers in data_pipeline/check_downloads.py.
 
-Run with:   pytest tests/test_check_downloads.py
+Run with:   pytest tests/data_pipeline/test_check_downloads.py
 """
 
 from data_pipeline.check_downloads import compare_size, find_missing
