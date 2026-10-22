@@ -7,5 +7,3 @@ data/*
 *.splat
 *workspace*/
 test*_ws/
-submodules/
-3d_visualizer/
