@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import trimesh
 from mini_dust3r.model import AsymmetricCroCo3DStereo
-from mini_dust3r.api import inferece_dust3r, log_optimized_result
+from mini_dust3r.api import inferece_dust3r
 
 
 def save_transforms(frames, output_path):
@@ -78,7 +78,50 @@ class DUST3R:
             import rerun as rr
             print("[DUSt3R] Spawning Rerun 3D viewer...")
             rr.init("mini-dust3r", spawn=True)
-            log_optimized_result(results, Path("world"))
+            rr.log("world", rr.ViewCoordinates.RDF, static=True)
+            # Set radius so points render as solid 3D spheres instead of 1-pixel see-through dots
+            pts = results.point_cloud.vertices
+            bbox_diag = np.linalg.norm(pts.max(axis=0) - pts.min(axis=0)) if len(pts) > 0 else 1.0
+            radius = max(0.005, float(bbox_diag / 400.0))
+
+            rr.log(
+                "world/pointcloud",
+                rr.Points3D(
+                    positions=pts,
+                    colors=results.point_cloud.colors,
+                    radii=radius,
+                ),
+                static=True,
+            )
+            for i, (rgb, depth, K, c2w) in enumerate(zip(
+                results.rgb_hw3_list,
+                results.depth_hw_list,
+                results.K_b33,
+                results.world_T_cam_b44,
+            )):
+                cam_path = f"world/cameras/camera_{i}"
+                h, w = rgb.shape[:2]
+                rr.log(
+                    cam_path,
+                    rr.Transform3D(
+                        translation=c2w[:3, 3],
+                        mat3x3=c2w[:3, :3],
+                        relation=rr.TransformRelation.ParentFromChild,
+                    ),
+                    static=True,
+                )
+                rr.log(
+                    f"{cam_path}/pinhole",
+                    rr.Pinhole(
+                        image_from_camera=K,
+                        height=h,
+                        width=w,
+                        camera_xyz=rr.ViewCoordinates.RDF,
+                    ),
+                    static=True,
+                )
+                rr.log(f"{cam_path}/pinhole/rgb", rr.Image(rgb), static=True)
+                rr.log(f"{cam_path}/pinhole/depth", rr.DepthImage(depth), static=True)
 
         return results
 
