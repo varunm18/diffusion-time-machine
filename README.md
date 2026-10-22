@@ -57,6 +57,22 @@ python generate.py \
 
 The first run downloads `runwayml/stable-diffusion-v1-5` from Hugging Face and may take several minutes. Later runs reuse the cached model.
 
+## 3D Scene Reconstruction & Gaussian Splatting
+
+Reconstruct 3D scenes from images and visualize them as 3D Gaussian Splats:
+
+```bash
+pip install -r requirements.txt
+
+python 3d_visualizer/main.py \
+  --image_dir 3d_visualizer/testing/images/riverview \
+  --workspace 3d_visualizer/test_ws \
+  --msplat \
+  --visualize
+```
+
+For full options and step-by-step commands, see [3d_visualizer/README.md](3d_visualizer/README.md).
+
 ## Deactivate the environment
 
 When you are finished:
