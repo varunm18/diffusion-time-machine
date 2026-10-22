@@ -71,3 +71,4 @@ def test_msplat_train_custom_output_ply(mock_msplat, tmp_path: Path):
     assert result_ply == custom_ply.resolve()
     mock_trainer.export_ply.assert_called_once_with(str(custom_ply.resolve()))
     mock_trainer.export_splat.assert_called_once_with(str(expected_splat.resolve()))
+

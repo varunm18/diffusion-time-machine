@@ -160,4 +160,3 @@ def test_dust3r_run_with_view_output(mock_pretrained, mock_inference, mock_rr_lo
     assert "world" in logged_entities
     assert "world/pointcloud" in logged_entities
     assert "world/cameras/camera_0" in logged_entities
-

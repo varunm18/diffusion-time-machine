@@ -172,4 +172,3 @@ def test_visualize_direct_ply_path(mock_log_ply, mock_rr, tmp_path: Path):
 
     mock_log_ply.assert_called_once_with(ply_file, opacity_mult=2.5, scale_mult=0.8)
     assert mock_rr.init.called
-

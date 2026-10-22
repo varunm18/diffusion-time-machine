@@ -98,3 +98,4 @@ def test_pipeline_full_workflow_with_multipliers(mock_viz, mock_msplat, mock_dus
         opacity_mult=4.5,
         scale_mult=1.2,
     )
+
