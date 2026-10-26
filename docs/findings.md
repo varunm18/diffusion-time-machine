@@ -415,3 +415,32 @@ Running notes on what we learn as the project moves forward. Newest sections go 
   1. A **content filter** (VLM or CLIP): exterior view vs interior / document / close-up detail. Needed for training views in general.
   2. **Geometric verification:** feature matches (RoMa/LightGlue) between the old photo and its nearest anchors.
 - So far the dataset uses only COLMAP-posed views; VGGT poses are not merged yet. `build_scene_dataset.py --vggt-tag retrieval` can merge them once verified.
+
+---
+
+## Review of Aadhitya's data pipeline on `main` (2026-10-25)
+*`data_pipeline/` + `docs/data_pipeline.md` + `docs/interface_decisions.md`, tested on the Taj Mahal.*
+
+**What it does:** reads a scene's COLMAP model, looks up each registered image's Commons metadata through the API, parses a year interval + confidence, checks downloaded files against the camera sizes, audits old vs modern coverage, and plots old-photo camera positions.
+
+**Verdict: solid.** His 81 tests pass, and the docs are clear and careful.
+- **Same results as our parser:** on the Taj Mahal's model 0 (4,711 unique registered photos), the two parsers were compared where both give a usable date (4,587 photos):
+  - **99.2% agree within 2 years, 100% within 10 years.**
+  - The era split is identical except for one photo (1952 vs 1965).
+  - Ours dates 90 more photos; his dates 7 that ours doesn't.
+- **His Taj Mahal numbers match our census:** ~40–55 old photos, almost all of them albumen or black-and-white prints.
+
+**Gaps (rare on the Taj Mahal, matter elsewhere)**
+1. An *upload day typed into the date field* isn't detected (e.g. a 1910 postcard dated "2019-04-20" gets 2019 at 0.95). The upload time is fetched but never compared.
+2. "built" / "in YYYY" count as capture-date cues, so categories like "Buildings completed in 1726" can date a photo when the date field is missing.
+3. For old photos with no date text, the EXIF *scan* date is used and passes the 0.5 cutoff.
+4. Years only (no month); no photo-type labels yet.
+
+**Overlap:** `main`'s `data_pipeline/`, Kevin's `census/` and our `src/timemachine/` now do largely the same job three ways. Worth consolidating when we merge.
+
+**His `interface_decisions.md` leaves open questions for the SEVA side.** Our SEVA study answers most of them:
+- **Resolution / pixels:** 576×576, pixels in [-1, 1].
+- **Crop vs pad:** SEVA centre-crops.
+- **Poses:** camera-to-world, OpenCV axes, encoded as Plücker rays relative to the first input view.
+- **Scale:** centre on the mean camera position, reference camera at distance 2. Not "median distance 1".
+- **Training code:** none released (we write our own).
