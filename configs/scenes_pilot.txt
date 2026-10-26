@@ -1,0 +1,49 @@
+# Pilot scenes for the dated-MegaScenes census (one Commons category name per line).
+
+# Kevin's 20 pilot scenes (kevin-calderon branch), for comparison
+Cathédrale_Notre-Dame_de_Paris
+Sagrada_Família
+Eiffel_Tower                      # no reconstruction in MegaScenes
+Brooklyn_Bridge
+Times_Square
+Statue_of_Liberty
+Old_Town_Hall_(Prague)
+St._Paul's_Cathedral
+Tower_Bridge
+Washington_Monument
+Grand_Central_Terminal
+Empire_State_Building
+Saint_Peter's_Basilica
+Dam_Square
+Cathédrale_Notre-Dame_de_Strasbourg
+Prague_Castle
+Palace_of_Versailles
+Alhambra
+Rothenburg_ob_der_Tauber
+Taj_Mahal
+
+# Scenes with known large physical changes (destruction, reconstruction, construction)
+Frauenkirche_(Dresden)            # destroyed 1945, rebuilt 1994-2005
+Brandenburg_Gate                  # Berlin Wall 1961-1989, restorations
+Reichstag_(building)              # burned 1933, ruined 1945, new dome 1999
+Berlin_Cathedral                  # war damage, simplified dome rebuild
+Semperoper                        # destroyed 1945, rebuilt 1985
+Zwinger,_Dresden                  # destroyed 1945, rebuilt
+Cologne_Cathedral                 # completed 1880
+Stari_Most                        # destroyed 1993, rebuilt 2004
+Hagia_Sophia                      # minarets, surroundings
+Alexanderplatz_(Berlin-Mitte)     # rebuilt repeatedly
+
+# Well-photographed, mostly unchanged landmarks (good for old-photo registration)
+Charles_Bridge
+Old_Town_Square_(Prague)
+Arc_de_Triomphe_de_l'Étoile
+Pantheon_(Rome)
+Santa_Maria_del_Fiore_(Florence)
+Tower_of_London
+Westminster_Abbey
+Elizabeth_Tower
+Leaning_Tower_(Pisa)
+St._Mark's_Basilica_(Venice)
+Sydney_Harbour_Bridge
+Parthenon

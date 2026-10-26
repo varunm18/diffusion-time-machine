@@ -1,5 +1,7 @@
 .venv/
 __pycache__/
+# Data: ignored except the committed sample images. Our pipeline writes under data/
+# (see src/timemachine/config.py), which data/* already covers.
 data/*
 !data/sample_images
 !data/sample_images/**
@@ -7,3 +9,8 @@ data/*
 *.splat
 *workspace*/
 test*_ws/
+# Repo-local caches, build artifacts, and SEVA's checkout (scripts/setup_seva.sh)
+/.cache/
+*.egg-info/
+.pytest_cache/
+/external/
