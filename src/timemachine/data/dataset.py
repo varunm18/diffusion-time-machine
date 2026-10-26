@@ -99,13 +99,16 @@ class DatedViewsDataset(Dataset):
         return np.concatenate([inputs, targets])
 
     def __getitem__(self, index: int) -> dict:
-        rows = self.indices(index)
+        return self.make_sample(self.indices(index), self.config.n_inputs)
+
+    def make_sample(self, rows: np.ndarray, n_inputs: int) -> dict:
+        """A sample from explicit view-table rows (the first ``n_inputs`` are inputs)."""
         sub = self.views.iloc[rows]
         images, Ks = zip(*(load_view(row, self.resolution) for row in sub.itertuples()))
         K_norm = np.stack([normalize_intrinsics(K, self.resolution, self.resolution) for K in Ks])
         c2w = normalize_cameras(self.c2ws[rows], camera_scale=self.camera_scale)
         is_input = np.zeros(len(rows), dtype=bool)
-        is_input[: self.config.n_inputs] = True
+        is_input[:n_inputs] = True
         return {
             "images": torch.stack(images),
             "K": torch.from_numpy(K_norm).float(),

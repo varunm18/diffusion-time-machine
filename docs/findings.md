@@ -444,3 +444,29 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - **Poses:** camera-to-world, OpenCV axes, encoded as Plücker rays relative to the first input view.
 - **Scale:** centre on the mean camera position, reference camera at distance 2. Not "median distance 1".
 - **Training code:** none released (we write our own).
+
+---
+
+## Date-conditioned SEVA: setup, identity check, baseline (2026-10-25)
+**Setup**
+- SEVA is installed from GitHub at the commit we studied, via `scripts/setup_seva.sh`. It's cloned into the git-ignored `external/` and installed editable, because SEVA's own packaging is broken (`seva.modules` is missing from a normal install).
+- Weights are read only from the shared cache `/fs/nexus-projects/wildnvs/liger/weights/hf/hub`: SEVA v1.1, the SD 2.1-base VAE mirror (`Manojb/...`; the original repo is gone) and OpenCLIP ViT-H.
+- That cache also has **Qwen3-VL-32B-Instruct**, a candidate for the VLM labelling step.
+
+**The date module** (`src/timemachine/model/`)
+- Each view's year is encoded with sine/cosine features plus a small network, with a learned "unknown date" input.
+- It is **added to SEVA's per-view timestep embedding**, which reaches every ResBlock. Implemented by swapping one submodule (`time_embed`), with no edits to SEVA's code.
+- **Identity check on the real weights:** with the new module freshly initialized, outputs are exactly SEVA's (max difference 0.0). With a small random perturbation of its last layer, outputs change (0.014), so the date really reaches the network.
+- Gotcha: `torch.autocast` caches low-precision weight copies for a whole block. An in-place weight change inside the same block is ignored, which made the first check falsely report "no effect".
+
+**Baseline: plain SEVA on Notre-Dame** (3 inputs → 5 targets, 576², 50 steps, guidance 2.0; ~4.5 min for 8 samples on one A6000)
+
+| Sampling | Mean PSNR |
+|---|---|
+| Random samples as in training (targets share a date, half pre-1970) | **8.1 dB** (modern targets 8.7, old 7.5) |
+| Sanity check: 8 modern views with neighbouring cameras | **9.0 dB** |
+
+- **Camera conventions are correct:** in the sanity check SEVA reproduces the target viewpoints, framing and layout. PSNR is low because of appearance (lighting, sky, season, SEVA's oversaturated look). Pixel PSNR is a poor metric for in-the-wild photos, so we should add LPIPS / feature metrics.
+- **SEVA copies the inputs' appearance.** In a random sample, a 2017 color target came out as a sepia albumen print copied from an 1870s input (`docs/figures/seva_baseline_random_appearance_copy.jpg`).
+- **The motivating failure, captured.** Given inputs from 2004–2017, SEVA draws Notre-Dame's spire into 2019 targets that actually show scaffolding and no spire after the fire (`docs/figures/seva_baseline_neighbors_spire.jpg`). This is what date conditioning should fix.
+- Random samples with far-apart, sparse inputs give hallucinated generic Gothic architecture. Training samples should favour inputs that overlap with the targets.

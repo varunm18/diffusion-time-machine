@@ -19,6 +19,11 @@ torch = ["torch>=2.4", "pillow>=10"]
 # Posing old photos with VGGT-Omega (src/timemachine/posing); VGGT-Omega itself comes
 # from an existing checkout via VGGT_OMEGA_ROOT
 posing = ["torch>=2.4", "pillow>=10", "torchvision", "transformers>=4.45"]
+# Stable Virtual Camera and the libraries its code imports. SEVA itself is installed
+# separately, without its pinned deps (it pins numpy==1.24.4):
+#   uv pip install --no-deps "seva @ git+https://github.com/Stability-AI/stable-virtual-camera@fe19948e9b7bea261ab2db780a59656131404a83"
+seva = ["torch>=2.4", "pillow>=10", "torchvision", "einops", "open-clip-torch", "kornia", "roma",
+        "diffusers", "safetensors", "huggingface_hub", "scipy", "imageio", "colorama", "gradio"]
 
 [build-system]
 requires = ["hatchling"]
