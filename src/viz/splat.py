@@ -211,12 +211,13 @@ class GSplat:
                 Ks=cam["K"].unsqueeze(0),
                 width=cam["w"],
                 height=cam["h"],
+                packed=True,
             )
 
             loss = torch.nn.functional.l1_loss(render_colors[0], gt)
             strategy.step_pre_backward(params, optimizers, strategy_state, step, info)
             loss.backward()
-            strategy.step_post_backward(params, optimizers, strategy_state, step, info)
+            strategy.step_post_backward(params, optimizers, strategy_state, step, info, packed=True)
 
             for opt in optimizers.values():
                 opt.step()
