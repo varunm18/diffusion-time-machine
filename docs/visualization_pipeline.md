@@ -30,8 +30,9 @@ The pipeline operates in three stages:
                                   │
                                   ▼
      ┌────────────────────────────────────────────────────────┐
-     │ Step 2: MSplat Optimization (src/viz/splat)            │
-     │  - Metal GPU-accelerated 3DGS training (Apple Silicon) │
+     │ Step 2: 3DGS Optimization (src/viz/splat)              │
+     │  - MSplat: Apple Metal GPU compute (macOS)             │
+     │  - GSplat: CUDA rasterization (Windows / Linux)        │
      │  - Rasterizes & optimizes 3D Gaussians from cameras    │
      │  - Exports scene_3dgs.ply and scene_3dgs.splat         │
      └────────────────────────────┬───────────────────────────┘
@@ -82,9 +83,10 @@ workspace/<scene_name>/
   - Extracted base RGB colors from degree-0 spherical harmonics ($C_0 = \sqrt{1 / 4\pi} \approx 0.28209$).
   - Added adaptive radius scaling for point clouds so vertices render as solid 3D spheres scaled to the scene bounding box.
 
-### D. Apple Silicon Acceleration via `msplat`
-- Utilizes `msplat` to train 3D Gaussians locally on Apple Silicon Metal compute shaders without requiring an external CUDA cluster.
-- Pinned virtual environment to Python 3.12 (as `msplat` distributes precompiled Apple Silicon Metal wheels for Python 3.12/3.13).
+### D. Dual Compute Acceleration: `msplat` (macOS) & `gsplat` (CUDA / Windows / Linux)
+- **Apple Silicon (macOS):** Utilizes `msplat` to train 3D Gaussians locally on Apple Silicon Metal compute shaders without requiring external CUDA.
+- **NVIDIA GPU (Windows / Linux):** Utilizes `gsplat` with CUDA rasterization and adaptive density control for fast Windows and Linux GPU execution.
+- Cross-platform dependency specification in `requirements.txt` (`msplat; sys_platform == 'darwin'` and `gsplat`) ensures clean installations on both macOS and Windows/Linux.
 
 ### E. Unified Package & Requirements
 - Consolidates all root dependencies into a single root [`requirements.txt`](file:///Users/varun/Documents/673/diffusion-time-machine/requirements.txt).
@@ -100,16 +102,16 @@ The visualization pipeline is structured as follows:
 diffusion-time-machine/
 ├── src/
 │   └── viz/
-│       ├── __init__.py           # Public exports: DUST3R, MSplat, visualize
+│       ├── __init__.py           # Public exports: DUST3R, MSplat, GSplat, visualize
 │       ├── reconstruction.py     # mini-DUSt3R pose estimation & transforms.json generator
-│       ├── splat.py              # msplat Metal 3DGS trainer & PLY/SPLAT exporter
+│       ├── splat.py              # MSplat (Metal) and GSplat (CUDA) 3DGS trainers & exporters
 │       └── viewer.py             # Rerun 3D viewer (Gaussian splats, frustums, images)
 ├── scripts/
 │   └── run_3d_pipeline.py        # CLI entry point for full pipeline execution
 ├── tests/
 │   ├── viz/
 │   │   ├── test_reconstruction.py # Unit tests for DUSt3R reconstruction
-│   │   ├── test_splat.py          # Unit tests for msplat training & exports
+│   │   ├── test_splat.py          # Unit tests for MSplat & GSplat training & exports
 │   │   └── test_viewer.py         # Unit tests for Rerun logging & frustums
 │   └── scripts/
 │       └── test_run_3d_pipeline.py# Unit tests for CLI argument parsing & workflow
@@ -130,7 +132,7 @@ python scripts/run_3d_pipeline.py \
   --image_dir data/sample_images/riverview \
   --workspace data/workspaces/riverview \
   --view_reconstruction \
-  --msplat \
+  --splat \
   --visualize
 ```
 
@@ -140,7 +142,9 @@ python scripts/run_3d_pipeline.py \
 | `--image_dir` | Path to input images directory | `data/sample_images/riverview` |
 | `--workspace` | Destination workspace for outputs | `workspace` |
 | `--view_reconstruction` | Preview DUSt3R point cloud and poses in Rerun immediately | `False` |
-| `--msplat` | Run Metal 3DGS optimization | `False` |
+| `--msplat` | Run Metal 3DGS optimization (macOS Apple Silicon) | `False` |
+| `--gsplat` | Run CUDA 3DGS optimization (Windows / Linux) | `False` |
+| `--splat` | Auto-select 3DGS optimization (`msplat` on Metal, `gsplat` on CUDA) | `False` |
 | `--visualize` | Launch interactive Rerun viewer after optimization | `False` |
 | `--opacity_mult` | Splat opacity multiplier (boost to make surfaces solid) | `3.0` |
 | `--scale_mult` | Splat radius multiplier | `1.0` |
@@ -163,7 +167,7 @@ python -m src.viz.viewer --target data/workspaces/riverview/scene_3dgs.ply --opa
 Modules can be directly imported in custom training scripts or evaluation loops:
 
 ```python
-from src.viz import DUST3R, MSplat, visualize
+from src.viz import DUST3R, MSplat, GSplat, visualize
 
 # Step 1: Camera Pose Estimation & Point Cloud
 dust3r = DUST3R(device="mps")
@@ -173,7 +177,8 @@ dust3r.run(
 )
 
 # Step 2: 3D Gaussian Splat Optimization
-splatter = MSplat(iterations=7000)
+# Use MSplat on macOS Apple Silicon, or GSplat on Windows/Linux with CUDA:
+splatter = MSplat(iterations=7000)   # or GSplat(iterations=7000)
 splatter.train("data/workspaces/riverview")
 
 # Step 3: Interactive Rerun Visualization

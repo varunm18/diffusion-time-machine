@@ -63,25 +63,26 @@ Reconstruct 3D scenes from images, train 3D Gaussian Splats, and visualize them 
 
 ```bash
 # Run the full end-to-end 3D pipeline
+# Use --msplat on macOS Apple Silicon or --gsplat on Windows/Linux with CUDA
 python scripts/run_3d_pipeline.py \
   --image_dir data/sample_images/riverview \
   --workspace data/workspaces/riverview \
   --view_reconstruction \
-  --msplat \
+  --splat \
   --visualize
 ```
 
 You can also import components directly into Python:
 
 ```python
-from src.viz import DUST3R, MSplat, visualize
+from src.viz import DUST3R, MSplat, GSplat, visualize
 
 # 1. Pose estimation & point cloud
 dust3r = DUST3R()
 dust3r.run(image_dir="data/sample_images/riverview", output_workspace="workspace/riverview")
 
-# 2. Metal 3DGS optimization
-splatter = MSplat()
+# 2. 3DGS optimization: MSplat (macOS Metal) or GSplat (CUDA)
+splatter = MSplat()  # or GSplat() on Windows/CUDA
 splatter.train("workspace/riverview")
 
 # 3. Interactive visualization in Rerun
