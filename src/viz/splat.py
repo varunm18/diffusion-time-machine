@@ -1,5 +1,5 @@
 """
-3D Gaussian Splatting Optimization backends:
+3D Gaussian Splatting Optimization Backends:
 - MSplat: Apple Metal compute acceleration (macOS Apple Silicon)
 - GSplat: CUDA rasterization and adaptive density control (Windows / Linux)
 """
@@ -11,42 +11,76 @@ from PIL import Image
 from plyfile import PlyData
 import torch
 
-try:
-    import msplat
-except ImportError:
-    msplat = None
-
-try:
-    import gsplat
-except ImportError:
-    gsplat = None
+# Module-level references loaded lazily inside __init__ of each trainer
+msplat = None
+gsplat = None
 
 
 class MSplat:
-    """3D Gaussian Splatting trainer utilizing Apple Metal compute shaders."""
+    """
+    3D Gaussian Splatting trainer utilizing Apple Metal compute shaders.
+    """
 
-    def __init__(self, iterations: int = 7000, num_downscales: int = 0, eval_mode: bool = True):
+    def __init__(
+        self,
+        iterations: int = 7000,
+        num_downscales: int = 0,
+        eval_mode: bool = True,
+    ):
+        """
+        Args:
+            iterations: Number of optimization steps (default: 7000).
+            num_downscales: Image resolution downscale levels (0 = full resolution).
+            eval_mode: Whether to evaluate PSNR/SSIM periodically on test views.
+        """
+        global msplat
+        if msplat is None:
+            try:
+                import msplat as _msplat
+                msplat = _msplat
+            except ImportError:
+                raise ImportError(
+                    "msplat is required for Apple Metal training (macOS Apple Silicon only). "
+                    "For Windows/Linux CUDA, use GSplat."
+                )
+
+        self.msplat = msplat
         self.iterations = iterations
         self.num_downscales = num_downscales
         self.eval_mode = eval_mode
 
-    def train(self, workspace_dir: str | Path, output_ply: str | Path | None = None, callback_every: int = 100):
-        if msplat is None:
-            raise ImportError("msplat is required for Apple Metal training (macOS Apple Silicon only). For Windows/Linux CUDA, use GSplat.")
+    def train(
+        self,
+        workspace_dir: str | Path,
+        output_ply: str | Path | None = None,
+        callback_every: int = 100,
+    ) -> Path:
+        """
+        Train 3D Gaussian Splats from a workspace containing transforms.json and points3D.ply.
+
+        Args:
+            workspace_dir: Directory containing images, transforms.json, and sparse/0/points3D.ply.
+            output_ply: Custom path for exported .ply (default: <workspace>/scene_3dgs.ply).
+            callback_every: Print progress every N iterations.
+
+        Returns:
+            Path to the exported .ply file.
+        """
         workspace = Path(workspace_dir).resolve()
         output_ply = Path(output_ply or workspace / "scene_3dgs.ply").resolve()
 
         print(f"[msplat] Loading dataset from {workspace}...")
-        dataset = msplat.load_dataset(str(workspace), eval_mode=self.eval_mode)
+        dataset = self.msplat.load_dataset(str(workspace), eval_mode=self.eval_mode)
 
         print(f"[msplat] Starting Metal-accelerated 3DGS optimization ({self.iterations} iterations)...")
-        config = msplat.TrainingConfig(iterations=self.iterations, num_downscales=self.num_downscales)
-        trainer = msplat.GaussianTrainer(dataset, config)
+        config = self.msplat.TrainingConfig(iterations=self.iterations, num_downscales=self.num_downscales)
+        trainer = self.msplat.GaussianTrainer(dataset, config)
         trainer.train(
             lambda s: print(f"step={s.iteration} splats={s.splat_count:,}"),
             callback_every=callback_every,
         )
 
+        # Export both .ply and lightweight .splat formats
         output_ply.parent.mkdir(parents=True, exist_ok=True)
         trainer.export_ply(str(output_ply))
         output_splat = output_ply.with_suffix(".splat")
@@ -56,16 +90,54 @@ class MSplat:
 
 
 class GSplat:
-    """3D Gaussian Splatting trainer utilizing gsplat (for Windows/Linux with CUDA)."""
+    """
+    3D Gaussian Splatting trainer utilizing gsplat (for Windows/Linux with CUDA).
+    """
 
-    def __init__(self, iterations: int = 7000, lr: float = 1e-3, device: str | None = None):
+    def __init__(
+        self,
+        iterations: int = 7000,
+        lr: float = 1e-3,
+        device: str | None = None,
+    ):
+        """
+        Args:
+            iterations: Number of optimization steps (default: 7000).
+            lr: Base learning rate for Gaussian parameters.
+            device: Compute device ('cuda' or 'cpu').
+        """
+        global gsplat
+        if gsplat is None:
+            try:
+                import gsplat as _gsplat
+                gsplat = _gsplat
+            except ImportError:
+                raise ImportError(
+                    "gsplat is required for CUDA/Windows training. Install with: pip install gsplat"
+                )
+
+        self.gsplat = gsplat
         self.iterations = iterations
         self.lr = lr
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    def train(self, workspace_dir: str | Path, output_ply: str | Path | None = None, callback_every: int = 100):
-        if gsplat is None:
-            raise ImportError("gsplat is required for CUDA/Windows training. Install with: pip install gsplat")
+    def train(
+        self,
+        workspace_dir: str | Path,
+        output_ply: str | Path | None = None,
+        callback_every: int = 100,
+    ) -> Path:
+        """
+        Train 3D Gaussian Splats from a workspace containing transforms.json and points3D.ply.
+
+        Args:
+            workspace_dir: Directory containing images, transforms.json, and sparse/0/points3D.ply.
+            output_ply: Custom path for exported .ply (default: <workspace>/scene_3dgs.ply).
+            callback_every: Print progress every N iterations.
+
+        Returns:
+            Path to the exported .ply file.
+        """
         workspace = Path(workspace_dir).resolve()
         output_ply = Path(output_ply or workspace / "scene_3dgs.ply").resolve()
         output_splat = output_ply.with_suffix(".splat")
@@ -94,6 +166,7 @@ class GSplat:
         if not cameras:
             raise FileNotFoundError(f"No valid camera frames found in {workspace}")
 
+        # Initialize Gaussians from sparse point cloud (or random initialization fallback)
         ply_path = workspace / "sparse" / "0" / "points3D.ply"
         if ply_path.exists():
             v = PlyData.read(str(ply_path))["vertex"]
@@ -122,7 +195,7 @@ class GSplat:
             "opacities": torch.optim.Adam([params["opacities"]], lr=self.lr * 10),
             "sh0": torch.optim.Adam([params["sh0"]], lr=self.lr * 2.5),
         }
-        strategy = gsplat.DefaultStrategy(verbose=False)
+        strategy = self.gsplat.DefaultStrategy(verbose=False)
         strategy_state = strategy.initialize_state()
 
         print(f"[gsplat] Starting CUDA-accelerated 3DGS optimization ({self.iterations} iterations)...")
@@ -133,7 +206,7 @@ class GSplat:
                 img = img.resize((cam["w"], cam["h"]))
             gt = torch.tensor(np.array(img, dtype=np.float32) / 255.0, device=self.device)
 
-            render_colors, _, info = gsplat.rasterization(
+            render_colors, _, info = self.gsplat.rasterization(
                 means=params["means"],
                 quats=torch.nn.functional.normalize(params["quats"], dim=-1),
                 scales=torch.exp(params["scales"]),
@@ -158,9 +231,10 @@ class GSplat:
             if callback_every and step % callback_every == 0:
                 print(f"step={step} splats={len(params['means']):,}")
 
+        # Export PLY and SPLAT formats
         output_ply.parent.mkdir(parents=True, exist_ok=True)
         shN = torch.zeros((len(params["means"]), 0, 3), device=self.device)
-        gsplat.export_splats(
+        self.gsplat.export_splats(
             means=params["means"].detach(),
             scales=params["scales"].detach(),
             quats=torch.nn.functional.normalize(params["quats"].detach(), dim=-1),
@@ -170,7 +244,7 @@ class GSplat:
             format="ply",
             save_to=str(output_ply),
         )
-        gsplat.export_splats(
+        self.gsplat.export_splats(
             means=params["means"].detach(),
             scales=params["scales"].detach(),
             quats=torch.nn.functional.normalize(params["quats"].detach(), dim=-1),

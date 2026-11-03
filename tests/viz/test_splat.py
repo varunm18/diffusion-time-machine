@@ -132,3 +132,18 @@ def test_gsplat_train(mock_gsplat, tmp_path: Path):
     assert mock_strategy.step_pre_backward.call_count == 5
     assert mock_strategy.step_post_backward.call_count == 5
     assert mock_gsplat.export_splats.call_count == 2
+
+
+def test_msplat_missing_raises_error():
+    """Verify informative ImportError when msplat is not available."""
+    with patch("src.viz.splat.msplat", None), patch.dict("sys.modules", {"msplat": None}):
+        with pytest.raises(ImportError, match="msplat is required"):
+            MSplat()
+
+
+def test_gsplat_missing_raises_error():
+    """Verify informative ImportError when gsplat is not available."""
+    with patch("src.viz.splat.gsplat", None), patch.dict("sys.modules", {"gsplat": None}):
+        with pytest.raises(ImportError, match="gsplat is required"):
+            GSplat()
+
