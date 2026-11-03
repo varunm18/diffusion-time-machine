@@ -470,3 +470,44 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - **SEVA copies the inputs' appearance.** In a random sample, a 2017 color target came out as a sepia albumen print copied from an 1870s input (`docs/figures/seva_baseline_random_appearance_copy.jpg`).
 - **The motivating failure, captured.** Given inputs from 2004–2017, SEVA draws Notre-Dame's spire into 2019 targets that actually show scaffolding and no spire after the fire (`docs/figures/seva_baseline_neighbors_spire.jpg`). This is what date conditioning should fix.
 - Random samples with far-apart, sparse inputs give hallucinated generic Gothic architecture. Training samples should favour inputs that overlap with the targets.
+
+---
+
+## Training date-conditioned SEVA: setup (2026-11-02)
+*Code: `src/timemachine/training/`, `src/timemachine/model/{lora,grad_checkpoint,finetune}.py`, `scripts/train_dated_seva.py`.*
+
+**What trains**
+- SEVA stays frozen. Two things are trained, both starting at zero so step 0 is exactly SEVA:
+  - the date module (0.7M parameters);
+  - LoRA adapters, rank 32, on every attention and feed-forward layer of the multi-view transformer blocks (30M parameters).
+- **The loss matches SEVA's sampler, line for line:**
+  - same conditioning tensors as `seva.eval.do_sample`;
+  - input views are swapped for their clean latents;
+  - same input scaling, 1000 discrete noise levels, ε-prediction;
+  - the loss is computed only on target views.
+- Classifier-free guidance keeps working because 10% of steps train the "no input images" branch, as SEVA's sampler expects.
+- Each view's year is drawn inside its date interval, so "circa 1890" is not always exactly 1890.5.
+- 10% of samples are marked "date unknown", so the model learns that case too.
+
+**Samples are spatially coherent now**
+- New `max_neighbors` option (24): targets and inputs come from the cameras closest to the anchor view.
+- Before, a sample's views could come from opposite sides of the cathedral, so the targets couldn't be inferred from the inputs.
+- Inputs still come from any date, so most samples mix eras (e.g. 2015 inputs, 1880 targets).
+- Half the samples get pre-1970 targets.
+
+**Cost on one A6000** (8 views at 576², bf16, gradient checkpointing): **2.3 s/step, 14 GB**.
+- This leaves room for more views per sample, or for turning checkpointing off (~30% faster).
+- Checkpoints hold only the trained weights: 123 MB, plus optimizer state in `latest.pt`.
+
+**How we measure whether dates are used** (`training/probes.py`)
+- *Date-swap loss gap:* 16 fixed samples with fixed noise. We compare the loss with the true dates against the loss with the targets' dates moved to another era (old→2015, modern→1890). If the model uses dates, the ratio rises above 1. At step 0 it is exactly 1.
+- *Probe renders:* fixed input views and target cameras, rendered at several years with the same random seed, so any difference between rows comes from the date alone. Notre-Dame probes (`configs/probes_notre_dame.json`):
+  - **fire:** inputs are 2012–2016 photos with the spire; targets are post-fire photos (scaffolding, cranes). Rendered at 1850 (before Viollet-le-Duc's spire), 1900, 1960, 2015, 2021 and "unknown".
+  - **old_from_modern:** modern photos of the portals as inputs; 1860s–1890s albumen prints of the same portals as targets.
+  - **modern_from_old:** 1905–1936 black-and-white inputs; 2010–2016 colour targets.
+- Sanity check passed: at step 0 every row of every probe is identical. Plain SEVA draws the spire into all the post-fire targets.
+
+**A loss-weighting question (being tested)**
+- 89% of SEVA's noise levels are high-noise (σ > 1). The overall look (colour era, spire or no spire) is decided there.
+- With the plain ε-loss, those levels give tiny gradients (~1e-4). The few near-clean levels give spikes (norm ~80). Adam's running scale then sits near the spikes, which shrinks the high-noise updates.
+- Two runs compare plain ε (what SD-style models train with) against EDM weighting (σ²+1), which makes every noise level contribute a similar loss.

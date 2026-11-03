@@ -28,7 +28,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from timemachine.data.cameras import (
-    adjust_intrinsics, colmap_to_c2w, intrinsics_matrix, normalize_cameras,
+    adjust_intrinsics, camera_features, colmap_to_c2w, intrinsics_matrix, normalize_cameras,
     normalize_intrinsics, resize_and_center_crop_params,
 )
 from timemachine.data.sampling import SamplingConfig, eligible_anchors, sample_views
@@ -85,6 +85,7 @@ class DatedViewsDataset(Dataset):
             raise ValueError("No sample can be drawn: too few views share a date.")
         self.c2ws = colmap_to_c2w(self.views[["qw", "qx", "qy", "qz"]].to_numpy(),
                                   self.views[["tx", "ty", "tz"]].to_numpy())
+        self.camera_feats = camera_features(self.c2ws)
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch = epoch
@@ -95,7 +96,7 @@ class DatedViewsDataset(Dataset):
     def indices(self, index: int) -> np.ndarray:
         """View-table rows of sample ``index``: inputs first, then targets."""
         rng = np.random.default_rng((self.seed, self.epoch, index))
-        inputs, targets = sample_views(self.dates, self.config, rng, self.anchors)
+        inputs, targets = sample_views(self.dates, self.config, rng, self.anchors, self.camera_feats)
         return np.concatenate([inputs, targets])
 
     def __getitem__(self, index: int) -> dict:

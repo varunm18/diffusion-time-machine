@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from timemachine.data.cameras import camera_features as anchor_features  # position + viewing direction
+
 
 def farthest_point_sample(features: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
     """``k`` indices spread out over ``features`` (N, D), starting from a random point."""
@@ -24,13 +26,6 @@ def farthest_point_sample(features: np.ndarray, k: int, rng: np.random.Generator
         chosen.append(nxt)
         dist = np.minimum(dist, np.linalg.norm(features - features[nxt], axis=1))
     return np.array(chosen)
-
-
-def anchor_features(c2ws: np.ndarray) -> np.ndarray:
-    """Per-camera feature for diversity: normalized position + viewing direction."""
-    centers = c2ws[:, :3, 3]
-    spread = np.median(np.linalg.norm(centers - np.median(centers, 0), axis=1)) or 1.0
-    return np.concatenate([(centers - np.median(centers, 0)) / spread, c2ws[:, :3, 2]], axis=1)
 
 
 def make_retrieval_batches(

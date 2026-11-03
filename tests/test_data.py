@@ -80,6 +80,24 @@ def test_old_targets_and_input_gap():
     assert np.all(np.abs(DATES[inputs] - DATES[targets[0]]) > 50)
 
 
+def test_neighbors_keep_samples_spatially_coherent():
+    feats = np.linspace(0, 1, len(DATES))[:, None] * np.array([[1.0, 0, 0]])   # cameras on a line
+    cfg = SamplingConfig(n_inputs=2, n_targets=3, max_neighbors=3)
+    rng = np.random.default_rng(0)
+    for _ in range(30):
+        inputs, targets = sample_views(DATES, cfg, rng, camera_feats=feats)
+        dist = np.abs(feats[:, 0] - feats[targets[0], 0])
+        same = np.flatnonzero(np.abs(DATES - DATES[targets[0]]) <= tolerance(cfg, DATES[targets[0]]))
+        others = np.setdiff1d(same, targets[:1])
+        assert dist[targets[1:]].max() <= np.sort(dist[others])[min(2, len(others) - 1)] + 1e-12
+        pool = np.setdiff1d(np.arange(len(DATES)), targets)
+        assert dist[inputs].max() <= np.sort(dist[pool])[2] + 1e-12
+    with pytest.raises(ValueError):
+        sample_views(DATES, cfg, rng)                       # features required
+    with pytest.raises(ValueError):
+        SamplingConfig(n_inputs=3, n_targets=5, max_neighbors=2)
+
+
 def test_no_eligible_anchor():
     assert len(eligible_anchors(np.array([1900.0, 1950.0, 2000.0]), SamplingConfig())) == 0
 

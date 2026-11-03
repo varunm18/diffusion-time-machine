@@ -110,6 +110,21 @@ def normalize_intrinsics(K: np.ndarray, width: int, height: int) -> np.ndarray:
 
 
 # ----------------------------------------------------------------------------
+# Camera similarity
+# ----------------------------------------------------------------------------
+def camera_features(c2ws: np.ndarray) -> np.ndarray:
+    """(N, 6) per-camera feature: position (in units of the scene's spread) + viewing direction.
+
+    Euclidean distance between features is a cheap "do these cameras see the same
+    thing" proxy, used to pick nearby views for samples and diverse anchors for posing.
+    """
+    centers = c2ws[:, :3, 3]
+    offsets = centers - np.median(centers, 0)
+    spread = np.median(np.linalg.norm(offsets, axis=1)) or 1.0
+    return np.concatenate([offsets / spread, c2ws[:, :3, 2]], axis=1)
+
+
+# ----------------------------------------------------------------------------
 # Scene normalization (port of seva/eval.py)
 # ----------------------------------------------------------------------------
 def normalize_cameras(

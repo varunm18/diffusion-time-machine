@@ -82,9 +82,9 @@ def load_components(hub: Path | None = None, version: float = 1.1, device: str =
     weight_name = "modelv1.1.safetensors" if version > 1 else "model.safetensors"
     seva = load_seva_weights(pretrained_model_name_or_path=str(snapshot_dir(hub, SEVA_REPO)),
                              weight_name=weight_name, device="cpu").eval()
+    # SEVA is bf16; the (new, trainable) date module stays fp32. All SEVA calls run
+    # under torch.autocast, which casts its matmuls to bf16.
     model = DatedSGMWrapper(seva) if dated else SGMWrapper(seva)
-    if dated:  # the new module starts in fp32 on CPU; match SEVA's dtype
-        model.date_module.date_embedding.to(next(seva.parameters()).dtype)
     ae = LocalAutoEncoder(snapshot_dir(hub, VAE_REPO), chunk_size=1)
     clip = LocalCLIPConditioner(snapshot_dir(hub, CLIP_REPO) / "open_clip_model.safetensors")
     return SevaComponents(model.to(device), ae.to(device), clip.to(device),

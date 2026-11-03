@@ -1,0 +1,57 @@
+[
+  {
+    "name": "fire",
+    "target_range": [
+      2019.3,
+      2025.0
+    ],
+    "input_range": [
+      2010.0,
+      2019.28
+    ],
+    "render_years": [
+      1850,
+      1900,
+      1960,
+      2015,
+      2021,
+      null
+    ]
+  },
+  {
+    "name": "old_from_modern",
+    "target_range": [
+      1855.0,
+      1900.0
+    ],
+    "input_range": [
+      2000.0,
+      2019.28
+    ],
+    "render_years": [
+      1880,
+      1930,
+      2015,
+      2021,
+      null
+    ]
+  },
+  {
+    "name": "modern_from_old",
+    "target_range": [
+      2010.0,
+      2019.28
+    ],
+    "input_range": [
+      1855.0,
+      1945.0
+    ],
+    "render_years": [
+      1880,
+      1930,
+      2015,
+      2021,
+      null
+    ]
+  }
+]

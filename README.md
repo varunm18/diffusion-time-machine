@@ -154,9 +154,37 @@ src/timemachine/
                      resolve (combine evidence), medium (image type), pipeline
   analysis/census.py era counts and the go/no-go gate
   data/              view table, image cache, SEVA camera conventions, sampling, torch Dataset
+  posing/            VGGT-Omega registration of unposed (old) photos
+  model/             date embedding, dated SEVA wrapper, LoRA, gradient checkpointing, loading
+  training/          SEVA-consistent conditioning and loss, evaluation probes, training loop
 scripts/             thin command-line entry points, one per step
 tests/               pytest; fixtures are real Commons pages
 docs/                proposal, literature review, findings log, plans
 ```
 
 See `docs/findings.md` for what we have learned about the data so far.
+
+## Date-conditioned SEVA: training
+
+SEVA's training code is not public; ours lives in `src/timemachine/training/`.
+SEVA stays frozen; a date module (added to SEVA's per-view timestep embedding)
+and LoRA adapters on its transformer blocks are trained, both zero-initialized
+so step 0 is exactly SEVA.
+
+```bash
+bash scripts/setup_seva.sh                       # SEVA into external/ (once)
+uv pip install -e ".[seva,plots]"
+# Single-scene run on one A6000 (~2.3 s/step, 14 GB):
+SCRIPT=scripts/train_dated_seva.py \
+  ARGS="--dataset data/datasets/25512_model0 --run-name nd_overfit --probes configs/probes_notre_dame.json" \
+  sbatch --time=14:00:00 slurm/seva_gpu.sbatch
+python scripts/plot_training.py data/experiments/train/nd_overfit          # curves.png
+# Full-quality probe renders of a checkpoint (omit --checkpoint for plain SEVA):
+SCRIPT=scripts/render_probes.py ARGS="--dataset data/datasets/25512_model0 \
+  --probes configs/probes_notre_dame.json --checkpoint data/experiments/train/nd_overfit/checkpoints/latest.pt" \
+  sbatch slurm/seva_gpu.sbatch
+```
+
+A run folder (`data/experiments/train/<run>/`) has `config.json`, `log.jsonl`,
+`checkpoints/` and `renders/step_*/` (one contact sheet per probe: the same
+target cameras rendered at several years).
