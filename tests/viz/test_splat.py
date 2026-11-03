@@ -80,15 +80,30 @@ def test_gsplat_init_defaults():
     """Verify default initialization parameters of GSplat."""
     splatter = GSplat()
     assert splatter.iterations == 7000
-    assert splatter.lr == 1e-3
+    assert splatter.lr == 1.6e-4
+    assert splatter.max_points == 100_000
 
 
 def test_gsplat_init_custom():
     """Verify custom parameters of GSplat."""
-    splatter = GSplat(iterations=2000, lr=5e-4, device="cpu")
+    splatter = GSplat(iterations=2000, lr=5e-4, max_points=50_000, device="cpu")
     assert splatter.iterations == 2000
     assert splatter.lr == 5e-4
+    assert splatter.max_points == 50_000
     assert splatter.device == "cpu"
+
+
+def test_compute_ssim():
+    """Verify _compute_ssim produces zero loss for identical images and positive loss for different ones."""
+    from src.viz.splat import _compute_ssim
+    img1 = torch.ones(32, 32, 3)
+    img2 = torch.ones(32, 32, 3)
+    loss_same = _compute_ssim(img1, img2)
+    assert float(loss_same) < 1e-4
+
+    img_diff = torch.zeros(32, 32, 3)
+    loss_diff = _compute_ssim(img1, img_diff)
+    assert float(loss_diff) > 0.5
 
 
 @patch("src.viz.splat.gsplat")
