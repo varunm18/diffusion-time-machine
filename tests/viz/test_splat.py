@@ -136,14 +136,17 @@ def test_gsplat_train(mock_gsplat, tmp_path: Path):
 
 def test_msplat_missing_raises_error():
     """Verify informative ImportError when msplat is not available."""
-    with patch("src.viz.splat.msplat", None), patch.dict("sys.modules", {"msplat": None}):
+    with patch("src.viz.splat.msplat", None):
+        splatter = MSplat()
         with pytest.raises(ImportError, match="msplat is required"):
-            MSplat()
+            splatter.train("dummy_workspace")
 
 
 def test_gsplat_missing_raises_error():
     """Verify informative ImportError when gsplat is not available."""
-    with patch("src.viz.splat.gsplat", None), patch.dict("sys.modules", {"gsplat": None}):
+    with patch("src.viz.splat.gsplat", None):
+        splatter = GSplat()
         with pytest.raises(ImportError, match="gsplat is required"):
-            GSplat()
+            splatter.train("dummy_workspace")
+
 

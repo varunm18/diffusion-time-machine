@@ -11,9 +11,15 @@ from PIL import Image
 from plyfile import PlyData
 import torch
 
-# Module-level references loaded lazily inside __init__ of each trainer
-msplat = None
-gsplat = None
+try:
+    import msplat
+except ImportError:
+    msplat = None
+
+try:
+    import gsplat
+except ImportError:
+    gsplat = None
 
 
 class MSplat:
@@ -33,18 +39,6 @@ class MSplat:
             num_downscales: Image resolution downscale levels (0 = full resolution).
             eval_mode: Whether to evaluate PSNR/SSIM periodically on test views.
         """
-        global msplat
-        if msplat is None:
-            try:
-                import msplat as _msplat
-                msplat = _msplat
-            except ImportError:
-                raise ImportError(
-                    "msplat is required for Apple Metal training (macOS Apple Silicon only). "
-                    "For Windows/Linux CUDA, use GSplat."
-                )
-
-        self.msplat = msplat
         self.iterations = iterations
         self.num_downscales = num_downscales
         self.eval_mode = eval_mode
@@ -66,15 +60,21 @@ class MSplat:
         Returns:
             Path to the exported .ply file.
         """
+        if msplat is None:
+            raise ImportError(
+                "msplat is required for Apple Metal training (macOS Apple Silicon only). "
+                "For Windows/Linux CUDA, use GSplat."
+            )
+
         workspace = Path(workspace_dir).resolve()
         output_ply = Path(output_ply or workspace / "scene_3dgs.ply").resolve()
 
         print(f"[msplat] Loading dataset from {workspace}...")
-        dataset = self.msplat.load_dataset(str(workspace), eval_mode=self.eval_mode)
+        dataset = msplat.load_dataset(str(workspace), eval_mode=self.eval_mode)
 
         print(f"[msplat] Starting Metal-accelerated 3DGS optimization ({self.iterations} iterations)...")
-        config = self.msplat.TrainingConfig(iterations=self.iterations, num_downscales=self.num_downscales)
-        trainer = self.msplat.GaussianTrainer(dataset, config)
+        config = msplat.TrainingConfig(iterations=self.iterations, num_downscales=self.num_downscales)
+        trainer = msplat.GaussianTrainer(dataset, config)
         trainer.train(
             lambda s: print(f"step={s.iteration} splats={s.splat_count:,}"),
             callback_every=callback_every,
@@ -106,17 +106,6 @@ class GSplat:
             lr: Base learning rate for Gaussian parameters.
             device: Compute device ('cuda' or 'cpu').
         """
-        global gsplat
-        if gsplat is None:
-            try:
-                import gsplat as _gsplat
-                gsplat = _gsplat
-            except ImportError:
-                raise ImportError(
-                    "gsplat is required for CUDA/Windows training. Install with: pip install gsplat"
-                )
-
-        self.gsplat = gsplat
         self.iterations = iterations
         self.lr = lr
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -138,6 +127,11 @@ class GSplat:
         Returns:
             Path to the exported .ply file.
         """
+        if gsplat is None:
+            raise ImportError(
+                "gsplat is required for CUDA/Windows training. Install with: pip install gsplat"
+            )
+
         workspace = Path(workspace_dir).resolve()
         output_ply = Path(output_ply or workspace / "scene_3dgs.ply").resolve()
         output_splat = output_ply.with_suffix(".splat")
@@ -195,7 +189,7 @@ class GSplat:
             "opacities": torch.optim.Adam([params["opacities"]], lr=self.lr * 10),
             "sh0": torch.optim.Adam([params["sh0"]], lr=self.lr * 2.5),
         }
-        strategy = self.gsplat.DefaultStrategy(verbose=False)
+        strategy = gsplat.DefaultStrategy(verbose=False)
         strategy_state = strategy.initialize_state()
 
         print(f"[gsplat] Starting CUDA-accelerated 3DGS optimization ({self.iterations} iterations)...")
@@ -206,7 +200,7 @@ class GSplat:
                 img = img.resize((cam["w"], cam["h"]))
             gt = torch.tensor(np.array(img, dtype=np.float32) / 255.0, device=self.device)
 
-            render_colors, _, info = self.gsplat.rasterization(
+            render_colors, _, info = gsplat.rasterization(
                 means=params["means"],
                 quats=torch.nn.functional.normalize(params["quats"], dim=-1),
                 scales=torch.exp(params["scales"]),
@@ -234,7 +228,7 @@ class GSplat:
         # Export PLY and SPLAT formats
         output_ply.parent.mkdir(parents=True, exist_ok=True)
         shN = torch.zeros((len(params["means"]), 0, 3), device=self.device)
-        self.gsplat.export_splats(
+        gsplat.export_splats(
             means=params["means"].detach(),
             scales=params["scales"].detach(),
             quats=torch.nn.functional.normalize(params["quats"].detach(), dim=-1),
@@ -244,7 +238,7 @@ class GSplat:
             format="ply",
             save_to=str(output_ply),
         )
-        self.gsplat.export_splats(
+        gsplat.export_splats(
             means=params["means"].detach(),
             scales=params["scales"].detach(),
             quats=torch.nn.functional.normalize(params["quats"].detach(), dim=-1),
