@@ -87,3 +87,19 @@ def test_gradient_checkpointing_keeps_outputs_grads_and_keys():
         torch.testing.assert_close(p.grad, q.grad)
     with torch.no_grad():
         torch.testing.assert_close(plain(x), ckpt(x))
+
+
+def test_diagnostics_on_fresh_and_perturbed_modules():
+    from timemachine.model.date_embedding import DateEmbedding
+    from timemachine.model.diagnostics import date_embedding_rms, layer_kind, lora_relative_update, summarize_lora
+
+    date = DateEmbedding(out_dim=16)
+    assert all(v == 0 for v in date_embedding_rms(date).values())          # zero-init
+    nn.init.normal_(date.mlp[-1].weight)
+    assert date_embedding_rms(date)["date_rms_spread"] > 0
+    base, down, up = torch.randn(8, 4), torch.randn(2, 4), torch.zeros(8, 2)
+    assert lora_relative_update(down, up, 1.0, base) == 0
+    assert layer_kind("input_blocks.4.1.time_mix_blocks.0.ff_in.net.2") == "timemix.ff_in"
+    assert layer_kind("middle_block.1.transformer_blocks.0.attn2.to_q") == "spatial.attn2"
+    summary = summarize_lora({"a.transformer_blocks.0.attn1.to_q": 0.1, "b.transformer_blocks.0.attn1.to_k": 0.3})
+    assert summary["lora_rel_spatial.attn1_max"] == 0.3 and summary["lora_rel_max"] == 0.3

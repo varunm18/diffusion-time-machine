@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Fine-tune date-conditioned SEVA on one scene's dataset (single GPU).
 
-Trains the date module + LoRA adapters (SEVA frozen) with SEVA's denoising
+Trains the date conditioning (default: per-block date FiLM) + LoRA adapters (SEVA frozen) with SEVA's denoising
 objective; see ``timemachine.training``. Writes a run folder with logs,
 checkpoints and periodic probe renders (``configs/probes_*.json``).
 
@@ -30,22 +30,36 @@ def main() -> None:
     p.add_argument("--runs-root", type=Path, default=Path("data/experiments/train"))
     p.add_argument("--probes", type=Path, help="JSON list of render probe specs")
     p.add_argument("--resume", type=Path, help="checkpoint to resume from (e.g. <run>/checkpoints/latest.pt)")
-    p.add_argument("--steps", type=int, default=10_000)
-    p.add_argument("--lr-lora", type=float, default=1e-4)
-    p.add_argument("--lr-date", type=float, default=1e-4)
-    p.add_argument("--warmup", type=int, default=200)
+    p.add_argument("--steps", type=int, default=TrainConfig.steps)
+    p.add_argument("--lr-lora", type=float, default=TrainConfig.lr_lora)
+    p.add_argument("--lr-date", type=float, default=TrainConfig.lr_date)
+    p.add_argument("--lr-film", type=float, default=TrainConfig.lr_film)
+    p.add_argument("--date-injection", choices=["film", "timestep"], default=FinetuneConfig.date_injection,
+                   help="film: per-block date scale-and-shift; timestep: date vector added to the timestep embedding")
+    p.add_argument("--film-dim", type=int, default=FinetuneConfig.film_dim)
+    p.add_argument("--warmup", type=int, default=TrainConfig.warmup_steps)
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--lora-rank", type=int, default=32, help="0: train the date module only")
     p.add_argument("--no-grad-checkpointing", action="store_true")
+    p.add_argument("--date-max-abs", type=float, default=None,
+                   help="soft bound per date-embedding dimension (SEVA's timestep embedding RMS is ~0.3)")
     p.add_argument("--n-inputs", type=int, default=3)
     p.add_argument("--n-targets", type=int, default=5)
     p.add_argument("--max-neighbors", type=int, default=24, help="0: no spatial restriction")
     p.add_argument("--old-target-fraction", type=float, default=0.5)
+    p.add_argument("--min-input-gap", type=float, default=0.0,
+                   help="inputs must be more than this many years from the target date (0: any date), so the "
+                        "model cannot copy the targets' look from a same-date input and has to use the date")
     p.add_argument("--uncond-prob", type=float, default=0.1)
     p.add_argument("--date-dropout", type=float, default=0.1)
     p.add_argument("--no-date-jitter", action="store_true")
     p.add_argument("--weighting", choices=["eps", "edm", "min_snr"], default="eps",
                    help="per-noise-level loss weight (see timemachine.training.loss)")
+    p.add_argument("--abort-loss-ratio", type=float, default=TrainConfig.abort_loss_ratio,
+                   help="stop when the date-gap probe loss exceeds this multiple of its first value (0: never)")
+    p.add_argument("--abort-x0-ratio", type=float, default=TrainConfig.abort_x0_ratio,
+                   help="stop when the probe's high-noise denoised-latent error (colour drift) exceeds this "
+                        "multiple of its first value (0: never)")
     p.add_argument("--log-every", type=int, default=25)
     p.add_argument("--gap-every", type=int, default=500)
     p.add_argument("--render-every", type=int, default=2500)
@@ -57,15 +71,19 @@ def main() -> None:
 
     cfg = TrainConfig(
         dataset=str(args.dataset), run_dir=str(args.runs_root / args.run_name), steps=args.steps,
-        lr_lora=args.lr_lora, lr_date=args.lr_date, warmup_steps=args.warmup, grad_accum=args.grad_accum,
+        lr_lora=args.lr_lora, lr_date=args.lr_date, lr_film=args.lr_film, warmup_steps=args.warmup, grad_accum=args.grad_accum,
         seed=args.seed, num_workers=args.num_workers, log_every=args.log_every, gap_every=args.gap_every,
         render_every=args.render_every, save_every=args.save_every, render_steps=args.render_steps,
+        abort_loss_ratio=args.abort_loss_ratio or None, abort_x0_ratio=args.abort_x0_ratio or None,
         sampling=SamplingConfig(n_inputs=args.n_inputs, n_targets=args.n_targets,
                                 old_target_fraction=args.old_target_fraction or None,
+                                min_input_gap=args.min_input_gap,
                                 max_neighbors=args.max_neighbors or None),
         loss=LossConfig(uncond_prob=args.uncond_prob, date_dropout=args.date_dropout,
                         date_jitter=not args.no_date_jitter, weighting=args.weighting),
-        finetune=FinetuneConfig(lora_rank=args.lora_rank, grad_checkpointing=not args.no_grad_checkpointing),
+        finetune=FinetuneConfig(lora_rank=args.lora_rank, grad_checkpointing=not args.no_grad_checkpointing,
+                                date_max_abs=args.date_max_abs, date_injection=args.date_injection,
+                                film_dim=args.film_dim),
         render_probes=tuple(load_probe_specs(args.probes)) if args.probes else (),
     )
     trainer = Trainer(cfg)

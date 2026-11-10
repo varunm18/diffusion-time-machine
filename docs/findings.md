@@ -511,3 +511,210 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - 89% of SEVA's noise levels are high-noise (σ > 1). The overall look (colour era, spire or no spire) is decided there.
 - With the plain ε-loss, those levels give tiny gradients (~1e-4). The few near-clean levels give spikes (norm ~80). Adam's running scale then sits near the spikes, which shrinks the high-noise updates.
 - Two runs compare plain ε (what SD-style models train with) against EDM weighting (σ²+1), which makes every noise level contribute a similar loss.
+
+## First Notre-Dame overfit run: the LoRA learning rate destroyed SEVA (2026-11-03)
+*Run `data/experiments/train/nd_overfit_eps` (plain ε-loss, LoRA and date module both at lr 1e-4). Tools: `scripts/inspect_checkpoint.py`, `scripts/ablate_checkpoint.py`.*
+
+**What happened**
+- Steps 0–500: fine. The probe loss stayed at SEVA's level (0.024).
+- Steps 600–1,000: gradient norms climbed from ~1.5 to ~20, a sign of instability. The probe loss rose 10× (0.25).
+- From step 1,400: complete collapse. The model outputs pure noise for every date, its loss sits at ~0.9 (predicting nothing), and its gradients have nearly vanished, so it cannot recover.
+- No date effect was ever learned: swapping the dates changed the loss by under 1%.
+
+**Cause: the LoRA, not the date embedding.** We evaluated the step-2,500 checkpoint with parts switched off:
+
+| | probe loss |
+|---|---|
+| plain SEVA (both off) | 0.0239 |
+| date module only | 0.0238 |
+| LoRA only | 0.90 |
+| both (as trained) | 0.90 |
+
+- The LoRA had rewritten some layers. Its update reached 58% of the original weight in a temporal feed-forward layer and 45% in cross-attention (which reads the CLIP embedding of the input images).
+- The date embedding stayed modest: RMS 0.03–0.13, against 0.29 for the timestep embedding it is added to. On its own it left SEVA intact.
+
+**Fix and safeguards**
+- LoRA learning rate is now 1e-5 by default (date module unchanged at 1e-4). For reference, VMem fine-tuned SEVA at an even lower rate.
+- Every date-gap probe (each 500 steps) now also logs the size of the date embedding and of the LoRA updates.
+- Training stops by itself if the probe loss exceeds 3× its starting value, instead of burning GPU hours on a dead model.
+- An optional bound on the date embedding exists (`--date-max-abs`). It is off, since the date embedding was not the problem.
+
+## Second run (LoRA lr 1e-5): stable, but the LoRA learns an era-blind look (2026-11-03)
+*Run `data/experiments/train/nd_overfit_eps_lr1e-5`; same as the first run but LoRA lr 1e-5.*
+
+**Stable.** By step 2,500:
+- the probe loss has fallen 6% below SEVA's (0.0239 → 0.0225);
+- the largest LoRA update is 6% of its weight;
+- nothing has collapsed.
+
+**But the renders went wrong in a way the loss does not show.** At step 2,500 every render has a strong sepia-orange cast and less detail, at every date. The date does change them (old dates pinker, 2015/2021 golden), but no date gives natural colour back. The spire is still drawn into the post-fire targets.
+
+**Same switch-off test, now also rendering the fire probe** (`ablate_checkpoint.py --render fire`):
+
+| | probe loss | date-swap gap | renders (1880 / 2015) |
+|---|---|---|---|
+| plain SEVA | 0.0239 | 0 | natural colour, identical |
+| date module only | 0.0234 | **+1.8%** (true date fits better) | clean; 1880 harsher and less saturated (sat 0.29), 2015 normal colour (0.41) |
+| LoRA only | 0.0223 | 0 | same sepia-orange cast at both dates (sat 0.47) |
+| both | 0.0225 | −3.2% | cast at both dates (0.48 / 0.54) |
+| both, no guidance | | | even stronger cast (0.57 / 0.62): guidance is not the cause |
+
+**What this means**
+- The **date module alone learns the right thing**: older dates look older, the images stay clean, and the true date fits better than a wrong one.
+- The **LoRA cannot see the date**, so it learns the average look of the training targets. Half of them are pre-1970 prints, so that average is half-sepia, applied to every date.
+- In the combined model, the LoRA's era-blind shift is learned faster than the date pathway learns to steer it. The two together are worse than the date module alone.
+- **The probe loss missed this.** It improved while the renders got worse, because a global colour shift is decided at high noise levels, where the ε-loss is tiny. From now on, judge runs by the renders, not the loss.
+
+**It got worse, not date-aware.** By step 5,000 every render is saturated red-orange noise, at every date. The probe loss barely moved (0.0241, SEVA 0.0239). Run stopped at 5,000.
+
+**Why, most likely: the plain ε-loss is blind to high noise levels in SEVA's schedule.**
+- SEVA's noise levels go up to σ = 85, and 89% are above σ = 1.
+- At σ = 85, a noise-prediction error δ becomes an image error of 85·δ. So a colour shift big enough to ruin a render costs the ε-loss almost nothing.
+- Those levels therefore give almost no training signal. Meanwhile the LoRA, steered by the low-noise levels, slowly breaks what happens at high noise.
+- EDM weighting (σ²+1) counts exactly that image-space error, so it should prevent this. The queued `nd_overfit_edm` run tests it.
+
+**A loss number that does see it.** `x0_mse_high_noise` is the denoised-image error (σ² × noise error) at the probe's high-noise samples (σ > 10). It is now logged with every date-gap probe:
+
+| step 2,500 / 5,000 | plain SEVA | date only | LoRA only | both |
+|---|---|---|---|---|
+| denoising loss | 0.0239 / 0.0239 | 0.0234 / 0.0257 | 0.0223 / 0.0234 | 0.0225 / 0.0241 |
+| `x0_mse_high_noise` | 0.53 / 0.53 | 0.53 / 0.55 | 0.80 / **1.45** | 0.86 / **1.41** |
+| date-swap gap | 0 | +1.8% / **+4.7%** | 0 | −3.2% / −1.9% |
+
+- The high-noise error tracks the renders: ×1.6 when the sepia cast appeared, ×2.7 when they were destroyed.
+- **Training now also stops if it exceeds 1.5× its starting value** (`--abort-x0-ratio`). That would have stopped this run around step 2,500.
+- The date module trained alongside the LoRA is still healthy and increasingly date-aware (+4.7% at step 5,000) when evaluated without the LoRA.
+
+- If the LoRA must stay and EDM weighting doesn't fix it, two options: train the date module first and add the LoRA afterwards, or give the adapted layers direct access to the date.
+
+## Third run (date module only, plain ε-loss): the date embedding grew too large (2026-11-03)
+*Run `data/experiments/train/nd_overfit_dateonly`; no LoRA, date lr 1e-4, plain ε-loss. Stopped at step ~2,600.*
+
+**The date vector kept growing.** Its size (RMS) for 2015 went 0.14 → 0.30 → 0.41 → 0.48 → 0.55 over steps 500–2,500. SEVA's own noise-level vector, which the date vector is added to, has RMS 0.29. With the LoRA present (second run) the date vector levelled off at ~0.30.
+
+**Renders at step 2,500**
+- Modern dates (2015, 2021) come out blotchy and broken in all three probes.
+- Old dates and "unknown" look like plain SEVA: **not older**, no sepia or B&W.
+- `old_from_modern` (already hard for plain SEVA) collapsed into black-and-white blocks at every date.
+
+**The probe loss got worse, not better** (0.0246 vs SEVA's 0.0239, on training samples). The +3.5% date-swap gap only means a wrong date hurts more than the right one; the right date doesn't help.
+
+**Shrinking the date vector at test time** (`ablate_checkpoint.py --date-scales 0.5 0.25`, fire probe):
+
+| date vector | probe loss | swap gap | `x0_mse_high_noise` | 2015 render |
+|---|---|---|---|---|
+| off (plain SEVA) | 0.0239 | 0 | 0.53 | clean |
+| as trained (RMS 0.55) | 0.0246 | +3.5% | 0.58 | blotchy, broken |
+| × 0.5 | 0.0238 | +0.4% | 0.55 | clean |
+| × 0.25 | 0.0236 | −0.2% | 0.54 | clean |
+
+1880 looks like plain SEVA at every scale.
+
+**What this means**
+- **Size, not content, broke the renders.** At twice the size of the noise-level signal it is added to, the date vector makes the model misjudge how noisy its input is, which leaves blotches. Half the size is harmless.
+- **Nothing about eras was learned** in 2,500 steps.
+- Likely reason it grew: with plain ε-loss the near-clean noise levels dominate the gradients (~10⁵×). There the date has nothing to explain, so the date module drifts on noise instead of learning, which also fits the probe loss getting worse.
+- **The 1.5× high-noise guard did not catch this** (×1.08): the damage is at lower noise levels. The date vector's size (the `[weights]` lines) is the warning sign here.
+
+## Fourth run (date module only, EDM weighting, date vector capped at 0.3): safe, but date-blind so far (2026-11-03)
+*Run `data/experiments/train/nd_overfit_edm_dateonly`; `--weighting edm --lora-rank 0 --date-max-abs 0.3`. Started 11:07, 10,000 steps.*
+
+| step | 0 | 500 | 1,000 | 1,500 | 2,000 | 2,500 |
+|---|---|---|---|---|---|---|
+| probe loss (SEVA 0.0239) | 0.0239 | 0.0225 | 0.0223 | 0.0224 | 0.0224 | 0.0226 |
+| date-swap gap | 0 | −0.2% | +0.4% | +0.1% | 0.0% | +0.3% |
+| `x0_mse_high_noise` | 0.53 | 0.54 | 0.54 | 0.54 | 0.55 | 0.54 |
+| date vector RMS, 2015 / unknown | 0 | 0.10 / 0.06 | 0.18 / 0.11 | 0.21 / 0.14 | 0.23 / 0.16 | 0.25 / 0.19 |
+| how much it differs between dates ("spread") | 0 | 0.05 | 0.07 | 0.08 | 0.08 | 0.08 |
+
+**Step 2,500 renders**
+- **Clean** in all three probes, no blotches. `old_from_modern` is back to plain SEVA's quality.
+- **Date-blind:** every date gives nearly the same image (pixel difference between dates 0.02–0.07; the eps date-only run had 0.07–0.21). 1850 does not look older than 2021.
+
+**What this means**
+- EDM weighting plus the cap fixed the damage.
+- The 6% lower probe loss comes from a **date-independent offset**: "unknown" fits as well as the true date. It looks like a Notre-Dame-specific correction, not dates.
+- **Concern:** that offset already uses most of the cap (RMS 0.25 of 0.3). The date-dependent part ("spread") has stopped growing at 0.08, so the cap may leave it no room.
+
+**Step 5,000: still date-blind.**
+- Swap gap +0.5% (+0.3% at 2,500), spread flat at 0.09, date vector RMS 0.27 (cap 0.3). Probe loss 0.0225, `x0_mse_high_noise` 0.54: still safe.
+- Renders: still clean; dates still barely change them. In `old_from_modern`, 1880 is slightly *more* saturated than 2021 (0.28 vs 0.23), not sepia or B&W.
+- **Conclusion:** a date vector added to the noise-level signal is either unsafe (too large, run 3) or too weak to change the era look (capped, this run). **Proposal:** give the date its own zero-initialised scale-and-shift in every block, next to the one SEVA uses for the camera rays (`h * (1 + scale) + shift`, `seva/modules/layers.py`). It leaves the noise-level signal untouched, and scaling is the natural way to drain colour.
+
+Stopped at step ~6,000 (gap +0.6%, spread 0.09) to free the GPU for date FiLM.
+
+## Date FiLM: the date gets its own scale-and-shift in every block (2026-11-03)
+*`src/timemachine/model/date_film.py`; now the default (`--date-injection film`). The old path is `--date-injection timestep`.*
+
+**Why.** With only a date vector added to the timestep vector, the network can use the date only through SEVA's frozen layers that read that vector, which were trained to react to noise level. That is either unsafe (run 3) or too weak (run 4). FiLM adds new, trainable "listeners" instead.
+
+**How**
+- In each of SEVA's ResBlocks, right after its own camera scale-and-shift: `h = h · (1 + s_date) + b_date`, with one value per channel and view.
+- year → Fourier features → shared encoder (17 → 256) → one zero-initialised linear layer per block → `(s_date, b_date)`. 15.4M parameters (the LoRA has 30.7M).
+- Step 0 is exactly SEVA: probe loss 0.0239 and `x0_mse_high_noise` 0.5321 on the real model.
+- **Trap avoided:** gradient checkpointing re-runs every block during backward, after the dates context has closed. So the dates are encoded once per forward pass at the top of the UNet (outside the checkpointed blocks) and kept until the next one. A test checks that gradients with and without checkpointing are identical.
+- Checkpoints store the encoder and per-block layers (`trainable["film"]`). Older checkpoints still load as `timestep`. `ablate_checkpoint.py --date-scales` also shrinks the FiLM.
+- New `[weights]` numbers: `film scale / shift` (RMS over channels, max over blocks; a scale of 1 doubles a channel) and `spread` (how much they differ between years).
+
+**Now running:** `nd_overfit_film`: FiLM only (no LoRA), EDM weighting, FiLM lr 1e-5 (the LoRA rate that changed the renders visibly by 2,500 steps without breaking them). Renders every 1,250 steps. Started 13:47; the allocation ends 17:41 (~6,500 steps).
+
+**Step 1,250 (first look)**
+
+| | run 4 (timestep path, capped) at 1,000 | FiLM at 1,000 |
+|---|---|---|
+| probe loss (SEVA 0.0239) | 0.0223 | 0.0220 |
+| date-swap gap, all / old targets | +0.4% / +0.4% | **+1.2% / +1.7%** |
+| `x0_mse_high_noise` (SEVA 0.53) | 0.54 | 0.54 |
+| pixel difference between dates in renders | 0.02–0.07 | **0.08–0.18** |
+
+- The date now visibly changes the renders, and the gap grows ~3× faster than in run 4. FiLM is still small (scale RMS 0.016), and the high-noise error is unchanged.
+- **Not the right change yet:** no sepia or B&W for old dates. At 2015 and 2021 a dark smear appears over the roof in some fire-probe views (in the 2015 row too, so it isn't a clean pre/post-fire split), and `old_from_modern` is blurrier than plain SEVA at every date.
+
+**Step 2,500: the date part stalled.** Swap gap +2.1% at 1,500, then back to +0.2% at 2,500. The part of the FiLM that differs between years stayed at 0.008 from step 1,500, while the part common to all dates grew to 0.03. Renders: no sepia, spire at every date, some smearing; still safe (`x0_mse_high_noise` 0.533). Stopped at ~2,700.
+
+**Why the date may not be needed: most training samples let the model copy the look from an input.** Measured on 2,000 drawn samples (`--min-input-gap` = inputs must be more than N years from the target date):
+
+| | gap 0 (runs 1–5) | gap 3 | gap 30 |
+|---|---|---|---|
+| samples with an input within 5 years of the targets | 49% | 30% | **0%** |
+| old targets: all inputs modern / mixed / all old | 32 / 59 / 9% | 38 / 54 / 8% | 61 / 37 / 1% |
+| modern targets: all inputs modern / mixed / all old | 87 / 13 / 0% | 80 / 19 / 1% | 1 / 30 / 69% |
+
+- With gap 0, only old targets with all-modern inputs strictly need the date: ~18% of samples. In the rest, the look can be copied from a same-era input.
+- Gap 30 makes every sample need the date. It also trains the fire: inputs from before 1990 all show the spire, so for 2019+ targets the date alone has to remove it.
+- Cost: modern targets are almost never paired with modern inputs, so the fire probe (modern inputs → post-fire targets) becomes a generalisation test. Later, a per-sample mix of gaps would cover both.
+
+## Sixth run: date FiLM with inputs >30 years from the targets (2026-11-03)
+*`nd_overfit_film_gap30`: as `nd_overfit_film` plus `--min-input-gap 30`. Started 15:15; renders every 1,250 steps; the allocation ends 17:41 (~4,000 steps).* Step-0 probe loss is 0.0264 (not 0.0239): the probe now draws only era-mismatched samples, which are harder.
+
+**Step 1,250**
+- Probe: swap gap +2.0% at step 1,000 (old targets +3.5%); loss 0.0264 → 0.0240; `x0_mse_high_noise` 0.527, below its start (0.538).
+- **The date now changes what gets drawn, but it draws a blur instead of the right look.** In `modern_from_old` (B&W inputs), old dates and "unknown" give crisp B&W copies of the inputs. 2015 and 2021 give blurred, hazy versions: at 2021 the spire is faint, but still grey, with no colour. `old_from_modern`: no sepia; modern dates blurrier.
+- Reading: the model has learned that a modern target should *not* look like old inputs, but not yet what it should look like, so it averages. Checking whether that sharpens into colour by 2,500–3,750.
+
+**Step 2,500: the strongest date use so far, but only partial era looks**
+
+| step | 1,000 | 1,500 | 2,000 | 2,500 |
+|---|---|---|---|---|
+| swap gap, all | +2.0% | +2.2% | +2.9% | +2.0% |
+| swap gap, old targets | +3.5% | +4.4% | **+5.2%** | +3.6% |
+| `x0_mse_high_noise` (start 0.538) | 0.527 | 0.530 | 0.534 | 0.531 |
+| FiLM scale / shift / spread | 0.015 / 0.018 / 0.006 | 0.022 / 0.029 / 0.007 | 0.027 / 0.034 / 0.008 | 0.031 / 0.036 / 0.008 |
+
+- **Fire probe** (modern inputs): renders now differ by era. 1960 looks like a faded colour print; 1850/1900 look harsh and bleached (blown-out whites), *not* B&W or sepia; 2015/2021 look normal. **The spire is still there at 2021.**
+- **`modern_from_old`** (B&W inputs): old dates give grainy B&W copies of the inputs. 2015/2021 give a smoother, cleaner "modern photo" look, but **still grey**, and the framing shifts.
+- **`old_from_modern`**: no sepia; blurry and smeared at every date, worse than plain SEVA.
+- The date-dependent part of the FiLM is still tiny (spread 0.008), yet it changes the renders a lot (pixel difference 0.13–0.24 between dates).
+
+**What this means so far:** with every sample needing the date, the FiLM picks up the photographic *style* of an era (grain, contrast, fading). It does not yet do the big changes: colour ↔ B&W, and the spire. Those need the model to override what attention copies from the inputs, which a per-channel scale-and-shift may not be able to do alone.
+
+**Step 3,750 (end of the allocation).** Swap gap fell to +0.9% (3,000) and +0.2% (3,500): noisy. In `modern_from_old`, 2015/2021 renders picked up a faint cool tint (saturation 0.10–0.11 vs 0.04 at 1880), the first hint of colour from B&W inputs. Spire still present; fire-probe renders harsher at every date. Checkpoint `step_003750.pt`.
+
+## Seventh run: date FiLM + LoRA, EDM, no input gap: the LoRA broke the geometry (2026-11-03/04)
+*`nd_overfit_edm` (job 8135029, queued before FiLM existed, so it picked up the new default): FiLM 15.4M + LoRA 30.1M, lr 1e-5 both, EDM, `min_input_gap` 0. 10,000 steps, 2.3 s/step, 14 GB.*
+
+- **The numbers looked healthy throughout.** Probe loss 0.0239 → 0.0220–0.0235; `x0_mse_high_noise` 0.51–0.52, *below* plain SEVA's 0.53; swap gap +1–1.6%; largest LoRA update 7% of its weight. Neither automatic stop fired.
+- **The renders were broken from step 2,500 on.** At 2,500: heavy blur, a sepia cast and broken geometry. At 5,000: sharper but faded. At 7,500–10,000: sharp, but the cathedral is *invented*: plausible Gothic shapes that don't match the cameras. In `modern_from_old`, the rise in saturation (0.04 → 0.35–0.42) is a brown cast over melted structures, not colour.
+- **What this means:** the LoRA memorises a generic "Notre-Dame look" and stops following the inputs and cameras. That's independent of the date, so it would very likely recur with the 30-year gap. With LoRA in the model, the probe loss and the high-noise error don't see this kind of damage; only the renders do.
+
+**Now (2026-11-10):** `nd_overfit_film_gap30` resumed from step 3,750 to 20,000 (job 8342955; FiLM only, gap 30, EDM; renders every 2,500). It's queued behind the per-user job limit. FiLM + LoRA is on hold until the geometry damage is understood.

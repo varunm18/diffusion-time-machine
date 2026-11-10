@@ -28,6 +28,7 @@ from torch.utils.data import DataLoader
 
 from timemachine.data.dataset import DatedViewsDataset
 from timemachine.data.sampling import SamplingConfig
+from timemachine.model.diagnostics import finetune_stats
 from timemachine.model.finetune import FinetuneConfig, load_trainable_state_dict, prepare_for_finetuning, save_checkpoint
 from timemachine.model.loading import SevaComponents, load_components
 from timemachine.training.conditioning import sample_conditions
@@ -40,8 +41,9 @@ class TrainConfig:
     dataset: str                                    # folder with views.parquet
     run_dir: str
     steps: int = 10_000
-    lr_lora: float = 1e-4
-    lr_date: float = 1e-4
+    lr_lora: float = 1e-5                           # 1e-4 destroyed SEVA within ~1k steps (docs/findings.md)
+    lr_date: float = 1e-4                           # date vector added to the timestep embedding
+    lr_film: float = 1e-5                           # date FiLM (per-block layers act like LoRA: keep it low)
     warmup_steps: int = 200
     grad_clip: float = 1.0
     grad_accum: int = 1
@@ -55,6 +57,8 @@ class TrainConfig:
     save_every: int = 2500
     render_steps: int = 25                          # sampler steps for the render probes
     gap_samples: int = 16
+    abort_loss_ratio: float | None = 3.0            # stop if the probe's denoising loss exceeds this x its first value
+    abort_x0_ratio: float | None = 1.5              # ... or its high-noise denoised-latent error (colour drift)
     sampling: SamplingConfig = SamplingConfig()
     loss: LossConfig = LossConfig()
     finetune: FinetuneConfig = FinetuneConfig()
@@ -89,9 +93,8 @@ class Trainer:
         self.model = self.components.model
         groups = prepare_for_finetuning(self.model, cfg.finetune)
         self.model.train()
-        param_groups = [{"params": groups["date"], "lr": cfg.lr_date, "name": "date"}]
-        if groups["lora"]:
-            param_groups.append({"params": groups["lora"], "lr": cfg.lr_lora, "name": "lora"})
+        lrs = {"date": cfg.lr_date, "film": cfg.lr_film, "lora": cfg.lr_lora}
+        param_groups = [{"params": groups[name], "lr": lr, "name": name} for name, lr in lrs.items() if groups[name]]
         self.params = [p for g in param_groups for p in g["params"]]
         self.optimizer = torch.optim.AdamW(param_groups, weight_decay=0.0)
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, _lr_lambda(cfg.warmup_steps))
@@ -99,10 +102,12 @@ class Trainer:
         self.step = 0
         self.epoch = 0
         n_train = sum(p.numel() for p in self.params)
+        sizes = ", ".join(f"{g['name']} {sum(p.numel() for p in g['params']) / 1e6:.2f}M" for g in param_groups)
         print(f"[train] {len(views)} views, {len(self.dataset.anchors)} anchors; trainable params "
-              f"{n_train / 1e6:.1f}M (date {sum(p.numel() for p in groups['date']) / 1e6:.2f}M)", flush=True)
+              f"{n_train / 1e6:.1f}M ({sizes})", flush=True)
 
         self.gap_probe = None
+        self.probe_baseline: dict[str, float] = {}      # first value of each watched probe loss (step 0 if fresh)
         self.render_probes = [RenderProbe(self.dataset, spec) for spec in cfg.render_probes]
         (self.run_dir / "probes.json").write_text(json.dumps([p.describe() for p in self.render_probes], indent=2))
 
@@ -110,7 +115,7 @@ class Trainer:
     def save(self, tag: str | None = None) -> Path:
         """``step_XXXXXX.pt``: trainable weights only. ``latest.pt`` (tag) also has the optimizer, to resume."""
         path = self.run_dir / "checkpoints" / (tag or f"step_{self.step:06d}.pt")
-        extra = {"epoch": self.epoch}
+        extra = {"epoch": self.epoch, "probe_baseline": self.probe_baseline}
         if tag is not None:
             extra.update(optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict())
         save_checkpoint(path, self.model, self.cfg.finetune, self.step, extra=extra)
@@ -122,6 +127,8 @@ class Trainer:
         self.optimizer.load_state_dict(ckpt["optimizer"])
         self.scheduler.load_state_dict(ckpt["scheduler"])
         self.step, self.epoch = ckpt["step"], ckpt.get("epoch", 0) + 1
+        baseline = ckpt.get("probe_baseline") or {}
+        self.probe_baseline = baseline if isinstance(baseline, dict) else {"loss_true": baseline}  # older runs
         print(f"[train] resumed from {path} at step {self.step}", flush=True)
 
     def log(self, record: dict) -> None:
@@ -129,14 +136,35 @@ class Trainer:
             f.write(json.dumps(record) + "\n")
 
     # ------------------------------------------------------------------ probes
-    def run_gap_probe(self) -> None:
+    def run_gap_probe(self) -> str | None:
+        """Date-gap probe + weight statistics. Returns a message if the model has diverged.
+
+        Diverged: the denoising loss rose above ``abort_loss_ratio`` x its first value, or the
+        high-noise denoised-latent error above ``abort_x0_ratio`` x (the renders' colours and
+        layout break long before the denoising loss moves; docs/findings.md).
+        """
         if self.gap_probe is None:
             self.gap_probe = DateGapProbe(self.components, self.dataset, self.cfg.gap_samples)
         self.model.eval()
         result = self.gap_probe(self.model, self.sigmas)
+        stats = finetune_stats(self.model)
         self.model.train()
         self.log({"step": self.step, "probe": "date_gap", **result})
+        self.log({"step": self.step, "probe": "weights", **stats})
         print(f"[gap] step {self.step}: " + ", ".join(f"{k} {v:.4f}" for k, v in result.items()), flush=True)
+        print(f"[weights] step {self.step}: timestep rms {stats['timestep_rms']:.3f}, date rms 2015 "
+              f"{stats['date_rms_2015']:.3f} / unknown {stats['date_rms_unknown']:.3f} / spread "
+              f"{stats['date_rms_spread']:.3f}, lora max rel {stats.get('lora_rel_max', 0):.4f}"
+              + (f", film scale {stats['film_scale_rms_max']:.3f} / shift {stats['film_shift_rms_max']:.3f}"
+                 f" / spread {stats['film_spread_max']:.3f}" if "film_scale_rms_max" in stats else ""), flush=True)
+        limits = {"loss_true": self.cfg.abort_loss_ratio, "x0_mse_high_noise": self.cfg.abort_x0_ratio}
+        for key, limit in limits.items():
+            if key not in result:
+                continue
+            first = self.probe_baseline.setdefault(key, result[key])
+            if limit is not None and result[key] > limit * first:
+                return f"{key} {result[key]:.4f} is above {limit}x its first value {first:.4f}"
+        return None
 
     def run_render_probes(self) -> None:
         if not self.render_probes:
@@ -201,8 +229,11 @@ class Trainer:
                       f"{record['sec_per_step']:.2f}s/step mem {record['max_mem_gb']:.1f}GB", flush=True)
                 window, t_last = [], time.time()
             t_busy = time.time()   # probe/checkpoint time is kept out of the speed measurement
-            if self.step % cfg.gap_every == 0:
-                self.run_gap_probe()
+            if self.step % cfg.gap_every == 0 and (diverged := self.run_gap_probe()):
+                print(f"[train] step {self.step}: {diverged}; the model has diverged, stopping", flush=True)
+                self.log({"step": self.step, "event": "diverged", "reason": diverged})
+                self.save()
+                return
             if self.step % cfg.render_every == 0 or self.step == cfg.steps:
                 self.run_render_probes()
             if self.step % cfg.save_every == 0 or self.step == cfg.steps:

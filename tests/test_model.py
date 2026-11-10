@@ -68,3 +68,11 @@ def test_dated_wrapper_is_identity_at_init_and_uses_dates_after_training():
     assert not torch.allclose(a, b)                                            # dates now matter
     assert dated.date_module.year is None                                      # context cleaned up
     assert all(p.requires_grad for p in dated.date_parameters())
+
+
+def test_date_embedding_bound_keeps_zero_init_and_caps_output():
+    emb = DateEmbedding(out_dim=16, max_abs=0.05)
+    years = torch.tensor([1850.0, 2020.0])
+    assert torch.equal(emb(years), torch.zeros(2, 16))
+    nn.init.normal_(emb.mlp[-1].weight, std=10.0)
+    assert emb(years).abs().max() <= 0.05

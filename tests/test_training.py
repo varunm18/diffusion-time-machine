@@ -134,3 +134,26 @@ def test_weighted_training_loss_reports_raw_mse():
     loss, info = training_loss(Recorder(), sigmas, latents, cond, uncond, None,
                                LossConfig(weighting="edm"), torch.Generator().manual_seed(0))
     assert float(loss) == pytest.approx(10.0 * info["eps_mse"], rel=1e-5)
+
+
+def test_divergence_guard_watches_loss_and_high_noise_error(monkeypatch, tmp_path):
+    """Training stops when the probe loss or its high-noise error rises too far above its first value."""
+    import types
+
+    from timemachine.training import trainer as tr
+
+    t = object.__new__(tr.Trainer)          # no model or data needed for the guard
+    t.cfg = tr.TrainConfig(dataset="unused", run_dir=str(tmp_path), abort_loss_ratio=3.0, abort_x0_ratio=1.5)
+    t.run_dir, t.step, t.sigmas, t.probe_baseline = tmp_path, 0, None, {}
+    t.model = types.SimpleNamespace(eval=lambda: None, train=lambda: None)
+    stats = {"timestep_rms": 0.3, "date_rms_2015": 0.0, "date_rms_unknown": 0.0, "date_rms_spread": 0.0}
+    monkeypatch.setattr(tr, "finetune_stats", lambda model: stats)
+    results = iter([{"loss_true": 0.020, "x0_mse_high_noise": 0.10},     # first values
+                    {"loss_true": 0.059, "x0_mse_high_noise": 0.14},     # below both limits: keep going
+                    {"loss_true": 0.021, "x0_mse_high_noise": 0.16}])    # colour drift: stop
+    t.gap_probe = lambda model, sigmas: next(results)
+    assert t.run_gap_probe() is None
+    assert t.run_gap_probe() is None
+    assert "x0_mse_high_noise" in t.run_gap_probe()
+    results = iter([{"loss_true": 0.061, "x0_mse_high_noise": 0.10}])   # denoising loss above 3x: stop
+    assert "loss_true" in t.run_gap_probe()

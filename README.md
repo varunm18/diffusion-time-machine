@@ -167,9 +167,14 @@ See `docs/findings.md` for what we have learned about the data so far.
 ## Date-conditioned SEVA: training
 
 SEVA's training code is not public; ours lives in `src/timemachine/training/`.
-SEVA stays frozen; a date module (added to SEVA's per-view timestep embedding)
-and LoRA adapters on its transformer blocks are trained, both zero-initialized
-so step 0 is exactly SEVA.
+SEVA stays frozen. Trained, all zero-initialized so step 0 is exactly SEVA:
+- the date conditioning: by default a per-view date scale-and-shift in every ResBlock
+  (`--date-injection film`, `src/timemachine/model/date_film.py`); the older option
+  adds a date vector to SEVA's timestep embedding (`--date-injection timestep`);
+- optionally LoRA adapters on its transformer blocks (`--lora-rank`, 0 = none).
+
+Use `--weighting edm`: the plain noise-prediction loss barely counts the
+high-noise levels where colour and era are decided (`docs/findings.md`).
 
 ```bash
 bash scripts/setup_seva.sh                       # SEVA into external/ (once)
@@ -187,4 +192,15 @@ SCRIPT=scripts/render_probes.py ARGS="--dataset data/datasets/25512_model0 \
 
 A run folder (`data/experiments/train/<run>/`) has `config.json`, `log.jsonl`,
 `checkpoints/` and `renders/step_*/` (one contact sheet per probe: the same
-target cameras rendered at several years).
+target cameras rendered at several years). Training stops by itself if the probe loss rises
+above 3x its starting value (`--abort-loss-ratio`), or its high-noise error above 1.5x
+(`--abort-x0-ratio`).
+
+When a run goes wrong:
+
+```bash
+python scripts/inspect_checkpoint.py <run>/checkpoints/step_002500.pt     # CPU: size of date embedding / LoRA updates
+python scripts/ablate_checkpoint.py <run>/checkpoints/step_002500.pt \
+    --render fire --probes configs/probes_notre_dame.json \
+    --date-scales 0.5 0.25                                               # GPU: loss + renders with LoRA / date module off or shrunk
+```

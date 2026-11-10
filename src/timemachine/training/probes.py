@@ -8,6 +8,8 @@ samples, each with a fixed noise level and noise. We compute the denoising loss
 with the true dates, with the targets' dates swapped to another era, and with
 all dates marked unknown. If the model uses dates, the relative gap
 ``loss_swapped / loss_true - 1`` grows above zero. At step 0 (zero-init date module) all three are equal.
+It also reports ``x0_mse_high_noise``, the denoised-latent error at high noise levels: the
+noise-prediction loss barely moves when the global look of the renders drifts, this does.
 
 **Renders at many dates** (:class:`RenderProbe`, slow). One fixed set of input
 views and target cameras, chosen by a :class:`RenderProbeSpec` (e.g. "targets
@@ -84,11 +86,16 @@ class DateGapProbe:
                              "old_targets": it["old_targets"]})
         true, swapped, unknown = (np.array([r[k] for r in rows]) for k in ("true", "swapped", "unknown"))
         old = np.array([r["old_targets"] for r in rows])
-        high = np.array([float(sigmas[it["level"]]) > 10 for it in self.items])
+        sigma = np.array([float(sigmas[it["level"]]) for it in self.items])
+        high = sigma > 10
         # Relative gaps (loss ratio - 1) are comparable across noise levels, whose losses differ ~100x.
         rel_swapped, rel_unknown = swapped / true - 1, unknown / true - 1
         out = {"loss_true": true.mean(), "loss_swapped": swapped.mean(), "loss_unknown": unknown.mean(),
                "rel_gap_swapped": rel_swapped.mean(), "rel_gap_unknown": rel_unknown.mean()}
+        if high.any():
+            # Error of the denoised latent (sigma^2 x noise error) at high noise, where colours and
+            # layout are decided. The noise error itself is tiny there and hides drift (docs/findings.md).
+            out["x0_mse_high_noise"] = (sigma[high] ** 2 * true[high]).mean()
         for name, mask in (("old_targets", old), ("modern_targets", ~old),
                            ("high_noise", high), ("low_noise", ~high)):
             if mask.any():
@@ -171,7 +178,7 @@ class RenderProbe:
 
     @torch.no_grad()
     def __call__(self, components: SevaComponents, out_dir: Path, num_steps: int = 25, seed: int = 0,
-                 thumb: int = 192) -> dict:
+                 thumb: int = 192, cfg: float = 2.0) -> dict:
         s = self.sample
         is_input = s["is_input"]
         targets = (~is_input).nonzero().flatten().tolist()
@@ -182,7 +189,7 @@ class RenderProbe:
             valid = is_input | (year is not None)
             out = generate_targets(components, s["images"].cuda(), s["K"].cuda(), s["c2w"].cuda(),
                                    is_input.cuda(), dates=dates, date_valid=valid,
-                                   num_steps=num_steps, seed=seed).cpu()
+                                   num_steps=num_steps, seed=seed, cfg=cfg).cpu()
             renders[year] = out
             stats = [color_stats(_pil(out[j], 96)) for j in targets]
             metrics.append({"year": year,
