@@ -13,6 +13,7 @@ companions to start a target group is an **anchor**. Each model gets a role:
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 
 import numpy as np
@@ -63,3 +64,16 @@ def model_row(views: pd.DataFrame, cfg: SamplingConfig = SamplingConfig()) -> di
     row["old_anchors_wide"] = sum(wide[e] for e in OLD_ERAS)
     row["role"] = assign_role(n_old, n_modern, old_anchors)
     return row
+
+
+def cap_modern_views(views: pd.DataFrame, max_modern: int) -> pd.DataFrame:
+    """Keep every pre-2000 view and at most ``max_modern`` 2000+ views of a view table.
+
+    Modern views are ranked by a hash of their file name, not drawn at random, so
+    the choice is the same on every run and a larger cap keeps a superset of a
+    smaller one (raising the cap later only adds downloads).
+    """
+    modern = views["era"].isin(MODERN_ERAS)
+    rank = views.loc[modern, "file_key"].map(lambda k: hashlib.sha1(k.encode()).hexdigest())
+    keep = rank.sort_values().index[:max_modern]
+    return views[~modern | views.index.isin(keep)].reset_index(drop=True)

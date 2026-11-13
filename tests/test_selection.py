@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from timemachine.data.selection import anchor_counts, assign_role, era_of, model_row
+from timemachine.data.selection import anchor_counts, assign_role, cap_modern_views, era_of, model_row
 
 
 def test_era_of_boundaries():
@@ -50,3 +50,22 @@ def test_model_row_wide_tolerance_finds_more_anchors():
 def test_model_row_empty_views():
     row = model_row(pd.DataFrame({"date_mid": pd.Series([], dtype=float)}))
     assert row["views"] == 0 and row["role"] == "excluded"
+
+
+def _views(n_old: int, n_modern: int) -> pd.DataFrame:
+    return pd.DataFrame({"file_key": [f"f{i}.jpg" for i in range(n_old + n_modern)],
+                         "era": ["1900-1944"] * n_old + ["2000+"] * n_modern})
+
+
+def test_cap_keeps_all_old_and_limits_modern():
+    capped = cap_modern_views(_views(7, 50), 20)
+    assert (capped["era"] == "1900-1944").sum() == 7 and (capped["era"] == "2000+").sum() == 20
+    assert len(cap_modern_views(_views(7, 5), 20)) == 12     # fewer modern than the cap: all kept
+
+
+def test_cap_is_stable_and_nested():
+    views = _views(3, 60)
+    small, large = cap_modern_views(views, 10), cap_modern_views(views, 30)
+    assert set(small["file_key"]) <= set(large["file_key"])
+    shuffled = views.sample(frac=1.0, random_state=1)
+    assert set(cap_modern_views(shuffled, 10)["file_key"]) == set(small["file_key"])
