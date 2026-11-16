@@ -30,12 +30,21 @@ photo would I hand back as my prediction?"
 
 IMPORTANT CAVEAT: LEAKAGE
 -------------------------
-The repo has no train/validation split yet. Until it does, `pool_date_pose` can
-pick a near-identical neighbor (another frame from the same photographer's burst)
-that a real held-out test would never allow, so its scores are optimistic. Pass
-`pool=` with the training split's rows once splits exist. Retrieval never returns
-another TARGET of the same sample (see predict_sample), which stops the most
-obvious leak.
+Two kinds of leak would make `pool_date_pose` look better than it should:
+  * a sibling TARGET of the same sample (targets share a date and often a spot);
+  * a NEAR-DUPLICATE of the target: another scan of the same print, or another
+    frame from the same photographer's burst.
+Both are removed from its candidates. The first needs nothing extra. The second
+needs `groups` (near-duplicate group ids, see timemachine.eval.splits); without
+them only the first is removed, and the scores are optimistic.
+
+The repo also has no train/validation split yet. Once it does, pass `pool=` with the
+training rows only.
+
+The sample's own INPUT views are left alone: they are what the model gets to see.
+But `run_baselines` records, for every target, whether a near-duplicate of it sits
+among the inputs (`input_has_duplicate`). If that is common, the sampler is handing
+the model (and plain SEVA) an easy copy-the-input shortcut, which is worth knowing.
 
 This module deliberately does not import torch, so the selection logic can be
 tested anywhere. The script scripts/retrieval_baseline.py does the image loading.
@@ -132,7 +141,8 @@ def retrieve(strategy: str, target: int, candidates: Sequence[int], dates: np.nd
 
 def predict_sample(baseline: str, inputs: Sequence[int], targets: Sequence[int], dates: np.ndarray,
                    centers: np.ndarray, directions: np.ndarray, scale: float,
-                   pool: Sequence[int] | None = None, k_date: int = 20) -> list[int]:
+                   pool: Sequence[int] | None = None, k_date: int = 20,
+                   groups: np.ndarray | None = None) -> list[int]:
     """For one sample, the row that `baseline` returns for each target (in target order).
 
     "inputs" baselines choose among the sample's input views. "pool" baselines
@@ -140,6 +150,10 @@ def predict_sample(baseline: str, inputs: Sequence[int], targets: Sequence[int],
     sample's targets are removed first: the targets share one date and often one
     part of the scene, so a sibling target would be a near-perfect copy of the
     answer and would make the baseline look unrealistically good.
+
+    If `groups` (near-duplicate group id per view) is given, every view that shares
+    a group with any target is removed from the pool too. This only applies to the
+    "pool" baselines; the "inputs" baselines can only pick what the model sees.
     """
     strategy, source = BASELINES[baseline]
     if source == "inputs":
@@ -147,6 +161,9 @@ def predict_sample(baseline: str, inputs: Sequence[int], targets: Sequence[int],
     else:
         everything = np.arange(len(dates)) if pool is None else np.asarray(pool, dtype=int)
         candidates = np.setdiff1d(everything, np.asarray(targets, dtype=int))
+        if groups is not None:
+            banned = np.isin(np.asarray(groups)[candidates], np.asarray(groups)[np.asarray(targets, dtype=int)])
+            candidates = candidates[~banned]
     return [retrieve(strategy, int(t), candidates, dates, centers, directions, scale, k_date)
             for t in targets]
 
@@ -176,7 +193,7 @@ def gap_bucket(gap_years: float) -> str:
 
 def run_baselines(dataset, n_samples: int, load_image: Callable[[pd.Series], np.ndarray],
                   baselines: Iterable[str] = tuple(BASELINES), k_date: int = 20,
-                  pool: Sequence[int] | None = None) -> pd.DataFrame:
+                  pool: Sequence[int] | None = None, groups: np.ndarray | None = None) -> pd.DataFrame:
     """Score the retrieval baselines on the same samples the dataset would draw.
 
     `dataset` is a DatedViewsDataset (or anything with `.views`, `.dates`, `.c2ws`,
@@ -187,10 +204,16 @@ def run_baselines(dataset, n_samples: int, load_image: Callable[[pd.Series], np.
     `load_image(row)` returns one view as a (C, H, W) array in [-1, 1]. It is passed
     in, so tests need no real images and this module needs no torch.
 
+    `groups` is an optional near-duplicate group id per view (from
+    timemachine.eval.splits.near_duplicate_groups). With it, the pool baseline
+    never retrieves a copy of the target, and each row records whether the sample's
+    inputs already contain a near-duplicate of that target (`input_has_duplicate`).
+
     One output row per (target view, baseline).
     """
     centers, directions, scale = camera_features(dataset.c2ws)
     dates = np.asarray(dataset.dates, dtype=np.float64)
+    groups = None if groups is None else np.asarray(groups)
     views = dataset.views
     n_inputs = dataset.config.n_inputs
     out: list[dict] = []
@@ -209,7 +232,7 @@ def run_baselines(dataset, n_samples: int, load_image: Callable[[pd.Series], np.
             return cache[row_index]
 
         for name in baselines:
-            chosen = predict_sample(name, inputs, targets, dates, centers, directions, scale, pool, k_date)
+            chosen = predict_sample(name, inputs, targets, dates, centers, directions, scale, pool, k_date, groups)
             for k, (t, r) in enumerate(zip(targets, chosen)):
                 out.append({
                     "sample": i,
@@ -218,6 +241,7 @@ def run_baselines(dataset, n_samples: int, load_image: Callable[[pd.Series], np.
                     "target_year": float(dates[t]),
                     "old_target_sample": old_target_sample,
                     "input_years": input_years,
+                    "input_has_duplicate": bool(groups is not None and np.isin(groups[t], groups[inputs])),
                     "baseline": name,
                     "retrieved_file_key": views.iloc[r]["file_key"],
                     "retrieved_year": float(dates[r]),
@@ -247,6 +271,9 @@ def summarize(table: pd.DataFrame) -> dict:
             for name, grp in table.groupby("baseline")
         },
         "n_targets": int(table.groupby("baseline").size().iloc[0]) if len(table) else 0,
+        # How often a target has a near-duplicate among the sample's own inputs (a copy shortcut).
+        "targets_with_duplicate_input": round(float(table["input_has_duplicate"].mean()), 3)
+        if "input_has_duplicate" in table and len(table) else None,
     }
 
 

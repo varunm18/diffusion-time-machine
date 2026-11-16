@@ -255,3 +255,64 @@ def test_compare_with_seva_mismatched_run_matches_nothing():
     seva["file_key"] = "some_other_file"
     seva["psnr"] = 10.0
     assert compare_with_seva(table, seva) == {}
+
+
+# ----------------------------------------------------------------------------
+# Near-duplicate awareness
+# ----------------------------------------------------------------------------
+
+def test_pool_excludes_near_duplicates_of_the_target_when_groups_given():
+    # Row 5 is a near-copy of target row 4 (same date, camera right next to it), but a
+    # different file. Without group information the pool baseline picks it; with it, it can't.
+    positions = [[5, 0, 0], [0, 5, 0], [0, 0, 5], [-5, 0, 0], [0, 0, 0], [0.01, 0, 0], [3, 3, 3], [-4, 2, 1]]
+    centers, dirs, scale, dates = features(positions, dates=[1900, 1920, 1940, 1960, 2010, 2010, 1990, 1980])
+    inputs, targets = [0, 1, 2], [4]
+    plain = predict_sample("pool_date_pose", inputs, targets, dates, centers, dirs, scale)
+    assert plain == [5]                                       # the planted copy wins
+
+    groups = np.array([0, 1, 2, 3, 4, 4, 5, 6])               # rows 4 and 5 are one near-duplicate group
+    guarded = predict_sample("pool_date_pose", inputs, targets, dates, centers, dirs, scale, groups=groups)
+    assert guarded != [5] and guarded[0] != 4
+
+
+def test_groups_do_not_change_the_input_baselines():
+    # The model's own inputs are what it sees, so input_* baselines are unaffected by groups.
+    centers, dirs, scale, dates = scene()
+    inputs, targets = [0, 1, 2], [14, 15, 16, 17, 18]
+    groups = np.arange(len(dates))
+    for name in ("input_date", "input_pose"):
+        assert (predict_sample(name, inputs, targets, dates, centers, dirs, scale)
+                == predict_sample(name, inputs, targets, dates, centers, dirs, scale, groups=groups))
+
+
+def test_run_baselines_with_groups_flags_duplicate_inputs():
+    ds = fake_dataset()
+    # All views in one group: every target has a "duplicate" among the inputs.
+    all_one_group = np.zeros(len(ds.dates), dtype=int)
+    table = run_baselines(ds, 4, fake_load, baselines=("input_date",), groups=all_one_group)
+    assert table["input_has_duplicate"].all()
+
+    separate = np.arange(len(ds.dates))
+    table = run_baselines(ds, 4, fake_load, baselines=("input_date",), groups=separate)
+    assert not table["input_has_duplicate"].any()
+
+
+def test_run_baselines_without_groups_reports_no_duplicates():
+    table = run_baselines(fake_dataset(), 3, fake_load, baselines=("input_date",))
+    assert not table["input_has_duplicate"].any()
+
+
+def test_pool_with_groups_never_returns_same_group_as_target():
+    ds = fake_dataset()
+    groups = np.arange(len(ds.dates)) // 3        # groups of three consecutive rows
+    table = run_baselines(ds, 8, fake_load, baselines=("pool_date_pose",), groups=groups)
+    key_to_row = {k: i for i, k in enumerate(ds.views["file_key"])}
+    for _, r in table.iterrows():
+        assert groups[key_to_row[r["retrieved_file_key"]]] != groups[key_to_row[r["file_key"]]]
+
+
+def test_summarize_reports_duplicate_input_rate():
+    ds = fake_dataset()
+    table = run_baselines(ds, 5, fake_load, baselines=("input_date",),
+                          groups=np.zeros(len(ds.dates), dtype=int))   # everything in one group
+    assert summarize(table)["targets_with_duplicate_input"] == 1.0
