@@ -172,15 +172,7 @@ def predict_sample(baseline: str, inputs: Sequence[int], targets: Sequence[int],
 # Scoring
 # ----------------------------------------------------------------------------
 
-def psnr_np(a: np.ndarray, b: np.ndarray) -> float:
-    """PSNR in dB between two images with values in [-1, 1].
-
-    Same formula as `psnr` in scripts/seva_baseline.py, so the two baselines are
-    scored identically. (Dividing the difference by 2 maps the [-1, 1] range to
-    [0, 1], where the peak value is 1.)
-    """
-    mse = float(np.mean(((np.asarray(a) - np.asarray(b)) / 2.0) ** 2))
-    return float(10.0 * np.log10(1.0 / max(mse, 1e-10)))
+from timemachine.eval.metrics import psnr as psnr_np
 
 
 def gap_bucket(gap_years: float) -> str:
