@@ -36,9 +36,14 @@ NUM_LEVELS = 1000
 # Training (and the date-gap probe) autocast to bf16: torch's CUDA default is fp16, which
 # without a GradScaler lets small gradients underflow (code audit, docs/findings.md).
 TRAIN_AUTOCAST_DTYPE = torch.bfloat16
+# By name, for configs and the command line ("fp16" reproduces the pre-audit runs).
+AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
 
 
 WEIGHTINGS = ("eps", "edm", "min_snr")
+# Which views see their date. "targets": inputs always get the unknown date, so a view's
+# own date cannot double as a hint about the *targets'* era (docs/findings.md, 2026-11-18).
+DATE_VIEWS = ("all", "targets")
 
 
 @dataclass(frozen=True)
@@ -48,10 +53,13 @@ class LossConfig:
     date_jitter: bool = True     # draw years inside each view's interval (else: midpoint)
     weighting: str = "eps"       # per-level loss weight, one of WEIGHTINGS
     min_snr_gamma: float = 5.0
+    date_views: str = "all"     # one of DATE_VIEWS
 
     def __post_init__(self):
         if self.weighting not in WEIGHTINGS:
             raise ValueError(f"weighting must be one of {WEIGHTINGS}")
+        if self.date_views not in DATE_VIEWS:
+            raise ValueError(f"date_views must be one of {DATE_VIEWS}")
 
 
 def level_weight(sigma: float, cfg: LossConfig) -> float:
@@ -98,6 +106,11 @@ def noise_prediction_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch
     return (eps_hat.float()[keep] - noise[keep]).pow(2).mean()
 
 
+def shown_dates(valid: torch.Tensor, is_input: torch.Tensor, date_views: str) -> torch.Tensor:
+    """Validity after hiding the inputs' dates when only targets see theirs."""
+    return valid & ~is_input if date_views == "targets" else valid
+
+
 def draw_dates(interval: torch.Tensor, cfg: LossConfig, generator: torch.Generator | None = None
                ) -> tuple[torch.Tensor, torch.Tensor]:
     """(T,) training years and validity from (T, 2) ``[earliest, latest)`` intervals."""
@@ -114,7 +127,8 @@ def draw_dates(interval: torch.Tensor, cfg: LossConfig, generator: torch.Generat
 
 def training_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor, cond: dict, uncond: dict,
                   date_interval: torch.Tensor | None, cfg: LossConfig,
-                  generator: torch.Generator | None = None) -> tuple[torch.Tensor, dict]:
+                  generator: torch.Generator | None = None,
+                  is_input: torch.Tensor | None = None) -> tuple[torch.Tensor, dict]:
     """One stochastic (weighted) loss sample: random level, noise, branch and dates. Also returns what was drawn."""
     device = latents.device
     level = int(torch.randint(NUM_LEVELS, (), generator=generator))
@@ -124,8 +138,12 @@ def training_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor,
     if date_interval is not None:
         year, valid = draw_dates(date_interval.cpu(), cfg, generator)
         year, valid = year.to(device), valid.to(device)
+        if cfg.date_views != "all":
+            if is_input is None:
+                raise ValueError(f"date_views={cfg.date_views!r} needs is_input")
+            valid = shown_dates(valid, is_input.to(device), cfg.date_views)
     eps_mse = noise_prediction_loss(model, sigmas, latents, uncond if use_uncond else cond, level, noise,
                                     year, valid)
     info = {"level": level, "uncond": use_uncond, "eps_mse": float(eps_mse),
-            "dates_known": bool(valid.all()) if valid is not None else None}
+            "dates_known": bool(valid.any()) if valid is not None else None}
     return eps_mse * level_weight(float(sigmas[level]), cfg), info

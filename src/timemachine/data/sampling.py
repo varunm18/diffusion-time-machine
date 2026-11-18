@@ -33,11 +33,14 @@ class SamplingConfig:
     old_tolerance: float = 5.0          # years, for older anchors
     tolerance_boundary: float = 1990.0
     min_input_gap: float = 0.0          # inputs must differ from the target date by more than this
+    input_gap_fraction: float = 1.0     # share of samples that enforce min_input_gap (others: any date)
     old_target_fraction: float | None = None  # e.g. 0.5: half the samples get pre-`old_before` targets
     old_before: float = 1970.0
     max_neighbors: int | None = None    # draw targets/inputs among the k cameras nearest the anchor
 
     def __post_init__(self):
+        if not 0.0 <= self.input_gap_fraction <= 1.0:
+            raise ValueError("input_gap_fraction must be in [0, 1].")
         if self.max_neighbors is not None and self.max_neighbors < max(self.n_targets - 1, self.n_inputs):
             raise ValueError("max_neighbors must leave room for all targets and inputs.")
 
@@ -102,7 +105,10 @@ def sample_views(dates: np.ndarray, cfg: SamplingConfig, rng: np.random.Generato
     targets = np.concatenate([[anchor], rng.choice(others, cfg.n_targets - 1, replace=False)])
 
     candidates = np.setdiff1d(np.arange(len(dates)), targets)
-    if cfg.min_input_gap > 0:   # more than the gap from every target's date
+    # Draw only when mixing, so input_gap_fraction = 1 keeps the exact sample stream of older runs.
+    enforce_gap = cfg.min_input_gap > 0 and (cfg.input_gap_fraction >= 1.0
+                                             or rng.random() < cfg.input_gap_fraction)
+    if enforce_gap:             # more than the gap from every target's date
         to_targets = np.abs(dates[candidates, None] - dates[None, targets]).min(axis=1)
         candidates = candidates[to_targets > cfg.min_input_gap]
     candidates = _nearest(candidates, distance, cfg.max_neighbors)

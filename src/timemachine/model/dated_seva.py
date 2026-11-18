@@ -99,12 +99,15 @@ class DatedSGMWrapper(SGMWrapper):
         """The date embedding added to the timestep embedding, e.g. to train it while SEVA is frozen."""
         return list(self.date_module.date_embedding.parameters())
 
-    def add_date_film(self, feature_dim: int = 256) -> list[str]:
-        """Add date FiLM to every ResBlock (zero-init, so the model is unchanged). Returns the block names."""
+    def add_date_film(self, feature_dim: int = 256, n_freqs: int = 8) -> list[str]:
+        """Add date FiLM to every ResBlock (zero-init, so the model is unchanged). Returns the block names.
+
+        ``n_freqs`` octaves give the shortest Fourier period 200 / 2^(n_freqs-1) years (8: 1.6 years).
+        """
         hook = self.date_module
         if hook.film_encoder is None:
             device = next(hook.date_embedding.parameters()).device
-            hook.film_encoder = DateEncoder(feature_dim).to(device)
+            hook.film_encoder = DateEncoder(feature_dim, n_freqs=n_freqs).to(device)
         return add_date_film(self.module, hook.state, hook.film_encoder.dim)
 
     def film_parameters(self) -> list[nn.Parameter]:

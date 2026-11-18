@@ -40,6 +40,7 @@ class FinetuneConfig:
     date_max_abs: float | None = None   # soft bound per date-embedding dimension (see DateEmbedding)
     date_injection: str = "film"        # one of DATE_INJECTIONS (see module docstring)
     film_dim: int = 256                 # width of the shared date features read by every FiLM layer
+    film_freqs: int = 8                 # Fourier octaves for FiLM: periods 200 / 2^k years, k < film_freqs
 
     def __post_init__(self):
         if self.date_injection not in DATE_INJECTIONS:
@@ -61,7 +62,7 @@ def prepare_for_finetuning(model: DatedSGMWrapper, cfg: FinetuneConfig) -> dict[
     if cfg.date_injection == "timestep":
         groups["date"] = model.date_parameters()
     else:
-        model.add_date_film(cfg.film_dim)
+        model.add_date_film(cfg.film_dim, cfg.film_freqs)
         groups["film"] = model.film_parameters()
     for p in groups["date"] + groups["film"]:
         p.requires_grad_(True)

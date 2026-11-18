@@ -33,7 +33,7 @@ from timemachine.data.images import color_stats
 from timemachine.model.inference import generate_targets
 from timemachine.model.loading import SevaComponents
 from timemachine.training.conditioning import sample_conditions
-from timemachine.training.loss import NUM_LEVELS, TRAIN_AUTOCAST_DTYPE, noise_prediction_loss
+from timemachine.training.loss import NUM_LEVELS, TRAIN_AUTOCAST_DTYPE, noise_prediction_loss, shown_dates
 
 SWAP_BOUNDARY = 1980.0   # targets dated before this are swapped to MODERN_SWAP, others to OLD_SWAP
 MODERN_SWAP = 2015.0
@@ -53,7 +53,10 @@ class DateGapProbe:
     """Loss with true / swapped / unknown dates on fixed samples, noise levels and noise."""
 
     def __init__(self, components: SevaComponents, dataset: DatedViewsDataset, n_samples: int = 16,
-                 seed: int = 1234, device: str = "cuda"):
+                 seed: int = 1234, device: str = "cuda", autocast_dtype: torch.dtype = TRAIN_AUTOCAST_DTYPE,
+                 date_views: str = "all"):
+        self.autocast_dtype = autocast_dtype            # match the training run's precision
+        self.date_views = date_views                    # ... and which views see their date
         gen = torch.Generator().manual_seed(seed)
         # Evenly spread noise levels (skip the extremes, where dates cannot matter much).
         levels = np.linspace(100, NUM_LEVELS - 100, n_samples).round().astype(int)
@@ -75,14 +78,14 @@ class DateGapProbe:
     def __call__(self, model, sigmas: torch.Tensor) -> dict:
         rows = []
         for it in self.items:
-            ones = torch.ones_like(it["is_input"])
-            with torch.autocast("cuda", dtype=TRAIN_AUTOCAST_DTYPE):
+            ones = shown_dates(torch.ones_like(it["is_input"]), it["is_input"], self.date_views)
+            with torch.autocast("cuda", dtype=self.autocast_dtype):
                 def loss(year, valid):
                     return float(noise_prediction_loss(model, sigmas, it["latents"], it["cond"], it["level"],
                                                        it["noise"], year, valid))
                 rows.append({"true": loss(it["year"], ones),
                              "swapped": loss(swapped_years(it["year"], it["is_input"]), ones),
-                             "unknown": loss(it["year"], ~ones),
+                             "unknown": loss(it["year"], torch.zeros_like(ones)),
                              "old_targets": it["old_targets"]})
         true, swapped, unknown = (np.array([r[k] for r in rows]) for k in ("true", "swapped", "unknown"))
         old = np.array([r["old_targets"] for r in rows])
@@ -165,8 +168,9 @@ def _year_label(year: float | None) -> str:
 
 
 class RenderProbe:
-    def __init__(self, dataset: DatedViewsDataset, spec: RenderProbeSpec):
+    def __init__(self, dataset: DatedViewsDataset, spec: RenderProbeSpec, date_views: str = "all"):
         self.spec = spec
+        self.date_views = date_views                    # as in training
         self.camera_scale = dataset.camera_scale
         self.rows = select_probe_rows(dataset, spec)
         self.sample = dataset.make_sample(self.rows, spec.n_inputs)
@@ -188,7 +192,7 @@ class RenderProbe:
         for year in dict.fromkeys(self.spec.render_years):   # unique, in order (renders is keyed by year)
             # "Unknown" marks every view unknown, as date dropout does in training.
             dates = torch.where(is_input, s["date_mid"], torch.full_like(s["date_mid"], year or 0.0))
-            valid = torch.full_like(is_input, year is not None)
+            valid = shown_dates(torch.full_like(is_input, year is not None), is_input, self.date_views)
             out = generate_targets(components, s["images"].cuda(), s["K"].cuda(), s["c2w"].cuda(),
                                    is_input.cuda(), dates=dates, date_valid=valid, camera_scale=self.camera_scale,
                                    num_steps=num_steps, seed=seed, cfg=cfg).cpu()

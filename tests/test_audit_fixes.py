@@ -135,3 +135,42 @@ def test_clip_limit_is_off_until_history_then_relative():
     assert t.clip_limit() == pytest.approx(20.0)
     t.cfg = TrainConfig(dataset="x", run_dir="x", grad_clip=5.0)
     assert t.clip_limit() == pytest.approx(5.0)
+
+
+# --- options added while chasing the broken dated renders (2026-11-18) ------------------
+def test_input_gap_fraction_mixes_gap_and_any_date_samples():
+    rng = np.random.default_rng(0)
+    dates = np.concatenate([1880 + rng.uniform(-5, 5, 30), 2015 + rng.uniform(-1, 1, 60)])
+    full = SamplingConfig(n_inputs=3, n_targets=5, min_input_gap=20.0)
+    anchors = eligible_anchors(dates, full)
+    # fraction 1 keeps the exact sample stream (no extra random draw)
+    a, b = np.random.default_rng(7), np.random.default_rng(7)
+    for _ in range(50):
+        x = sample_views(dates, full, a, anchors)
+        y = sample_views(dates, SamplingConfig(n_inputs=3, n_targets=5, min_input_gap=20.0,
+                                               input_gap_fraction=1.0), b, anchors)
+        assert all(np.array_equal(u, v) for u, v in zip(x, y))
+    half = SamplingConfig(n_inputs=3, n_targets=5, min_input_gap=20.0, input_gap_fraction=0.5)
+    gaps = [np.abs(dates[i][:, None] - dates[t][None]).min()
+            for i, t in (sample_views(dates, half, rng, anchors) for _ in range(400))]
+    close = np.mean(np.array(gaps) <= 20.0)
+    assert 0.2 < close < 0.6                       # roughly half the samples drop the gap
+    with pytest.raises(ValueError):
+        SamplingConfig(input_gap_fraction=1.5)
+
+
+def test_date_encoder_frequency_count():
+    from timemachine.model.date_film import DateEncoder
+    enc = DateEncoder(dim=16, n_freqs=4)
+    assert enc.unknown.shape == (9,)
+    assert enc(torch.tensor([1900.0, 2015.0]), torch.tensor([True, False])).shape == (2, 16)
+
+
+def test_date_views_targets_hides_input_dates():
+    from timemachine.training.loss import LossConfig, shown_dates
+    is_input = torch.tensor([True, True, False, False])
+    valid = torch.ones(4, dtype=torch.bool)
+    assert shown_dates(valid, is_input, "all").tolist() == [True] * 4
+    assert shown_dates(valid, is_input, "targets").tolist() == [False, False, True, True]
+    with pytest.raises(ValueError):
+        LossConfig(date_views="inputs")

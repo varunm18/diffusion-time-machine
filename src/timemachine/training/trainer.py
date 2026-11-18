@@ -33,7 +33,7 @@ from timemachine.model.diagnostics import finetune_stats
 from timemachine.model.finetune import FinetuneConfig, load_trainable_state_dict, prepare_for_finetuning, save_checkpoint
 from timemachine.model.loading import SevaComponents, load_components
 from timemachine.training.conditioning import sample_conditions
-from timemachine.training.loss import TRAIN_AUTOCAST_DTYPE, LossConfig, training_loss
+from timemachine.training.loss import AUTOCAST_DTYPES, LossConfig, training_loss
 from timemachine.training.probes import DateGapProbe, RenderProbe, RenderProbeSpec
 
 
@@ -52,6 +52,7 @@ class TrainConfig:
     grad_clip: float | None = None                  # absolute clip (off by default)
     grad_clip_factor: float | None = 10.0           # spike guard, relative to the running median
     grad_accum: int = 1
+    autocast: str = "bf16"                          # training/probe precision, a key of AUTOCAST_DTYPES
     resolution: int = 576
     camera_scale: float = 2.0
     seed: int = 0
@@ -114,7 +115,8 @@ class Trainer:
         self.grad_norm_history: deque[float] = deque(maxlen=200)
         self.gap_probe = None
         self.probe_baseline: dict[str, float] = {}      # first value of each watched probe loss (step 0 if fresh)
-        self.render_probes = [RenderProbe(self.dataset, spec) for spec in cfg.render_probes]
+        self.render_probes = [RenderProbe(self.dataset, spec, date_views=cfg.loss.date_views)
+                              for spec in cfg.render_probes]
         (self.run_dir / "probes.json").write_text(json.dumps([p.describe() for p in self.render_probes], indent=2))
 
     def clip_limit(self) -> float:
@@ -157,7 +159,9 @@ class Trainer:
         layout break long before the denoising loss moves; docs/findings.md).
         """
         if self.gap_probe is None:
-            self.gap_probe = DateGapProbe(self.components, self.dataset, self.cfg.gap_samples)
+            self.gap_probe = DateGapProbe(self.components, self.dataset, self.cfg.gap_samples,
+                                          autocast_dtype=AUTOCAST_DTYPES[self.cfg.autocast],
+                                          date_views=self.cfg.loss.date_views)
         self.model.eval()
         result = self.gap_probe(self.model, self.sigmas)
         stats = finetune_stats(self.model)
@@ -209,9 +213,9 @@ class Trainer:
             for _ in range(cfg.grad_accum):
                 self.epoch, sample = next(stream)
                 latents, cond, uncond = sample_conditions(self.components, sample, camera_scale=cfg.camera_scale)
-                with torch.autocast("cuda", dtype=TRAIN_AUTOCAST_DTYPE):
+                with torch.autocast("cuda", dtype=AUTOCAST_DTYPES[cfg.autocast]):
                     loss, info = training_loss(self.model, self.sigmas, latents, cond, uncond,
-                                               sample["date"], cfg.loss, gen)
+                                               sample["date"], cfg.loss, gen, is_input=sample["is_input"])
                 (loss / cfg.grad_accum).backward()
                 window.append({"loss": float(loss), **info})
             limit = self.clip_limit()

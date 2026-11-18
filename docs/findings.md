@@ -748,3 +748,72 @@ Smaller fixes: COLMAP FOV model parameters; probes use the dataset's `camera_sca
 
 **Now:** restarting the FiLM-only, 30-year-gap run from scratch with the fixed code (`nd_film_gap30_v2`). Results from before the audit aren't directly comparable.
 
+
+## Restart after the audit (`nd_film_gap30_v2`): dated renders break (2026-11-17)
+
+Same as the sixth run (FiLM only, inputs >30 years from targets, EDM, 20k steps), but with the audit fixes: bf16, spike-guard clipping only, the rebuilt dataset.
+
+- **Renders with a real date fall apart from step 2,500**: targets become collages of input fragments. By 20k they also turn yellow. Renders with the date set to unknown stay intact (only a slight warm drift).
+- **The loss again missed it**: probe loss stayed within ~2% of plain SEVA throughout.
+- **Not precision**: the same checkpoints rendered in bf16 (training's precision) instead of fp16 (SEVA's sampler) look identical. Peak activations ~450, no overflow.
+- **Not the size of the change**: at step 2,500 the FiLM scale/shift is about half the old run's at step 3,750, which rendered fine.
+- **Not the clipping change either**: a 2,500-step rerun with the old clip (`--grad-clip 1.0`, `nd_film_gap30_clip1`) is clean at 1,250 but broken at 2,500 in 3 of 5 target views. Its probe loss is a little better (0.0258 vs 0.0267).
+- **Not bf16, not the rebuilt dataset**: two more 2,500-step tests with the old clip, one change each, both break.
+  - fp16 on the new data (`--autocast fp16`, `nd_film_gap30_clip1_fp16`): worse. Blotches by step 1,250, even with the date unknown.
+  - bf16 on the pre-audit table, no undistortion (`data/datasets/25512_model0_preaudit`, `nd_film_gap30_clip1_olddata`): clean at 1,250, broken at 2,500. Its probe looked healthy (loss −7%, true dates beat unknown ones), so the loss misses this again.
+- Undistortion is a small change anyway: only 8 of 925 views have >5% of the crop outside the photo, and the typical largest shift is 4–7 px.
+- That run used the old run's exact views, anchors and training noise. So either the one remaining code difference (inputs must be >30 years from *every* target) matters, or the old run's clean renders were partly luck.
+- **It was luck.** Rerunning the old code itself (`git worktree` of `c0f9263`, old data, fp16, clip 1.0; `nd_film_gap30_oldcode_repro`) matches the old run's step-0 probe exactly (0.0264). Yet it is already broken at step 1,250, where the original was clean. The trajectories drift apart through GPU nondeterminism. The audit introduced no regression; this setup breaks easily, and the old run happened not to (yet).
+
+**The cause: the inputs' own dates.** I rendered the broken `olddata` checkpoint at step 2,500 with the dates assigned in different ways (fire probe: inputs 2012–17, river-side targets).
+
+| Dates at render time | Result |
+|---|---|
+| inputs real, targets 2021 (the probe) | broken |
+| same, no guidance (cfg 1) | worse: guidance is not the culprit |
+| inputs **unknown**, targets 2021 | clean |
+| **all** views 2021 | clean |
+| inputs real, targets **unknown** | broken |
+| inputs real, targets 1850 | broken |
+| **all** views 1850 | clean |
+
+- Real modern dates on the inputs break the render, whatever the target date. Unknown input dates, or every view sharing one date, render fine.
+- Likely shortcut: with a 30-year gap, a modern-dated input *always* came with old targets in training. Each view's FiLM sees only its own date, so the model learned "modern-dated input ⇒ old target ⇒ discount this input". That strips the input geometry and the targets get hallucinated.
+- The old "clean" run (step 2,500) shows the same pattern, only milder: real input dates with unknown or 1850 targets already degrade it. So the problem is the setup, not an audit regression.
+- **Not the size of the modulation.** I scaled the date FiLM by α at render time and measured each block's relative activation change ||h′−h||/||h||, separately for input and target views.
+  - Step 2,500 (`nd_film_gap30_clip1`): α ≤ 0.25 is clean, but its date effect is barely visible. α = 0.5 starts breaking; α = 1 is broken.
+  - **α = 1 with the input views left unmodulated is clean**, for both 1850 and 2021 targets.
+  - Per block, inputs change by 2–5% (up to 12–17% in the last two decoder blocks). Giving every view 2021 changes the inputs *more* (4.1% on average) than their real dates do (3.7%), yet renders clean. It is what the modulation does to modern-dated inputs, not how much.
+  - Step 20,000 (`nd_film_gap30_v2`): breaks from α = 0.25. With inputs unmodulated, 1850 targets are mostly fine, but 2021 targets turn yellow and partly break. After long training the target pathway misfires too.
+- **Root cause, both pathways:** with a 30-year gap every training sample spans two eras. Each view's FiLM (input or target) learns an era *translation* that assumes the other views are from the other era. On a same-era scene (the fire probe) both misfire. Hiding input dates removes the input shortcut, but targets can still learn "my inputs are from another era". Mixing in same-era samples addresses both.
+- Fix tests (5,000 steps, same settings as `nd_film_gap30_clip1`):
+  - `nd_film_fix_mixgap` (`--input-gap-fraction 0.5`): half the samples take inputs from any date, so an input's date no longer predicts the target era.
+  - `nd_film_fix_targetdates` (`--date-views targets`): only targets see their date. The inputs' era must come from how they look.
+- New options this round, all off by default: `--autocast`, `--film-freqs`, `--input-gap-fraction`, `--date-views`.
+
+**Fix results so far**
+- **Target-only dates (`nd_film_fix_targetdates`): clean at 1,250 and 2,500**, every date row. Every earlier setup was broken by 2,500. The date effect is still mild (rows differ in sky and lighting, no clear era look yet).
+  - At 3,750–5,000 the target date starts *changing content*: 2021 gets black, jagged, crane-like shapes over the roof and spire, plus teal tints. That is where the real 2019–24 training photos of these views show cranes, scaffolding and tarps. It is crude, and at 3,750 it also leaked onto 2015 (date aliasing, see below). 1850 and unknown stay clean; one tree-filled view memorises its training photo.
+  - Modern targets from old inputs (`modern_from_old`, a training-type case) stay black-and-white, and 2015 fragments. FiLM can only scale/shift channels per view, so it cannot take structure from the inputs while dropping their look. Pushing away from the inputs scrambles the geometry too. **FiLM alone looks capacity-limited for real changes (colour, new structures).**
+- **Target-only dates + mixed gap (`nd_film_fix_both`): clean at 1,250, 2,500, 3,750 and 5,000 in every row and view.**
+  - At 5,000 on `modern_from_old` (black-and-white inputs from 1905–36): 2015 and 2021 targets turn bluish and the structure stays intact. 1880, 1930 and unknown stay black-and-white. The first clean, date-driven step toward colour.
+  - Probe caveat: unknown dates still score slightly lower loss than true ones (−3%), as in every run so far. That includes 2015/2021 (broken with the mixed gap alone) and the tree view (broken with target-only alone). No crane scrambles and no aliasing. The most stable setup so far, but its date effect stays mild (tones, contrast). With same-era samples, 2021 targets often have modern inputs to copy from.
+- **Target-only with 4 octaves (`nd_film_fix_targetdates_f4`, no mixed gap): fewer octaves alone don't fix it.** Clean at 2,500. At 5,000, 1960 (an era with few photos) breaks, and 2015/2021 turn strongly golden. True dates are nearest neutral vs unknown here (−0.5%), but high-noise error drifted most (+8.9%). Stopped at ~5,000. Without same-era samples the target pathway still miscalibrates.
+- **Combined + LoRA (`nd_film_fix_both_lora`, rank 32, lr 1e-5)**, the only difference being LoRA:
+  - Clean on the fire probe at 1,250 and 2,500.
+  - Best probe so far at 2,500: loss −7.5%, and high-noise error *below* its start (0.535 vs 0.541). Every other run drifted up.
+  - But on `modern_from_old` its 2015/2021 targets are washed out and partly fragmented, with no colour. FiLM alone kept the structure and added a blue tint. LoRA does not (yet) give the hoped-for "structure without appearance". Running to 5,000.
+- **Combined resumed from 5,000 toward 12,500 (same run dir)**:
+  - Still structurally clean at 6,250, but 2021 picks up a purple-pink cast and 1850/1900 show small dark blotches. Colour drift may be starting (cf. v2's yellow at 20k).
+  - At 7,500 the purple has faded and 1850–2015 are clean. One 2021 view has a white-blue patch over the roof (tarps in the real 2021 photos, or a defect?). Swapping old targets' dates now raises loss by 2.1%.
+  - At 8,750 degradation creeps in: two 1900 views partly fragment, 2021 is purple again with one dark blob, and contrast turns harsh. **The fix delays and softens the failure but does not remove it in long training.** The remaining per-date memorisation is the likely cause (a single scene makes memorising easy). For now, about 5,000 steps is the safe range.
+- **LoRA run, final (5,000): clean on the fire probe at every checkpoint, best probe numbers.** High-noise error keeps falling (0.541 → 0.531) while every FiLM-only run drifts up.
+  - At 2021 it adds faint whitish vertical shapes on the left of three views, roughly where the real 2024 photos have cranes/scaffolding, without disturbing the cathedral. Cleaner than FiLM-only's crude black shapes, but faint.
+  - Still no colour from old inputs: on `modern_from_old`, 2015 is warm sepia and 2021 hazy; 1880, 1930 and unknown stay black-and-white.
+  - Verdict: LoRA is safe with the fixed date setup (it broke geometry before, with the input shortcut present). It doesn't yet give much stronger date effects in 5,000 steps.
+  - At 10,000 it is clearly degraded: harsh contrast, fragmented 1900 views, dark purple partial breaks on 2021. Probe: unknown dates beat true ones by 4% (the widest gap yet), swapping dates no longer costs anything, high-noise error +6.7%. Stopped at 10,000.
+- Next:
+  - The combined setup with the smooth 4-octave encoding (`nd_film_fix_both_f4`, 10k steps), to see whether it stays clean past 5,000.
+  - The LoRA run resumed from 5,000 to 10,000, the only setup whose probe keeps improving.
+- **Mixed gap (`nd_film_fix_mixgap`): only partly fixed.** Clean at 1,250. At 2,500, 1850–1960 are mostly clean but 2015 and 2021 break, although modern inputs with modern targets are common in its training. True dates now *raise* probe loss vs unknown (−3.4%). Stopped at ~3,000 to free a slot.
+- **Second problem: per-date memorisation.** With 8 Fourier octaves the shortest period is 1.6 years. Along 2000–2025, the last block's modulation wiggles within 5 years as much as it changes across 5-year averages. In `nd_film_gap30_v2` (20k), 2017 is *further* from 2015 than 2021 is (0.87 vs 0.83). Era style cannot do that; it is memorising individual photos' looks (lighting, exposure) by date. Next: target-only dates with `--film-freqs 4` (periods ≥ 25 years), 10k steps (`nd_film_fix_targetdates_f4`). Also queued: target-only + mixed gap (`nd_film_fix_both`).

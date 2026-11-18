@@ -18,7 +18,7 @@ from pathlib import Path
 
 from timemachine.data.sampling import SamplingConfig
 from timemachine.model.finetune import FinetuneConfig
-from timemachine.training.loss import LossConfig
+from timemachine.training.loss import AUTOCAST_DTYPES, DATE_VIEWS, LossConfig
 from timemachine.training.probes import load_probe_specs
 from timemachine.training.trainer import TrainConfig, Trainer
 
@@ -37,8 +37,12 @@ def main() -> None:
     p.add_argument("--date-injection", choices=["film", "timestep"], default=FinetuneConfig.date_injection,
                    help="film: per-block date scale-and-shift; timestep: date vector added to the timestep embedding")
     p.add_argument("--film-dim", type=int, default=FinetuneConfig.film_dim)
+    p.add_argument("--film-freqs", type=int, default=FinetuneConfig.film_freqs,
+                   help="Fourier octaves of the FiLM date encoder (shortest period 200/2^(n-1) years)")
     p.add_argument("--warmup", type=int, default=TrainConfig.warmup_steps)
     p.add_argument("--grad-accum", type=int, default=1)
+    p.add_argument("--autocast", choices=sorted(AUTOCAST_DTYPES), default=TrainConfig.autocast,
+                   help="training precision (fp16, without a gradient scaler, reproduces pre-audit runs)")
     p.add_argument("--grad-clip", type=float, default=0.0, help="absolute gradient-norm clip (0: off)")
     p.add_argument("--grad-clip-factor", type=float, default=TrainConfig.grad_clip_factor,
                    help="clip only spikes above this x the median of recent gradient norms (0: off)")
@@ -53,7 +57,11 @@ def main() -> None:
     p.add_argument("--min-input-gap", type=float, default=0.0,
                    help="inputs must be more than this many years from the target date (0: any date), so the "
                         "model cannot copy the targets' look from a same-date input and has to use the date")
+    p.add_argument("--input-gap-fraction", type=float, default=1.0,
+                   help="share of samples that enforce --min-input-gap; the rest take inputs from any date")
     p.add_argument("--uncond-prob", type=float, default=0.1)
+    p.add_argument("--date-views", choices=DATE_VIEWS, default="all",
+                   help="targets: only target views see their date (inputs always unknown)")
     p.add_argument("--date-dropout", type=float, default=0.1)
     p.add_argument("--no-date-jitter", action="store_true")
     p.add_argument("--weighting", choices=["eps", "edm", "min_snr"], default="eps",
@@ -75,19 +83,21 @@ def main() -> None:
     cfg = TrainConfig(
         dataset=str(args.dataset), run_dir=str(args.runs_root / args.run_name), steps=args.steps,
         lr_lora=args.lr_lora, lr_date=args.lr_date, lr_film=args.lr_film, warmup_steps=args.warmup, grad_accum=args.grad_accum,
+        autocast=args.autocast,
         grad_clip=args.grad_clip or None, grad_clip_factor=args.grad_clip_factor or None,
         seed=args.seed, num_workers=args.num_workers, log_every=args.log_every, gap_every=args.gap_every,
         render_every=args.render_every, save_every=args.save_every, render_steps=args.render_steps,
         abort_loss_ratio=args.abort_loss_ratio or None, abort_x0_ratio=args.abort_x0_ratio or None,
         sampling=SamplingConfig(n_inputs=args.n_inputs, n_targets=args.n_targets,
                                 old_target_fraction=args.old_target_fraction or None,
-                                min_input_gap=args.min_input_gap,
+                                min_input_gap=args.min_input_gap, input_gap_fraction=args.input_gap_fraction,
                                 max_neighbors=args.max_neighbors or None),
         loss=LossConfig(uncond_prob=args.uncond_prob, date_dropout=args.date_dropout,
-                        date_jitter=not args.no_date_jitter, weighting=args.weighting),
+                        date_jitter=not args.no_date_jitter, weighting=args.weighting,
+                        date_views=args.date_views),
         finetune=FinetuneConfig(lora_rank=args.lora_rank, grad_checkpointing=not args.no_grad_checkpointing,
                                 date_max_abs=args.date_max_abs, date_injection=args.date_injection,
-                                film_dim=args.film_dim),
+                                film_dim=args.film_dim, film_freqs=args.film_freqs),
         render_probes=tuple(load_probe_specs(args.probes)) if args.probes else (),
     )
     trainer = Trainer(cfg)
