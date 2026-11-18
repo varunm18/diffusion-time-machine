@@ -39,6 +39,9 @@ def main() -> None:
     p.add_argument("--film-dim", type=int, default=FinetuneConfig.film_dim)
     p.add_argument("--warmup", type=int, default=TrainConfig.warmup_steps)
     p.add_argument("--grad-accum", type=int, default=1)
+    p.add_argument("--grad-clip", type=float, default=0.0, help="absolute gradient-norm clip (0: off)")
+    p.add_argument("--grad-clip-factor", type=float, default=TrainConfig.grad_clip_factor,
+                   help="clip only spikes above this x the median of recent gradient norms (0: off)")
     p.add_argument("--lora-rank", type=int, default=32, help="0: train the date module only")
     p.add_argument("--no-grad-checkpointing", action="store_true")
     p.add_argument("--date-max-abs", type=float, default=None,
@@ -72,6 +75,7 @@ def main() -> None:
     cfg = TrainConfig(
         dataset=str(args.dataset), run_dir=str(args.runs_root / args.run_name), steps=args.steps,
         lr_lora=args.lr_lora, lr_date=args.lr_date, lr_film=args.lr_film, warmup_steps=args.warmup, grad_accum=args.grad_accum,
+        grad_clip=args.grad_clip or None, grad_clip_factor=args.grad_clip_factor or None,
         seed=args.seed, num_workers=args.num_workers, log_every=args.log_every, gap_every=args.gap_every,
         render_every=args.render_every, save_every=args.save_every, render_steps=args.render_steps,
         abort_loss_ratio=args.abort_loss_ratio or None, abort_x0_ratio=args.abort_x0_ratio or None,

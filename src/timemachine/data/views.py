@@ -17,7 +17,7 @@ from timemachine.megascenes.index import load_image_index
 
 VIEW_COLUMNS = [
     "scene_id", "model", "file_key", "path", "title",
-    "camera_width", "camera_height", "fx", "fy", "cx", "cy",
+    "camera_width", "camera_height", "fx", "fy", "cx", "cy", "k1", "k2",
     "qw", "qx", "qy", "qz", "tx", "ty", "tz",
     "date_lo", "date_hi", "date_mid", "date_confidence", "era", "medium", "color_hint",
     "pose_source",
@@ -37,6 +37,9 @@ def build_view_table(
     several times (duplicate paths) keep their first entry.
     """
     poses = pd.read_parquet(paths.poses_table(scene_id))
+    if "k1" not in poses:
+        raise ValueError(f"{paths.poses_table(scene_id)} predates lens-distortion columns; "
+                         "re-fetch it (fetch_scene_poses(..., overwrite=True))")
     poses = poses[poses["model"] == model].drop_duplicates("file_key")
     dates = pd.read_parquet(paths.dates_table(scene_id))
     meta = pd.read_parquet(paths.image_metadata_table(scene_id), columns=["file_key", "title"])
@@ -58,14 +61,16 @@ def build_view_table(
 
 
 def unposed_candidates(paths: DataPaths, scene_id: int, model: int, before: float,
-                       max_date_width: float = 30.0) -> pd.DataFrame:
+                       max_date_width: float = 30.0, min_date_confidence: float = 0.3) -> pd.DataFrame:
     """Dated photographic files of a scene older than ``before`` that ``model`` did not register.
 
     These are the images to place with a feed-forward model (e.g. VGGT-Omega).
     Includes the image ``path`` from the MegaScenes index so they can be downloaded.
+    The date filters match :func:`build_view_table`.
     """
     files = load_scene(paths, scene_id)
     keep = ((files["date_mid"] < before) & (files["date_width"] <= max_date_width)
+            & (files["date_confidence"] >= min_date_confidence)
             & files["photographic"] & ~files["models"].apply(lambda m: model in m))
     scene_name = pd.read_parquet(paths.scene_table).set_index("scene_id").loc[scene_id, "scene"]
     index = load_image_index(paths.images_index, columns=["cat", "image"])
@@ -91,6 +96,7 @@ def registered_to_views(queries: pd.DataFrame, poses: pd.DataFrame, model: int) 
     views["camera_width"], views["camera_height"] = views["image_width"], views["image_height"]
     views["fx"] = views["fy"] = poses["focal"].to_numpy()
     views["cx"], views["cy"] = views["image_width"] / 2, views["image_height"] / 2
+    views["k1"] = views["k2"] = 0.0                        # VGGT-Omega predicts pinhole cameras
     views["era"] = assign_era(views["date_mid"], views["date_width"])
     views["pose_source"] = "vggt_omega"
     extra = [c for c in ("image_path", "image_width", "image_height", "saturation", "chroma_minor",
@@ -104,3 +110,19 @@ def confident_registrations(views: pd.DataFrame, max_rot_spread: float = 10.0,
     keep = ((views["n_batches"] >= min_batches) & (views["rot_spread_deg"] <= max_rot_spread)
             & (views["center_spread"] <= max_center_spread) & views["qw"].notna())
     return views[keep].reset_index(drop=True)
+
+
+def likely_stereo_cards(views: pd.DataFrame, before: float = 1930.0,
+                        aspect: tuple[float, float] = (1.9, 2.1)) -> pd.Series:
+    """Bool mask of views that look like stereo cards: two side-by-side photos in one image.
+
+    COLMAP registers such a card as a single pinhole camera, which describes neither
+    half, and a centre crop lands on the seam. Rule: an old view (``date_mid`` before
+    ``before``) with an aspect ratio within ``aspect``, or a title mentioning
+    stereo/stéréo. On Notre-Dame it flags exactly the 9 stereo cards among the 14 old
+    views wider than 1.6:1 (the others are panoramas at 1.75-1.85 and a 2.23 postcard).
+    """
+    ratio = views["image_width"] / views["image_height"]
+    shaped = (views["date_mid"] < before) & ratio.between(*aspect)
+    titled = views["title"].fillna("").str.contains(r"st[eé]r[eé]o", case=False, regex=True)
+    return shaped | titled

@@ -194,7 +194,8 @@ A run folder (`data/experiments/train/<run>/`) has `config.json`, `log.jsonl`,
 `checkpoints/` and `renders/step_*/` (one contact sheet per probe: the same
 target cameras rendered at several years). Training stops by itself if the probe loss rises
 above 3x its starting value (`--abort-loss-ratio`), or its high-noise error above 1.5x
-(`--abort-x0-ratio`).
+(`--abort-x0-ratio`). Training autocasts to bf16, and gradient clipping only catches spikes
+(above 10x the recent median, `--grad-clip-factor`), so the per-noise-level weighting acts.
 
 When a run goes wrong:
 

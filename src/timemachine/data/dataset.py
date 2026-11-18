@@ -29,7 +29,7 @@ from torch.utils.data import Dataset
 
 from timemachine.data.cameras import (
     adjust_intrinsics, camera_features, colmap_to_c2w, intrinsics_matrix, normalize_cameras,
-    normalize_intrinsics, resize_and_center_crop_params,
+    normalize_intrinsics, resize_and_center_crop_params, undistorted_crop,
 )
 from timemachine.data.sampling import SamplingConfig, eligible_anchors, sample_views
 from timemachine.dating.medium import Medium
@@ -37,24 +37,34 @@ from timemachine.dating.medium import Medium
 MEDIUM_CODES = {Medium.UNKNOWN: 0, Medium.PHOTO: 1, Medium.POSTCARD: 2, Medium.PAINTING: 3,
                 Medium.PRINT: 4, Medium.DRAWING: 5, Medium.PLAN: 6, Medium.ARTWORK: 7}
 
-_REQUIRED = ("image_path", "image_width", "image_height", "camera_width", "camera_height",
-             "fx", "fy", "cx", "cy", "qw", "qx", "qy", "qz", "tx", "ty", "tz",
+_REQUIRED = ("scene_id", "image_path", "image_width", "image_height", "camera_width", "camera_height",
+             "fx", "fy", "cx", "cy", "k1", "k2", "qw", "qx", "qy", "qz", "tx", "ty", "tz",
              "date_lo", "date_hi", "date_mid", "medium", "is_monochrome", "file_key")
 
 
-def load_view(row: pd.Series, size: int) -> tuple[torch.Tensor, np.ndarray]:
-    """Image tensor (3, size, size) in [-1, 1] and its pixel intrinsics after resize + crop."""
+def load_view(row, size: int) -> tuple[torch.Tensor, np.ndarray]:
+    """Image tensor (3, size, size) in [-1, 1] and its pinhole pixel intrinsics after resize + crop.
+
+    The short side is resized to ``size`` (antialiased), then the centre square is
+    taken; views with radial distortion (``k1``/``k2``) are undistorted in that same
+    step, so the returned intrinsics describe a distortion-free camera.
+    """
+    if not (np.isfinite(row.k1) and np.isfinite(row.k2)):
+        raise ValueError(f"{row.file_key}: unsupported lens model (no radial coefficients)")
     image = Image.open(row.image_path).convert("RGB")
     scale, left, top = resize_and_center_crop_params(image.width, image.height, size)
     new_w, new_h = round(image.width * scale), round(image.height * scale)
-    image = image.resize((new_w, new_h), Image.Resampling.BICUBIC).crop((left, top, left + size, top + size))
-    pixels = torch.from_numpy(np.asarray(image, dtype=np.float32) / 127.5 - 1.0).permute(2, 0, 1)
+    image = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
 
     # COLMAP intrinsics refer to the camera's resolution; our cached file may be smaller.
     K = intrinsics_matrix(row.fx, row.fy, row.cx, row.cy)
     K = adjust_intrinsics(K, row.image_width / row.camera_width, row.image_height / row.camera_height)
-    K = adjust_intrinsics(K, new_w / row.image_width, new_h / row.image_height, left, top)
-    return pixels, K
+    K = adjust_intrinsics(K, new_w / row.image_width, new_h / row.image_height)
+    if row.k1 == 0 and row.k2 == 0:
+        pixels = np.asarray(image.crop((left, top, left + size, top + size)), dtype=np.float32)
+        return torch.from_numpy(pixels / 127.5 - 1.0).permute(2, 0, 1), adjust_intrinsics(K, 1, 1, left, top)
+    pixels = torch.from_numpy(np.asarray(image, dtype=np.float32) / 127.5 - 1.0).permute(2, 0, 1)
+    return undistorted_crop(pixels, K, row.k1, row.k2, left, top, size)
 
 
 class DatedViewsDataset(Dataset):
@@ -70,8 +80,8 @@ class DatedViewsDataset(Dataset):
         missing = [c for c in _REQUIRED if c not in views]
         if missing:
             raise ValueError(f"View table is missing columns: {missing}")
-        if views["model"].nunique() != 1:
-            raise ValueError("All views must come from one COLMAP model (one coordinate frame).")
+        if views["model"].nunique() != 1 or views["scene_id"].nunique() != 1:
+            raise ValueError("All views must come from one COLMAP model of one scene (one coordinate frame).")
         self.views = views.reset_index(drop=True)
         self.config = config
         self.resolution = resolution

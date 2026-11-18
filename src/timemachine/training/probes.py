@@ -33,7 +33,7 @@ from timemachine.data.images import color_stats
 from timemachine.model.inference import generate_targets
 from timemachine.model.loading import SevaComponents
 from timemachine.training.conditioning import sample_conditions
-from timemachine.training.loss import NUM_LEVELS, noise_prediction_loss
+from timemachine.training.loss import NUM_LEVELS, TRAIN_AUTOCAST_DTYPE, noise_prediction_loss
 
 SWAP_BOUNDARY = 1980.0   # targets dated before this are swapped to MODERN_SWAP, others to OLD_SWAP
 MODERN_SWAP = 2015.0
@@ -62,7 +62,7 @@ class DateGapProbe:
         dataset.set_epoch(10_000 + seed)                     # an epoch the training run never uses
         for i in range(n_samples):
             sample = dataset[i]
-            latents, cond, _ = sample_conditions(components, sample, device)
+            latents, cond, _ = sample_conditions(components, sample, device, camera_scale=dataset.camera_scale)
             self.items.append({
                 "latents": latents, "cond": cond, "level": int(levels[i]),
                 "noise": torch.randn(latents.shape, generator=gen).to(device),
@@ -76,7 +76,7 @@ class DateGapProbe:
         rows = []
         for it in self.items:
             ones = torch.ones_like(it["is_input"])
-            with torch.autocast("cuda"):
+            with torch.autocast("cuda", dtype=TRAIN_AUTOCAST_DTYPE):
                 def loss(year, valid):
                     return float(noise_prediction_loss(model, sigmas, it["latents"], it["cond"], it["level"],
                                                        it["noise"], year, valid))
@@ -108,7 +108,7 @@ class DateGapProbe:
 # ----------------------------------------------------------------------------
 @dataclass(frozen=True)
 class RenderProbeSpec:
-    """Which views to render, and at which years. ``None`` in ``render_years`` = date unknown."""
+    """Which views to render, and at which years. ``None`` in ``render_years`` = all dates unknown."""
 
     name: str
     target_range: tuple[float, float]           # real targets dated in [lo, hi)
@@ -167,6 +167,7 @@ def _year_label(year: float | None) -> str:
 class RenderProbe:
     def __init__(self, dataset: DatedViewsDataset, spec: RenderProbeSpec):
         self.spec = spec
+        self.camera_scale = dataset.camera_scale
         self.rows = select_probe_rows(dataset, spec)
         self.sample = dataset.make_sample(self.rows, spec.n_inputs)
 
@@ -184,11 +185,12 @@ class RenderProbe:
         targets = (~is_input).nonzero().flatten().tolist()
         real_year = float(s["date_mid"][targets].median())
         renders, metrics = {}, []
-        for year in self.spec.render_years:
+        for year in dict.fromkeys(self.spec.render_years):   # unique, in order (renders is keyed by year)
+            # "Unknown" marks every view unknown, as date dropout does in training.
             dates = torch.where(is_input, s["date_mid"], torch.full_like(s["date_mid"], year or 0.0))
-            valid = is_input | (year is not None)
+            valid = torch.full_like(is_input, year is not None)
             out = generate_targets(components, s["images"].cuda(), s["K"].cuda(), s["c2w"].cuda(),
-                                   is_input.cuda(), dates=dates, date_valid=valid,
+                                   is_input.cuda(), dates=dates, date_valid=valid, camera_scale=self.camera_scale,
                                    num_steps=num_steps, seed=seed, cfg=cfg).cpu()
             renders[year] = out
             stats = [color_stats(_pil(out[j], 96)) for j in targets]

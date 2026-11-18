@@ -72,6 +72,8 @@ def main() -> None:
 
     paths = DataPaths()
     views = pd.read_parquet(paths.dataset_dir(args.scene, args.model) / "views.parquet")
+    # Anchors and eval ground truth must be COLMAP poses, not earlier VGGT registrations.
+    views = views[views["pose_source"] == "megascenes_colmap"]
     anchors = views[views["date_mid"] >= 2000].reset_index(drop=True)
     if args.mode == "eval":
         queries = views[views["date_mid"] < args.before].reset_index(drop=True)

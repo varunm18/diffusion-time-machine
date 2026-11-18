@@ -21,7 +21,7 @@ from timemachine.data.dataset import DatedViewsDataset
 from timemachine.data.images import download_view_images
 from timemachine.data.preview import save_sample_previews
 from timemachine.data.sampling import SamplingConfig
-from timemachine.data.views import build_view_table, confident_registrations
+from timemachine.data.views import build_view_table, confident_registrations, likely_stereo_cards
 from timemachine.megascenes.index import select_scenes
 from timemachine.megascenes.s3 import MegaScenesBucket
 
@@ -37,6 +37,9 @@ def main() -> None:
                         "<data>/posing/<id>_model<m>/register_<tag>_views.parquet")
     parser.add_argument("--max-center-spread", type=float, default=0.1,
                         help="confidence filter for VGGT poses (fraction of the scene size)")
+    parser.add_argument("--keep-stereo", action="store_true",
+                        help="keep views that look like stereo cards (dropped by default: one pinhole "
+                             "camera cannot describe two side-by-side photos)")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -59,6 +62,10 @@ def main() -> None:
     views = download_view_images(MegaScenesBucket(), paths, views, args.max_side, args.workers)
     if views.attrs.get("failed"):
         print(f"{len(views.attrs['failed'])} images failed to download (skipped)")
+    if not args.keep_stereo:
+        stereo = likely_stereo_cards(views)
+        print(f"dropping {int(stereo.sum())} likely stereo cards: {views.loc[stereo, 'file_key'].tolist()}")
+        views = views[~stereo].reset_index(drop=True)
     if args.vggt_tag:
         registered = pd.read_parquet(paths.posing_dir(sid, model) / f"register_{args.vggt_tag}_views.parquet")
         confident = confident_registrations(registered, max_center_spread=args.max_center_spread)

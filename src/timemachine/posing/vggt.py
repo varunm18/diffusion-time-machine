@@ -63,7 +63,8 @@ class VGGTOmegaRunner:
         """Original-pixel -> network-pixel scale, mirroring VGGT-Omega's preprocessing."""
         image = Image.open(path)
         cropped = self._load_fn._crop_to_supported_aspect_ratio(image)
-        _, target_w = self._load_fn._balanced_target_shape(cropped.width / cropped.height,
+        # VGGT-Omega's load_fn passes height / width (not width / height).
+        _, target_w = self._load_fn._balanced_target_shape(cropped.height / cropped.width,
                                                            self.resolution, 16)
         return target_w / cropped.width
 

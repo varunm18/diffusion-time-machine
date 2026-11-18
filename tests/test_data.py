@@ -113,8 +113,8 @@ def views(tmp_path):
         angle = i * 0.3
         q = [np.cos(angle / 2), 0.0, np.sin(angle / 2), 0.0]
         rows.append(dict(
-            model=0, file_key=f"{i}.jpg", image_path=str(path), image_width=80, image_height=60,
-            camera_width=800, camera_height=600, fx=700.0, fy=700.0, cx=400.0, cy=300.0,
+            scene_id=1, model=0, file_key=f"{i}.jpg", image_path=str(path), image_width=80, image_height=60,
+            camera_width=800, camera_height=600, fx=700.0, fy=700.0, cx=400.0, cy=300.0, k1=0.0, k2=0.0,
             qw=q[0], qx=q[1], qy=q[2], qz=q[3], tx=0.1 * i, ty=0.0, tz=3.0,
             date_lo=np.floor(date), date_hi=np.floor(date) + 1, date_mid=date,
             medium="photo", is_monochrome=date < 1970,

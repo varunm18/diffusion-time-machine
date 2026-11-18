@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from timemachine.model.diagnostics import finetune_stats
 from timemachine.model.finetune import FinetuneConfig, load_trainable_state_dict, prepare_for_finetuning, save_checkpoint
 from timemachine.model.loading import SevaComponents, load_components
 from timemachine.training.conditioning import sample_conditions
-from timemachine.training.loss import LossConfig, training_loss
+from timemachine.training.loss import TRAIN_AUTOCAST_DTYPE, LossConfig, training_loss
 from timemachine.training.probes import DateGapProbe, RenderProbe, RenderProbeSpec
 
 
@@ -45,7 +46,11 @@ class TrainConfig:
     lr_date: float = 1e-4                           # date vector added to the timestep embedding
     lr_film: float = 1e-5                           # date FiLM (per-block layers act like LoRA: keep it low)
     warmup_steps: int = 200
-    grad_clip: float = 1.0
+    # One sample per step, so a fixed clip at 1.0 (the old default) rescaled almost every update
+    # to norm 1 and cancelled the per-noise-level loss weighting (docs/findings.md, code audit).
+    # Now clipping only catches spikes: above grad_clip_factor x the median of recent norms.
+    grad_clip: float | None = None                  # absolute clip (off by default)
+    grad_clip_factor: float | None = 10.0           # spike guard, relative to the running median
     grad_accum: int = 1
     resolution: int = 576
     camera_scale: float = 2.0
@@ -106,10 +111,18 @@ class Trainer:
         print(f"[train] {len(views)} views, {len(self.dataset.anchors)} anchors; trainable params "
               f"{n_train / 1e6:.1f}M ({sizes})", flush=True)
 
+        self.grad_norm_history: deque[float] = deque(maxlen=200)
         self.gap_probe = None
         self.probe_baseline: dict[str, float] = {}      # first value of each watched probe loss (step 0 if fresh)
         self.render_probes = [RenderProbe(self.dataset, spec) for spec in cfg.render_probes]
         (self.run_dir / "probes.json").write_text(json.dumps([p.describe() for p in self.render_probes], indent=2))
+
+    def clip_limit(self) -> float:
+        """Gradient-norm limit for this step: the absolute clip and/or the spike guard (inf = none)."""
+        limit = self.cfg.grad_clip or math.inf
+        if self.cfg.grad_clip_factor and len(self.grad_norm_history) >= 50:
+            limit = min(limit, self.cfg.grad_clip_factor * float(np.median(self.grad_norm_history)))
+        return limit
 
     # ------------------------------------------------------------------ state
     def save(self, tag: str | None = None) -> Path:
@@ -196,13 +209,17 @@ class Trainer:
             for _ in range(cfg.grad_accum):
                 self.epoch, sample = next(stream)
                 latents, cond, uncond = sample_conditions(self.components, sample, camera_scale=cfg.camera_scale)
-                with torch.autocast("cuda"):
+                with torch.autocast("cuda", dtype=TRAIN_AUTOCAST_DTYPE):
                     loss, info = training_loss(self.model, self.sigmas, latents, cond, uncond,
                                                sample["date"], cfg.loss, gen)
                 (loss / cfg.grad_accum).backward()
                 window.append({"loss": float(loss), **info})
-            grad_norm = float(torch.nn.utils.clip_grad_norm_(self.params, cfg.grad_clip))
+            limit = self.clip_limit()
+            grad_norm = float(torch.nn.utils.clip_grad_norm_(self.params, limit))
             window[-1]["grad_norm"] = grad_norm
+            window[-1]["clipped"] = grad_norm > limit
+            if math.isfinite(grad_norm):
+                self.grad_norm_history.append(grad_norm)
             if not math.isfinite(grad_norm):
                 print(f"[train] step {self.step}: non-finite grad norm, skipping update", flush=True)
                 self.optimizer.zero_grad(set_to_none=True)
@@ -220,12 +237,14 @@ class Trainer:
                           "loss_cond": float(np.mean(cond_losses)) if cond_losses else None,
                           "eps_mse": float(np.mean([w["eps_mse"] for w in window])),
                           "grad_norm_median": float(np.median(norms)), "grad_norm_max": float(norms.max()),
-                          "lr_lora": self.optimizer.param_groups[-1]["lr"],
+                          "clipped_fraction": float(np.mean([w["clipped"] for w in window if "clipped" in w])),
+                          **{f"lr_{g['name']}": g["lr"] for g in self.optimizer.param_groups},
                           "sec_per_step": elapsed / cfg.log_every,
                           "max_mem_gb": torch.cuda.max_memory_allocated() / 2**30}
                 self.log(record)
                 print(f"[train] step {self.step} loss {record['loss']:.4f} eps-mse {record['eps_mse']:.4f} "
                       f"gnorm median {record['grad_norm_median']:.2g} max {record['grad_norm_max']:.2g} "
+                      f"clipped {record['clipped_fraction']:.0%} "
                       f"{record['sec_per_step']:.2f}s/step mem {record['max_mem_gb']:.1f}GB", flush=True)
                 window, t_last = [], time.time()
             t_busy = time.time()   # probe/checkpoint time is kept out of the speed measurement

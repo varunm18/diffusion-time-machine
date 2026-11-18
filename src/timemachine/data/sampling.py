@@ -55,8 +55,9 @@ def eligible_anchors(dates: np.ndarray, cfg: SamplingConfig) -> np.ndarray:
     """Indices of views whose same-date group can supply all targets and leave enough inputs."""
     diff = np.abs(dates[:, None] - dates[None, :])                    # (N, N)
     same = diff <= tolerance(cfg, dates)[:, None]
-    if cfg.min_input_gap > 0:   # conservative: inputs from outside the target group only
-        n_inputs_available = ((diff > cfg.min_input_gap) & ~same).sum(axis=1)
+    if cfg.min_input_gap > 0:   # conservative: far enough from *any* date the targets can have
+        reach = cfg.min_input_gap + tolerance(cfg, dates)[:, None]
+        n_inputs_available = ((diff > reach) & ~same).sum(axis=1)
     else:
         n_inputs_available = np.full(len(dates), len(dates) - cfg.n_targets)
     ok = (same.sum(axis=1) >= cfg.n_targets) & (n_inputs_available >= cfg.n_inputs)
@@ -101,8 +102,9 @@ def sample_views(dates: np.ndarray, cfg: SamplingConfig, rng: np.random.Generato
     targets = np.concatenate([[anchor], rng.choice(others, cfg.n_targets - 1, replace=False)])
 
     candidates = np.setdiff1d(np.arange(len(dates)), targets)
-    if cfg.min_input_gap > 0:
-        candidates = candidates[gap[candidates] > cfg.min_input_gap]
+    if cfg.min_input_gap > 0:   # more than the gap from every target's date
+        to_targets = np.abs(dates[candidates, None] - dates[None, targets]).min(axis=1)
+        candidates = candidates[to_targets > cfg.min_input_gap]
     candidates = _nearest(candidates, distance, cfg.max_neighbors)
     inputs = rng.choice(candidates, cfg.n_inputs, replace=False)
     return inputs, targets

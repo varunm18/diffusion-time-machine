@@ -33,6 +33,9 @@ import torch
 from torch import nn
 
 NUM_LEVELS = 1000
+# Training (and the date-gap probe) autocast to bf16: torch's CUDA default is fp16, which
+# without a GradScaler lets small gradients underflow (code audit, docs/findings.md).
+TRAIN_AUTOCAST_DTYPE = torch.bfloat16
 
 
 WEIGHTINGS = ("eps", "edm", "min_snr")

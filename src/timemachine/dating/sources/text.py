@@ -53,8 +53,10 @@ _ISO_MONTH = re.compile(rf"\b{_Y}-(\d{{1,2}})\b(?![-:.]\d)")
 _DMY = re.compile(rf"\b(\d{{1,2}})\.?\s+({MONTH_PATTERN})\.?,?\s+{_Y}\b")
 _MDY = re.compile(rf"\b({MONTH_PATTERN})\.?\s+(\d{{1,2}}),?\s+{_Y}\b")
 _MY = re.compile(rf"\b({MONTH_PATTERN})\.?,?\s+{_Y}\b")
-_BEFORE = re.compile(rf"\b(?:before|prior to|vor|avant|antes de|not after)\s+(?:[\w.]+\s+){{0,2}}{_Y}\b")
-_AFTER = re.compile(rf"\b(?:after|nach|après|apres|después de|not before|since)\s+(?:[\w.]+\s+){{0,2}}{_Y}\b")
+# "not before 1890" means *after* 1890 (and "not after" means before): the lookbehinds keep
+# the plain keyword from matching inside its negation.
+_BEFORE = re.compile(rf"\b(?:(?<!not )before|prior to|vor|avant|antes de|not after)\s+(?:[\w.]+\s+){{0,2}}{_Y}\b")
+_AFTER = re.compile(rf"\b(?:(?<!not )after|nach|après|apres|después de|not before|since)\s+(?:[\w.]+\s+){{0,2}}{_Y}\b")
 _CIRCA = re.compile(rf"(?:\b(?:circa|ca|c|around|about|approx|approximately|um|vers|env|hacia)\b\.?|~)\s*{_Y}\b(?!s)")
 _DECADE = re.compile(r"\b(\d{3}0)(?:s|'s|er|er jahre)\b")
 _CENTURY = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th|\.)\s+(?:century|jahrhundert)\b")

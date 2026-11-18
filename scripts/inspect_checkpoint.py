@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Size of a checkpoint's date embedding and LoRA updates relative to SEVA (CPU, light).
+"""Size of a checkpoint's date embedding, date FiLM and LoRA updates relative to SEVA (CPU, light).
 
 Reads only the tensors it needs from SEVA's safetensors file (memory-mapped),
 so it runs anywhere in seconds. See ``timemachine.model.diagnostics``.
@@ -17,8 +17,33 @@ from safetensors import safe_open
 from torch import nn
 
 from timemachine.model.date_embedding import DateEmbedding
-from timemachine.model.diagnostics import date_embedding_rms, lora_relative_update, summarize_lora, timestep_embedding_rms
+from timemachine.model.date_film import DateEncoder
+from timemachine.model.diagnostics import (
+    date_embedding_rms, date_film_stats, lora_relative_update, summarize_lora, timestep_embedding_rms,
+)
 from timemachine.model.loading import SEVA_REPO, default_hub, snapshot_dir
+
+
+class _FiLMLayer:
+    """CPU stand-in for a DateFiLMConv: just its per-block linear layer."""
+
+    def __init__(self, weight: torch.Tensor, bias: torch.Tensor):
+        self.film = nn.Linear(weight.shape[1], weight.shape[0])
+        self.film.load_state_dict({"weight": weight.float(), "bias": bias.float()})
+
+    def scale_shift(self, features):
+        return self.film(features).chunk(2, dim=1)
+
+
+def film_stats(state: dict | None, dim: int) -> dict:
+    """Date-FiLM scale/shift sizes of a checkpoint (empty for checkpoints without FiLM)."""
+    if not state:
+        return {}
+    encoder = DateEncoder(dim)
+    encoder.load_state_dict(state["encoder"])
+    names = sorted({k.rsplit(".", 1)[0] for k in state["layers"]})
+    layers = {n: _FiLMLayer(state["layers"][f"{n}.weight"], state["layers"][f"{n}.bias"]) for n in names}
+    return date_film_stats(encoder, layers)
 
 
 def main() -> None:
@@ -36,9 +61,10 @@ def main() -> None:
         for path in args.checkpoints:
             ckpt = torch.load(path, map_location="cpu", weights_only=False)
             cfg = ckpt["finetune_config"]
-            date = DateEmbedding()
+            date = DateEmbedding(max_abs=cfg.get("date_max_abs"))
             date.load_state_dict(ckpt["trainable"]["date"])
             stats = {"checkpoint": str(path), "step": ckpt["step"], "timestep_rms": t_rms, **date_embedding_rms(date)}
+            stats.update(film_stats(ckpt["trainable"].get("film"), cfg.get("film_dim", 256)))
             lora = ckpt["trainable"]["lora"]
             scale = (cfg["lora_alpha"] or cfg["lora_rank"]) / max(cfg["lora_rank"], 1)
             layers = sorted({k.rsplit(".", 1)[0] for k in lora})

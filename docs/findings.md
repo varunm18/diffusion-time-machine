@@ -617,6 +617,7 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - **The 1.5× high-noise guard did not catch this** (×1.08): the damage is at lower noise levels. The date vector's size (the `[weights]` lines) is the warning sign here.
 
 ## Fourth run (date module only, EDM weighting, date vector capped at 0.3): safe, but date-blind so far (2026-11-03)
+*Caveat (code audit, 2026-11-10): runs 1–7 trained in fp16 without a gradient scaler, and a gradient clip at 1.0 rescaled almost every step, which largely cancelled the EDM weighting. Read the ε-vs-EDM comparisons below with that in mind; see "Code audit" at the end.*
 *Run `data/experiments/train/nd_overfit_edm_dateonly`; `--weighting edm --lora-rank 0 --date-max-abs 0.3`. Started 11:07, 10,000 steps.*
 
 | step | 0 | 500 | 1,000 | 1,500 | 2,000 | 2,500 |
@@ -717,4 +718,33 @@ Stopped at step ~6,000 (gap +0.6%, spread 0.09) to free the GPU for date FiLM.
 - **The renders were broken from step 2,500 on.** At 2,500: heavy blur, a sepia cast and broken geometry. At 5,000: sharper but faded. At 7,500–10,000: sharp, but the cathedral is *invented*: plausible Gothic shapes that don't match the cameras. In `modern_from_old`, the rise in saturation (0.04 → 0.35–0.42) is a brown cast over melted structures, not colour.
 - **What this means:** the LoRA memorises a generic "Notre-Dame look" and stops following the inputs and cameras. That's independent of the date, so it would very likely recur with the 30-year gap. With LoRA in the model, the probe loss and the high-noise error don't see this kind of damage; only the renders do.
 
-**Now (2026-11-10):** `nd_overfit_film_gap30` resumed from step 3,750 to 20,000 (job 8342955; FiLM only, gap 30, EDM; renders every 2,500). It's queued behind the per-user job limit. FiLM + LoRA is on hold until the geometry damage is understood.
+
+## Code audit (2026-11-10)
+*Me plus two independent reviewers, over all code. Fixes in the same commit; tests in `tests/test_audit_fixes.py`.*
+
+**Camera intrinsics after cropping, and Plücker rays: correct.**
+- Step for step, our crop/resize intrinsics and Plücker rays match SEVA's (`transform_img_and_K`, `get_plucker_coordinates`); training builds rays with SEVA's own `get_value_dict`. All 934 cached images have the same orientation and aspect as their COLMAP cameras.
+- End to end: COLMAP's 3D points, projected into our 576×576 crops, land on the building. After SEVA's camera normalisation each projected point lies within ≤ 0.6 px of its pixel's Plücker ray.
+
+**Bugs fixed**
+
+| | Problem | Effect on past runs | Fix |
+|---|---|---|---|
+| 1 | Training autocast was **fp16** (torch's CUDA default) with no gradient scaler; the comments said bf16 | Small gradients could underflow, likely worst in the plain-ε runs | Training and the date-gap probe now use bf16 (`TRAIN_AUTOCAST_DTYPE`) |
+| 2 | **Gradient clip 1.0** fired in 100% of EDM logging windows and 66–86% of ε windows (one sample per step) | The noise-level weighting barely acted; "EDM fixed it" is confounded | Clipping is now a spike guard: above 10× the median of the last 200 norms (`--grad-clip-factor`; absolute `--grad-clip` optional) |
+| 3 | **Lens distortion dropped** (COLMAP SIMPLE_RADIAL `k`) | At crop corners: median 4.5 px (modern) / 8.3 px (old) off; >16 px (2 latent cells) for 11% of views | `k1`/`k2` kept in pose and view tables; `load_view` undistorts while cropping |
+| 4 | **Stereo cards** (two side-by-side photos) registered as one camera | 9 of Notre-Dame's 91 old views | `likely_stereo_cards` (pre-1930 and aspect 1.9–2.1, or "stéréo" in the title); dropped by `build_scene_dataset.py` unless `--keep-stereo` |
+| 5 | VGGT focal: width/height passed where VGGT-Omega uses height/width | Focal off by ~the aspect ratio for every VGGT pose (none in training yet; rotation results unaffected) | `posing/vggt.py` |
+| 6 | VGGT candidates skipped the date-confidence filter | 11 of 80 confident registrations had title-only dates | `unposed_candidates(min_date_confidence=0.3)` |
+| 7 | Render probe "unknown" marked only the targets unknown; training marks all views | That contact-sheet row was out of distribution | All views unknown |
+| 8 | `min_input_gap` measured from the anchor only | Inputs could be gap − tolerance from a target | Measured from every target; eligibility uses gap + tolerance |
+| 9 | Dating: upload-day ceiling rounding plus no time-zone slack; "not before X" parsed as "before X" | 2 of 8,870 Notre-Dame dates changed after re-dating | Ceiling = upload day + 2 days; negation-aware patterns |
+
+Smaller fixes: COLMAP FOV model parameters; probes use the dataset's `camera_scale`; `inspect_checkpoint.py` respects the date cap and reports FiLM sizes; logs show every group's learning rate and the fraction of clipped steps; the VGGT eval uses only COLMAP poses as ground truth; the dataset checks it holds one scene; duplicate render years are ignored.
+
+**Not fixed yet (low impact):** "before X" includes X in the text parser but not in the category parser; every 1 January EXIF is treated as an unset clock; multilingual date strings skip HTML cleanup; some aggressive "painting" medium rules; VGGT intrinsics may refer to the padded canvas when a batch mixes image shapes.
+
+**Rebuilt** `data/datasets/25512_model0`: 925 views (stereo cards out; 2 re-dated views in, 2 failed downloads); 82 before 1970. The old table is kept as `views_before_audit.parquet`.
+
+**Now:** restarting the FiLM-only, 30-year-gap run from scratch with the fixed code (`nd_film_gap30_v2`). Results from before the audit aren't directly comparable.
+

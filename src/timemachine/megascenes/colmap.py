@@ -53,9 +53,20 @@ class Camera:
         """(fx, fy, cx, cy) for the pinhole part of the model (distortion ignored)."""
         p = self.params
         if self.model in ("SIMPLE_PINHOLE", "SIMPLE_RADIAL", "RADIAL",
-                          "SIMPLE_RADIAL_FISHEYE", "RADIAL_FISHEYE", "FOV"):
+                          "SIMPLE_RADIAL_FISHEYE", "RADIAL_FISHEYE"):
             return p[0], p[0], p[1], p[2]
-        return p[0], p[1], p[2], p[3]
+        return p[0], p[1], p[2], p[3]          # PINHOLE, OPENCV, FOV (fx, fy, cx, cy, omega), ...
+
+    def radial_distortion(self) -> tuple[float, float]:
+        """``(k1, k2)`` of the radial models we can undo; NaN for models we cannot (fisheye, tangential)."""
+        p = self.params
+        if self.model in ("SIMPLE_PINHOLE", "PINHOLE"):
+            return 0.0, 0.0
+        if self.model == "SIMPLE_RADIAL":
+            return p[3], 0.0
+        if self.model == "RADIAL":
+            return p[3], p[4]
+        return float("nan"), float("nan")
 
 
 @dataclass(frozen=True)
