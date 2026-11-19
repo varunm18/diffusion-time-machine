@@ -811,6 +811,25 @@ Same as the sixth run (FiLM only, inputs >30 years from targets, EDM, 20k steps)
   - At 2021 it adds faint whitish vertical shapes on the left of three views, roughly where the real 2024 photos have cranes/scaffolding, without disturbing the cathedral. Cleaner than FiLM-only's crude black shapes, but faint.
   - Still no colour from old inputs: on `modern_from_old`, 2015 is warm sepia and 2021 hazy; 1880, 1930 and unknown stay black-and-white.
   - Verdict: LoRA is safe with the fixed date setup (it broke geometry before, with the input shortcut present). It doesn't yet give much stronger date effects in 5,000 steps.
+  - Resumed to 10,000:
+    - 6,250: the faint shapes grow into silvery vertical structures on the left of most views, but for 2015 as well as 2021.
+    - 7,500: a large silvery-dark structure on the left of four views for 2015 *and* 2021; 1850–1960 and unknown stay clean. The probe turned: high-noise error 0.531 → 0.549 (now above its start).
+    - So LoRA also drifts after ~5,000 steps. Its date-specific content lands on the wrong years (cranes went up in 2018–19, not 2015): the 8-octave date aliasing, made more visible by the extra capacity.
+    - 8,750–10,000: the left-side object becomes a large translucent pillar or arch in four views, for 2015 and 2021. The spire stays at 2021 although the real 2021 photos have none.
+    - On `modern_from_old` at 8,750, the 2015/2021 targets are washed-out, fragmented sepia smears; the saturation jump to 0.30 is smear, not colour.
+    - Probe at 10,000: high-noise error 0.548 (best was 0.531 at 5,000); unknown beats true dates by 2.7%.
+    - It seems to learn what modern photos from these viewpoints tend to contain, not what changed over time.
+- **Combined + 4 octaves (`nd_film_fix_both_f4`, no LoRA):**
+  - 2,500: clean, with a smooth warm trend toward modern dates. True dates nearly neutral vs unknown (−0.2%), high-noise drift +1%.
+  - 5,000: mostly clean. One 1850 tile is the memorised tree photo, and 2021 has odd objects on the river.
+  - 7,500: still clean in all old-date rows and in 4 of 5 views at 2015/2021 (the tree view goes dark). **No wrong-year objects**: the crane/pillar shapes of the 8-octave runs never appear. 1930 turns sepia on `modern_from_old`. But the probe drifts like the others: unknown beats true by 4.4%, high-noise +4.2%.
+  - 10,000: the cathedral is intact in most views, no wrong-year objects, less harsh than the 8-octave run at 10k. But memorisation spreads: the tree view is dark at every date, and its branches intrude into two 1850 views. Probe: unknown beats true by 4.6%, swapping dates no longer hurts, high-noise +4.9%.
+  - The smooth encoding fixes the aliasing (date effects follow the calendar) but not the slow single-scene drift.
+- **Where this leaves us.**
+  - Best setup so far: target-only dates + half mixed gap + 4 octaves, about 5–7.5k steps.
+  - The remaining limit is memorising a single scene's photos and viewpoints: every run's probe drifts after ~5,000 steps, LoRA included.
+  - Next: train on several dated scenes, and evaluate on held-out views so memorising and learning can be told apart.
+  - **Overall: every configuration drifts or adds wrong-year content after ~5,000 steps on this single scene.** The fixed date setup removes the early collapse; the 8-octave aliasing and single-scene memorisation remain.
   - At 10,000 it is clearly degraded: harsh contrast, fragmented 1900 views, dark purple partial breaks on 2021. Probe: unknown dates beat true ones by 4% (the widest gap yet), swapping dates no longer costs anything, high-noise error +6.7%. Stopped at 10,000.
 - Next:
   - The combined setup with the smooth 4-octave encoding (`nd_film_fix_both_f4`, 10k steps), to see whether it stays clean past 5,000.
