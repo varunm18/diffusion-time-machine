@@ -10,8 +10,12 @@ Dates reach the model in one of two ways:
 * explicitly, ``model(x, t, c, date=..., date_valid=...)`` (training);
 * through :meth:`DatedSGMWrapper.dates`, a context manager, so SEVA's own sampling
   code (``seva.eval.do_sample``) can be used unchanged at inference. When
-  classifier-free guidance doubles the batch, the dates are repeated, so the
-  conditional and unconditional branches see the same dates.
+  classifier-free guidance doubles the batch (unconditional half first, as in
+  ``seva.sampling.VanillaCFG``), the dates are repeated, so both branches see the
+  same dates; or, with ``uncond="unknown"``, the unconditional half sees every date
+  as unknown. SEVA's conditional prediction alone gives fragmented renders and
+  needs the guidance; dating the unconditional branch weakens it and broke dated
+  renders (docs/findings.md, 2026-11-19).
 
 Shapes follow SEVA: frames are flattened into the batch, so ``date`` is (B*T,).
 
@@ -27,6 +31,9 @@ from contextlib import contextmanager
 import torch
 from seva.model import Seva, SGMWrapper
 from torch import nn
+
+# What the unconditional half of a CFG batch sees: the same dates, or all dates unknown.
+UNCOND_DATES = ("same", "unknown")
 
 from timemachine.model.date_embedding import DateEmbedding
 from timemachine.model.date_film import DateEncoder, DateState, add_date_film, date_film_layers
@@ -47,6 +54,7 @@ class TimeEmbedWithDate(nn.Module):
         self.state = DateState()
         self.year: torch.Tensor | None = None
         self.valid: torch.Tensor | None = None
+        self.uncond_unknown = False        # CFG batch: mark the unconditional (first) half unknown
 
     def forward(self, t_features: torch.Tensor) -> torch.Tensor:
         emb = self.time_embed(t_features)
@@ -58,6 +66,9 @@ class TimeEmbedWithDate(nn.Module):
             raise ValueError(f"{n} timestep embeddings vs {self.year.shape[0]} dates")
         reps = n // self.year.shape[0]           # >1 when CFG doubles the batch
         year, valid = self.year.repeat(reps).to(emb.device), self.valid.repeat(reps).to(emb.device)
+        if reps == 2 and self.uncond_unknown:
+            valid = valid.clone()
+            valid[: self.year.shape[0]] = False
         if self.film_encoder is not None:
             self.state.features = self.film_encoder(year, valid)
         return emb + self.date_embedding(year, valid).to(emb.dtype)
@@ -77,15 +88,23 @@ class DatedSGMWrapper(SGMWrapper):
         return self.module.time_embed
 
     @contextmanager
-    def dates(self, year: torch.Tensor, valid: torch.Tensor | None = None):
-        """Condition every forward pass inside the block on these per-view dates."""
+    def dates(self, year: torch.Tensor, valid: torch.Tensor | None = None, uncond: str = "same"):
+        """Condition every forward pass inside the block on these per-view dates.
+
+        ``uncond`` (one of ``UNCOND_DATES``): what the unconditional half of a CFG-doubled
+        batch sees, the same dates or all dates unknown.
+        """
+        if uncond not in UNCOND_DATES:
+            raise ValueError(f"uncond must be one of {UNCOND_DATES}")
         hook = self.date_module
         hook.year = year
         hook.valid = torch.ones_like(year, dtype=torch.bool) if valid is None else valid
+        hook.uncond_unknown = uncond == "unknown"
         try:
             yield self
         finally:
             hook.year = hook.valid = None
+            hook.uncond_unknown = False
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, c: dict,
                 date: torch.Tensor | None = None, date_valid: torch.Tensor | None = None,

@@ -21,9 +21,16 @@ Training choices (see :class:`LossConfig`):
   every level contributes a loss of similar size; "min_snr" (gamma = 5) only
   tames the near-clean levels.
 * the unconditional branch (no input images) is trained some of the time, so
-  classifier-free guidance keeps working;
+  classifier-free guidance keeps working; optionally with every date unknown there
+  (``uncond_dates="unknown"``), to match guidance whose unconditional half is undated;
 * per-view years are drawn uniformly inside each view's date interval ("circa
-  1890" is not exactly 1890.5), and some samples are marked "date unknown".
+  1890" is not exactly 1890.5), and some samples are marked "date unknown";
+* optionally a date-discrimination (ranking) term (``rank_weight``). The plain
+  denoising loss can be minimised well while ignoring the date, because a scene's
+  static geometry dominates the pixels (docs/findings.md, 2026-11-19). So on some
+  conditional steps the same noised targets are also scored with a wrong-era date,
+  and a hinge on the log ratio of the two losses rewards the true date winning by
+  ``rank_margin``: relu(margin - log(loss_wrong / loss_true)), per target view.
 """
 from __future__ import annotations
 
@@ -41,6 +48,12 @@ AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
 
 
 WEIGHTINGS = ("eps", "edm", "min_snr")
+
+# Wrong-era dates for the ranking loss and the probes: targets before SWAP_BOUNDARY move to
+# MODERN_SWAP, later ones to OLD_SWAP.
+SWAP_BOUNDARY = 1980.0
+MODERN_SWAP = 2015.0
+OLD_SWAP = 1890.0
 # Which views see their date. "targets": inputs always get the unknown date, so a view's
 # own date cannot double as a hint about the *targets'* era (docs/findings.md, 2026-11-18).
 DATE_VIEWS = ("all", "targets")
@@ -54,12 +67,19 @@ class LossConfig:
     weighting: str = "eps"       # per-level loss weight, one of WEIGHTINGS
     min_snr_gamma: float = 5.0
     date_views: str = "all"     # one of DATE_VIEWS
+    uncond_dates: str = "same"  # unconditional-branch steps: dates as drawn, or all "unknown"
+    rank_weight: float = 0.0    # weight of the date-discrimination term (0: off)
+    rank_margin: float = 0.05   # required log(loss_wrong / loss_true) per target view
+    rank_prob: float = 1.0      # share of eligible steps that compute it (one extra forward pass)
+    rank_min_sigma: float = 1.0  # only at noise levels where the date can matter (global look)
 
     def __post_init__(self):
         if self.weighting not in WEIGHTINGS:
             raise ValueError(f"weighting must be one of {WEIGHTINGS}")
         if self.date_views not in DATE_VIEWS:
             raise ValueError(f"date_views must be one of {DATE_VIEWS}")
+        if self.uncond_dates not in ("same", "unknown"):
+            raise ValueError("uncond_dates must be 'same' or 'unknown'")
 
 
 def level_weight(sigma: float, cfg: LossConfig) -> float:
@@ -93,17 +113,30 @@ def predict_noise(model: nn.Module, noisy: torch.Tensor, sigma: torch.Tensor, t:
     return eps_hat, mask[:, 0, 0, 0] > 0.5
 
 
-def noise_prediction_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor, cond: dict,
-                          level: int, noise: torch.Tensor, year: torch.Tensor | None = None,
-                          date_valid: torch.Tensor | None = None) -> torch.Tensor:
-    """MSE between predicted and true noise on the non-replaced views, at noise index ``level``."""
+def per_view_noise_error(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor, cond: dict,
+                         level: int, noise: torch.Tensor, year: torch.Tensor | None = None,
+                         date_valid: torch.Tensor | None = None) -> torch.Tensor:
+    """(K,) mean squared noise error of each non-replaced view, at noise index ``level``."""
     T = latents.shape[0]
     t = torch.full((T,), level, device=latents.device, dtype=torch.long)
     sigma = sigmas[t].to(latents.device)
     noisy = latents.float() + sigma.view(-1, 1, 1, 1) * noise
     eps_hat, replaced = predict_noise(model, noisy, sigma, t, cond, year, date_valid)
     keep = ~replaced
-    return (eps_hat.float()[keep] - noise[keep]).pow(2).mean()
+    return (eps_hat.float()[keep] - noise[keep]).pow(2).flatten(1).mean(1)
+
+
+def noise_prediction_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor, cond: dict,
+                          level: int, noise: torch.Tensor, year: torch.Tensor | None = None,
+                          date_valid: torch.Tensor | None = None) -> torch.Tensor:
+    """MSE between predicted and true noise on the non-replaced views, at noise index ``level``."""
+    return per_view_noise_error(model, sigmas, latents, cond, level, noise, year, date_valid).mean()
+
+
+def swapped_years(year: torch.Tensor, is_input: torch.Tensor) -> torch.Tensor:
+    """Targets' years moved to the other era (old -> 2015, modern -> 1890); inputs unchanged."""
+    swapped = torch.where(year < SWAP_BOUNDARY, torch.full_like(year, MODERN_SWAP), torch.full_like(year, OLD_SWAP))
+    return torch.where(is_input, year, swapped)
 
 
 def shown_dates(valid: torch.Tensor, is_input: torch.Tensor, date_views: str) -> torch.Tensor:
@@ -142,8 +175,23 @@ def training_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor,
             if is_input is None:
                 raise ValueError(f"date_views={cfg.date_views!r} needs is_input")
             valid = shown_dates(valid, is_input.to(device), cfg.date_views)
-    eps_mse = noise_prediction_loss(model, sigmas, latents, uncond if use_uncond else cond, level, noise,
-                                    year, valid)
+        if use_uncond and cfg.uncond_dates == "unknown":
+            valid = torch.zeros_like(valid)
+    rank = (cfg.rank_weight > 0 and not use_uncond and valid is not None and bool(valid.any())
+            and float(sigmas[level]) >= cfg.rank_min_sigma
+            and bool(torch.rand((), generator=generator) < cfg.rank_prob))
+    errors = per_view_noise_error(model, sigmas, latents, uncond if use_uncond else cond, level, noise, year, valid)
+    eps_mse = errors.mean()
     info = {"level": level, "uncond": use_uncond, "eps_mse": float(eps_mse),
             "dates_known": bool(valid.any()) if valid is not None else None}
-    return eps_mse * level_weight(float(sigmas[level]), cfg), info
+    loss = eps_mse * level_weight(float(sigmas[level]), cfg)
+    if rank:
+        if is_input is None:
+            raise ValueError("rank_weight needs is_input")
+        wrong = swapped_years(year, is_input.to(device))
+        errors_wrong = per_view_noise_error(model, sigmas, latents, cond, level, noise, wrong, valid)
+        log_ratio = torch.log(errors_wrong.clamp_min(1e-12)) - torch.log(errors.clamp_min(1e-12))
+        rank_loss = torch.relu(cfg.rank_margin - log_ratio).mean()
+        loss = loss + cfg.rank_weight * rank_loss
+        info.update(rank_loss=float(rank_loss), rank_log_ratio=float(log_ratio.mean()))
+    return loss, info

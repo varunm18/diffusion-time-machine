@@ -9,6 +9,8 @@ Fine-tuning recipe (first version, for the single-scene overfit):
   - ``"film"`` (default): a per-block date scale-and-shift (``date_film.py``).
   - ``"timestep"``: a date vector added to the timestep embedding
     (``date_embedding.py``); runs before 2026-11-03 used this.
+  - ``"none"``: no date path trains (the date embedding stays zero): the no-date
+    control, LoRA only, for telling scene adaptation from temporal learning.
 * Gradient checkpointing on all UNet blocks.
 
 A checkpoint stores only the trainable parameters plus the :class:`FinetuneConfig`
@@ -47,7 +49,7 @@ class FinetuneConfig:
             raise ValueError(f"date_injection must be one of {DATE_INJECTIONS}")
 
 
-DATE_INJECTIONS = ("film", "timestep")
+DATE_INJECTIONS = ("film", "timestep", "none")
 
 
 def prepare_for_finetuning(model: DatedSGMWrapper, cfg: FinetuneConfig) -> dict[str, list[nn.Parameter]]:
@@ -61,7 +63,7 @@ def prepare_for_finetuning(model: DatedSGMWrapper, cfg: FinetuneConfig) -> dict[
     groups = {"date": [], "film": [], "lora": []}
     if cfg.date_injection == "timestep":
         groups["date"] = model.date_parameters()
-    else:
+    elif cfg.date_injection == "film":
         model.add_date_film(cfg.film_dim, cfg.film_freqs)
         groups["film"] = model.film_parameters()
     for p in groups["date"] + groups["film"]:
@@ -99,7 +101,9 @@ def save_checkpoint(path: Path, model: DatedSGMWrapper, cfg: FinetuneConfig, ste
                     extra: dict | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"finetune_config": asdict(cfg), "step": step, "trainable": trainable_state_dict(model)}
-    torch.save({**payload, **(extra or {})}, path)
+    tmp = path.with_name(path.name + ".tmp")        # write, then rename: a job killed mid-save keeps the old file
+    torch.save({**payload, **(extra or {})}, tmp)
+    tmp.replace(path)
 
 
 def load_finetuned(checkpoint: Path, hub: Path | None = None, device: str = "cuda") -> tuple[SevaComponents, dict]:

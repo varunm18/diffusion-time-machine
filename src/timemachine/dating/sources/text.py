@@ -62,6 +62,10 @@ _DECADE = re.compile(r"\b(\d{3}0)(?:s|'s|er|er jahre)\b")
 _CENTURY = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th|\.)\s+(?:century|jahrhundert)\b")
 _YEAR = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 _UPLOAD = re.compile(r"upload", re.I)
+# A camera that writes an all-zero EXIF date ("0000:00:00") is shown by Commons as 30 November
+# 1899. 519 of the 520 census files with this exact day are digital photos, so it is no date at
+# all (it made Faisal Mosque, built 1986, look like a scene with 108 pre-1900 photos).
+NULL_EXIF_DAY = (1899, 11, 30)
 
 
 def _plausible(year: int) -> bool:
@@ -110,6 +114,8 @@ def parse_date_text(
                 interval = DateInterval.from_date(int(parts["y"]), int(month), int(parts["d"]))
             except ValueError:  # e.g. day 31 in a 30-day month, or a non-date number triple
                 continue
+            if (int(parts["y"]), int(month), int(parts["d"])) == NULL_EXIF_DAY:
+                return None
             if _plausible(int(parts["y"])):
                 return _candidate(interval, Precision.DAY, confidence, text, source, flags)
 

@@ -141,10 +141,18 @@ def test_dataset_is_deterministic_per_epoch(views):
     assert not all(np.array_equal(first, ds.indices(i)) for i in range(5))
 
 
-def test_dataset_rejects_mixed_models(views):
-    views.loc[0, "model"] = 1
-    with pytest.raises(ValueError):
-        DatedViewsDataset(views)
+def test_dataset_samples_one_coordinate_frame_at_a_time(views):
+    other = views.assign(scene_id=2, file_key="b" + views["file_key"])
+    ds = DatedViewsDataset(pd.concat([views, other], ignore_index=True), SamplingConfig(n_inputs=3, n_targets=5),
+                           resolution=16)
+    assert ds.n_groups == 2 and np.allclose(ds.group_weights, 0.5)
+    groups = {int(ds.group[ds.indices(i)][0]) for i in range(40)}
+    assert groups == {0, 1}
+    assert all(len(set(ds.group[ds.indices(i)])) == 1 for i in range(40))
+    with pytest.raises(ValueError):                      # one sample cannot mix scenes
+        ds.make_sample(np.array([0, 1, 2, len(views), 3, 4, 5, 6]), 3)
+    ds.hold_out(ds.group_rows[1])                         # a held-out scene is never sampled
+    assert list(ds.sample_groups) == [0] and all(ds.group[ds.indices(i)].max() == 0 for i in range(20))
 
 
 def test_color_stats_flags_toned_prints_not_color_photos():

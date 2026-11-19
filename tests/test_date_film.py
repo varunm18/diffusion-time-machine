@@ -79,6 +79,21 @@ def test_date_film_handles_the_doubled_cfg_batch():
     torch.testing.assert_close(out, expected)
 
 
+def test_cfg_batch_can_leave_the_unconditional_half_undated():
+    """uncond="unknown": the first (unconditional) half of a CFG batch sees every date as unknown."""
+    x, t, c = _inputs()
+    model = _model(perturb=True)
+    years = torch.tensor([1860.0, 2020.0])
+    with model.dates(years, uncond="unknown"):
+        out = model(x, t, c)
+    expected = model(x, t, c, date=years.repeat(2), date_valid=torch.tensor([False, False, True, True]))
+    torch.testing.assert_close(out, expected)
+    assert not model.date_module.uncond_unknown                        # reset after the block
+    with pytest.raises(ValueError):
+        with model.dates(years, uncond="sometimes"):
+            pass
+
+
 def test_date_film_gradients_survive_checkpointing():
     """Backward runs after the dates context has closed; the recomputed blocks must still see the dates."""
     x, t, c = _inputs()
@@ -120,6 +135,17 @@ def test_finetune_with_film_trains_only_film_and_round_trips():
     load_trainable_state_dict(fresh, trainable_state_dict(model))
     fresh.eval()
     torch.testing.assert_close(fresh(x, t, c, date=years), expected)
+
+
+def test_no_date_injection_trains_nothing_date_related():
+    """The no-date control: no date parameters train, and dates change nothing."""
+    x, t, c = _inputs()
+    model = DatedSGMWrapper(TinyResSeva())
+    groups = prepare_for_finetuning(model, FinetuneConfig(lora_rank=0, date_injection="none"))
+    assert not groups["film"] and not groups["date"] and not date_film_layers(model.module)
+    assert not any(p.requires_grad for p in model.parameters())
+    model.eval()
+    torch.testing.assert_close(model(x, t, c, date=torch.tensor([1860.0, 1860.0, 2020.0, 2020.0])), model(x, t, c))
 
 
 def test_finetune_config_rejects_unknown_injection():

@@ -106,6 +106,13 @@ def test_negated_bounds(text, lo, hi):
     assert (lo is None) == (c.interval.lo < 1500) and (hi is None) == (c.interval.hi > 2025)
 
 
+@pytest.mark.parametrize("text", ["1899-11-30", "1899-11-30 00:00:00", "30 November 1899", "November 30, 1899"])
+def test_null_exif_date_is_no_date(text):
+    """Commons shows an all-zero EXIF date as 30 Nov 1899 (multi-scene build, 2026-11-18)."""
+    assert parse_date_text(text) is None
+    assert parse_date_text(text.replace("30", "29")).interval.lo == pytest.approx(1899.9, abs=0.02)
+
+
 def test_capture_on_the_upload_day_is_not_clipped():
     """Day-precision dates on (or, by time zone, the day after) the upload day stay untouched."""
     import datetime as dt
@@ -157,6 +164,20 @@ def test_input_gap_fraction_mixes_gap_and_any_date_samples():
     assert 0.2 < close < 0.6                       # roughly half the samples drop the gap
     with pytest.raises(ValueError):
         SamplingConfig(input_gap_fraction=1.5)
+
+
+def test_gap_can_be_limited_to_old_targets():
+    dates = np.concatenate([np.full(12, 1890.0), np.full(30, 2015.0)])
+    cfg = SamplingConfig(n_inputs=3, n_targets=5, min_input_gap=30, gap_old_targets_only=True)
+    anchors = eligible_anchors(dates, cfg)
+    old_inputs = []
+    for seed in range(200):
+        inputs, targets = sample_views(dates, cfg, np.random.default_rng(seed), anchors)
+        if dates[targets[0]] < 1970:
+            assert (dates[inputs] > 1970).all()                 # old targets: gap enforced
+        else:
+            old_inputs.append((dates[inputs] < 1970).any())
+    assert 0 < np.mean(old_inputs) < 1                          # modern targets: any inputs
 
 
 def test_date_encoder_frequency_count():

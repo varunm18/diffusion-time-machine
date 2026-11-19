@@ -32,7 +32,6 @@ import json
 from contextlib import contextmanager
 from pathlib import Path
 
-import pandas as pd
 import torch
 
 from timemachine.data.dataset import DatedViewsDataset
@@ -41,6 +40,7 @@ from timemachine.model.date_film import date_film_layers
 from timemachine.model.finetune import load_finetuned
 from timemachine.model.lora import lora_layers
 from timemachine.training.probes import DateGapProbe, RenderProbe, load_probe_specs
+from timemachine.training.trainer import load_views
 
 # (name, LoRA factor, date-embedding factor); 1 = as trained, 0 = switched off.
 SETTINGS = (("plain SEVA", 0.0, 0.0), ("date only", 0.0, 1.0), ("LoRA only", 1.0, 0.0), ("full", 1.0, 1.0))
@@ -95,7 +95,7 @@ def main() -> None:
     run_cfg = json.loads((args.checkpoint.parent.parent / "config.json").read_text())
     components, ckpt = load_finetuned(args.checkpoint)
     model = components.model
-    views = pd.read_parquet(Path(run_cfg["dataset"]) / "views.parquet")
+    views = load_views(run_cfg["dataset"])              # one folder, or a list (multi-scene runs)
     dataset = DatedViewsDataset(views, SamplingConfig(**run_cfg["sampling"]), resolution=run_cfg["resolution"],
                                 samples_per_epoch=1000, seed=run_cfg["seed"], camera_scale=run_cfg["camera_scale"])
     probe = DateGapProbe(components, dataset, run_cfg["gap_samples"])

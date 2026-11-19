@@ -103,6 +103,7 @@ class FakeDataset:
         self.camera_feats = rng.normal(size=(len(self.dates), 6))
         import pandas as pd
         self.views = pd.DataFrame({"file_key": [f"f{i}" for i in range(len(self.dates))]})
+        self.group, self.n_groups = np.zeros(len(self.dates), dtype=int), 1
 
 
 def test_probe_rows_come_from_the_requested_eras():
@@ -116,6 +117,56 @@ def test_probe_rows_come_from_the_requested_eras():
     assert select_probe_rows(ds, pinned).tolist() == [3, 0]
     assert RenderProbeSpec.from_dict({"name": "x", "target_range": [1, 2], "input_range": [0, 1],
                                       "render_years": [1900, None]}).render_years == (1900, None)
+
+
+def test_unconditional_steps_can_drop_the_dates():
+    seen = {}
+
+    class Recorder(nn.Module):
+        def forward(self, x, t, c, num_frames, date=None, date_valid=None):
+            seen["valid"] = date_valid.clone()
+            return torch.zeros_like(x)
+
+    latents, cond, uncond = conditions()
+    interval = torch.tensor([[1880.0, 1881.0]] * T)
+    cfg = LossConfig(uncond_prob=1.0, date_dropout=0.0, uncond_dates="unknown")
+    training_loss(Recorder(), torch.linspace(0.1, 10, 1000), latents, cond, uncond, interval, cfg)
+    assert not seen["valid"].any()
+    training_loss(Recorder(), torch.linspace(0.1, 10, 1000), latents, cond, uncond, interval,
+                  LossConfig(uncond_prob=1.0, date_dropout=0.0))
+    assert seen["valid"].all()                                           # default: dates as drawn
+    with pytest.raises(ValueError):
+        LossConfig(uncond_dates="never")
+
+
+def test_rank_loss_rewards_the_true_date():
+    class DateBlind(nn.Module):                 # ignores dates: true and wrong-era losses are equal
+        def forward(self, x, t, c, num_frames, date=None, date_valid=None):
+            return torch.zeros_like(x)
+
+    latents, cond, uncond = conditions()
+    interval = torch.tensor([[1880.0, 1881.0]] * T)
+    sigmas = torch.linspace(2.0, 10.0, 1000)
+    base = LossConfig(uncond_prob=0.0, date_dropout=0.0)
+    plain, info = training_loss(DateBlind(), sigmas, latents, cond, uncond, interval, base,
+                                torch.Generator().manual_seed(0), is_input=IS_INPUT)
+    assert "rank_loss" not in info
+    ranked, info = training_loss(DateBlind(), sigmas, latents, cond, uncond, interval,
+                                 LossConfig(uncond_prob=0.0, date_dropout=0.0, rank_weight=2.0, rank_margin=0.1),
+                                 torch.Generator().manual_seed(0), is_input=IS_INPUT)
+    assert info["rank_log_ratio"] == pytest.approx(0.0, abs=1e-6)
+    assert info["rank_loss"] == pytest.approx(0.1, abs=1e-6)               # a date-blind model pays the margin
+    assert float(ranked) == pytest.approx(float(plain) + 2.0 * 0.1, rel=1e-5)
+
+
+def test_lr_schedules():
+    from timemachine.training.trainer import _lr_lambda
+    const, cos = _lr_lambda(10), _lr_lambda(10, "cosine", total=110, min_ratio=0.05)
+    assert const(0) == pytest.approx(0.1) and const(9) == 1.0 and const(500) == 1.0
+    assert cos(10) == pytest.approx(1.0) and cos(60) == pytest.approx(0.525) and cos(110) == pytest.approx(0.05)
+    assert cos(1000) == pytest.approx(0.05)
+    with pytest.raises(ValueError):
+        _lr_lambda(10, "linear")
 
 
 def test_level_weights():

@@ -836,3 +836,167 @@ Same as the sixth run (FiLM only, inputs >30 years from targets, EDM, 20k steps)
   - The LoRA run resumed from 5,000 to 10,000, the only setup whose probe keeps improving.
 - **Mixed gap (`nd_film_fix_mixgap`): only partly fixed.** Clean at 1,250. At 2,500, 1850–1960 are mostly clean but 2015 and 2021 break, although modern inputs with modern targets are common in its training. True dates now *raise* probe loss vs unknown (−3.4%). Stopped at ~3,000 to free a slot.
 - **Second problem: per-date memorisation.** With 8 Fourier octaves the shortest period is 1.6 years. Along 2000–2025, the last block's modulation wiggles within 5 years as much as it changes across 5-year averages. In `nd_film_gap30_v2` (20k), 2017 is *further* from 2015 than 2021 is (0.87 vs 0.83). Era style cannot do that; it is memorising individual photos' looks (lighting, exposure) by date. Next: target-only dates with `--film-freqs 4` (periods ≥ 25 years), 10k steps (`nd_film_fix_targetdates_f4`). Also queued: target-only + mixed gap (`nd_film_fix_both`).
+
+---
+
+## Toward multi-scene: second seed, held-out views, multi-scene code (2026-11-18)
+**Why:** every single-scene run drifts after ~5,000 steps. Before scaling up, check that the fix isn't luck (a second seed), and measure memorising directly (views the model never trains on).
+
+**Held-out views** (`--holdout-fraction 0.1 --holdout-probe-targets`; `src/timemachine/data/holdout.py`)
+- 10% of each era's views, plus the render probes' target views, never appear in a training sample. On Notre-Dame that is 107 views (14 old), leaving 74 of the 89 old anchors.
+- So the render-probe sheets of these runs show cameras and photos the model never trained on.
+- New **held-out probe** (`HeldoutProbe`, every 1,000 steps, ~1 min). It takes 48 held-out views (12 old), each paired with a trained view of the same era, and compares their denoising loss at the same noise.
+  - It reports each group's loss change since step 0, and the difference between the two (`memorisation_gap`).
+  - Memorising looks like this: the trained views' loss falls while the held-out views' doesn't.
+
+**Runs (10k steps each)**
+- `nd_film_fix_both_f4_seed1`: the best setup again, with seed 1.
+- `nd_film_f4_holdout`: the best setup with the hold-out.
+- `nd_lora_f4_holdout`: the same plus LoRA rank 32. Does the extra capacity memorise more?
+- The date-gap probe now uses the same samples whatever the training seed. For seed-0 runs these are the same samples as before.
+
+**Multi-scene code** (written and tested; not yet run on a GPU)
+- `--dataset` takes several dataset folders. Each scene/COLMAP model is its own coordinate frame, and a sample never mixes them.
+- Each step picks a scene with probability proportional to its training views^0.5 (`--group-weight-power`), so one big scene can't dominate.
+- `--holdout-scenes ID ...` keeps whole scenes for evaluation only. The held-out probe then also reports unseen-scene views (`heldout_change_scene`).
+- Render probes need a `scene_id` when training on several scenes.
+
+**Multi-scene data: 13 usable scenes** (`data/datasets/<id>_model0/views_clean.parquet`; full notes in `data/datasets/MULTISCENE_NOTES.md`)
+- 15 scenes built with COLMAP poses only, model 0, at most 600 modern views each. Their cached tables predated the audit, so they were re-posed and re-dated first.
+- After cleaning, 312 views were dropped: interiors, book pages, multi-picture postcards, misdated photos, missed stereo cards.
+- **Training (12 + Notre-Dame):** Royal Palace (Amsterdam), Munttoren (Amsterdam), Arc de Triomphe, Great Sphinx, Sydney Harbour Bridge, Semperoper, Zwinger, Helsinki Cathedral, Vilnius Cathedral, Saint Peter's Square, Taj Mahal, Piazza San Marco. 7,883 views (8,278 with Garnier).
+  - The two Amsterdam scenes hold 45% of the old anchors. A scene is sampled in proportion to √views, not by its old photos, so each scene gets 5–9% of samples.
+- **Held out: Opéra Garnier.** 395 views, old photos from 1865–1966, including construction.
+- **Dropped:**
+  - Potala: 87 of 95 old views are one 1938 expedition set, many registered through the archive's caption strip.
+  - Lincoln Memorial: model 0 is mostly the statue chamber, and 63 old views are scrapbook clippings all dated 1922.
+- Real changes worth probing: the Sphinx half-buried in sand before 1925–36, the Sydney bridge under construction in 1924–32, and Garnier under construction in 1860–75.
+
+**Dating problems found (shared code)**
+- **A fake date, 30 Nov 1899** (fixed in `parse_date_text`). Commons shows an all-zero EXIF date this way. It affects 520 files in 126 of the 802 census scenes, almost all digital photos.
+  - All of Faisal Mosque's 108 and Cochabamba's 44 "pre-1900" photos were this.
+  - Notre-Dame has none. **The census tables in `docs/census/` still include them** and should be re-dated.
+- Old photos dated by their scan or upload date: the Commons date field (confidence 0.85) beats an older category year (0.6), and the resolver only records the conflict. About 40 cases in these scenes (e.g. a 1954 royal visit dated 2014).
+- Internet Archive book scans are dated by the book's publication year (Notre-Dame has 2).
+- The stereo-card filter misses cards outside aspect 1.9–2.1.
+- COLMAP sometimes registers archive photos through their printed caption strip. You can spot this from where the matched keypoints sit. Worth filtering before VGGT poses are merged.
+- Multi-picture postcards (137 in the two Dresden scenes) register through one small sub-picture. Only a content filter (VLM/CLIP) will catch these in general.
+
+**Multi-scene runs** (25k steps; 10% of each scene's views, the probe targets and all of Garnier held out; `configs/probes_multiscene.json`)
+- `ms13_film_f4_holdout`: the best single-scene setup (target-only dates, half mixed gap, 4 octaves), FiLM only.
+- `ms13_lora_f4_holdout`: the same plus LoRA rank 32.
+
+## Broken renders, second cause: the dated unconditional CFG branch (2026-11-19)
+**Observation.** The held-out runs' render probes, at step 2500, fragment at 1960–2021 on views the model never trained on:
+- `nd_film_f4_holdout`, fire probe;
+- `ms13_film_f4_holdout`, Notre-Dame fire.
+
+The same checkpoint rendered clean on the nearest *trained* views, which first looked like memorisation.
+
+**But it depends on luck.** Rendering 4 sampler noise seeds per setting:
+- Held-out run, 2021: held-out targets broke in 2 of 4 seeds; trained targets in 0 of 4.
+- Seed 1, with every view trained: broke in several seeds at 1850 and 2021. Its own probe render (noise seed 1) happened to look clean.
+- So **the earlier "clean to ~5,000 steps" verdicts rest on one noise seed and are weaker than stated.**
+
+**Cause.** SEVA's *conditional* prediction alone (guidance 1) gives fragmented renders even for **plain SEVA** with the date FiLM switched off. SEVA needs the unconditional branch.
+- The dated model gives the unconditional branch the dates too, but trains it on only 10% of steps. That weakens the guidance, and the output slides toward the fragmented guidance-1 look.
+
+| Inference variant (held-out run, step 2500, 4 seeds) | 1850 | 2021 |
+|---|---|---|
+| guidance 2, both branches dated (all probes so far) | clean | 2/4 broken |
+| guidance 1 (conditional only) | all broken | all broken |
+| guidance 2, unconditional branch dates **unknown** | clean | **clean** |
+| guidance 2, unconditional branch FiLM off | clean | **clean** |
+
+- Seed 1 is also much better with the undated unconditional branch; some river artefacts remain at 1850.
+- So the "held-out views break" signal was mostly this guidance artefact, not memorisation. This fits the held-out probe, whose denoising loss shows no memorisation gap.
+
+**Fix** (`generate_targets(..., uncond_dates="unknown")`; `--render-uncond-dates unknown` for render probes; `--uncond-dates unknown` trains the unconditional branch undated to match)
+- The unconditional half of the guidance batch sees every date as unknown. The date then acts like any guided condition: uncond (undated) + 2·(cond (dated) − uncond).
+- It works on existing checkpoints without retraining. Defaults stay "same" so the running jobs are unchanged.
+- **Next:** re-render the running runs' checkpoints this way, and train with `--uncond-dates unknown` as well.
+
+**Held-out probe so far** (denoising loss vs plain SEVA, held-out minus trained = memorisation gap)
+- Notre-Dame, FiLM-only, step 2000: +10.0% vs +10.2%, gap −0.2%.
+- Notre-Dame, LoRA, step 1000: +3.6% vs +5.9%, gap −2.3%.
+- Multi-scene, FiLM-only, step 5000: +3.6% vs +7.2%, gap −3.7%.
+- No memorisation yet in any run. True dates still give a *higher* loss than unknown dates (−4% to −9%), on held-out and trained views alike: the date pathway isn't yet helping the denoiser.
+
+**Update, multi-scene step 5000: the undated unconditional branch isn't enough.**
+- `ms13_film_f4_holdout` at step 5000 breaks at 1960, 2015 and 2021 on the Notre-Dame fire probe even with the unconditional branch undated. 2015 turns into green blur; 1850, 1900 and unknown stay clean. The *conditional* prediction itself is now damaged for modern dates.
+- **Plain SEVA (step 0) already fragments on the harder multi-scene probes:** Garnier old-from-modern and the buried Sphinx, at guidance 2 with 25 steps.
+  - So fragmentation is SEVA's generic failure on hard view sets: large baselines, inputs that disagree, or weak guidance.
+  - The date FiLM pushes renders into it more often. **Render probes must be judged against their step-0 render, with several noise seeds.**
+- The modulation is small (per-channel scale/shift ≤ 0.02), but about 1.5–2× larger for modern dates than for 1850 or unknown.
+- **What the evidence says now:** the date pathway learns modulations that *hurt* SEVA's predictions instead of learning era looks. True dates give a higher denoising loss than unknown dates, even on trained views.
+
+**Single-change runs** (Notre-Dame with the hold-out, 10k steps; all with the unconditional branch trained and rendered undated)
+
+| Run | Change vs A1 | Tests |
+|---|---|---|
+| `nd_abl_uncond` (A1) | none (vs `nd_film_f4_holdout`: undated uncond branch in training) | training the uncond branch undated |
+| `nd_abl_noclip` | no fixed gradient clip (spike guard only) | the clip at 1.0 equalises every update and cancels the noise-level weighting (code audit). The "best setup" inherited it from the diagnosis runs |
+| `nd_abl_gapold` | input gap only for old targets (`--gap-old-targets-only`) | half the modern targets get 30+-year-older inputs, so "modern date" can mean "don't trust the inputs" |
+| `nd_abl_accum4` | 4 samples per step (3k steps = 12k samples) | is the date signal too noisy with one sample per step? |
+| `nd_abl_cosine` | cosine learning-rate decay to 5% (`--lr-schedule cosine`) | does a decaying rate keep the early date effect from washing out? |
+
+**Second seed, step 10000 (`nd_film_fix_both_f4_seed1` vs seed 0).** The date-gap probe uses the same samples for both seeds.
+
+| Step | Unknown vs true (seed 0 / 1) | Swapped vs true (seed 0 / 1) |
+|---|---|---|
+| 2500 | −0.2% / −3.2% | −0.2% / +0.2% |
+| 5000 | −2.7% / −2.0% | −1.1% / −0.4% |
+| 10000 | −4.6% / −2.7% | −0.9% / +0.1% |
+
+- In both seeds **the model never learns to use the dates.** Swapping a target's date to the other era costs nothing, and unknown dates beat true ones.
+- So target-only dates removed the collapse, not the problem. The clean old-date renders are clean because the date does almost nothing there.
+- Seed 1's renders also break in some noise seeds (see above).
+- **The single-change runs are judged on this:** swapping dates must start to cost loss while renders stay clean.
+- **The date effect is learned early, then washed out.** In the held-out runs, swapping targets' dates to the other era costs +4% to +6% of loss at steps 1000–2000, about 0 by step 5000, and stays there. Meanwhile unknown dates increasingly beat true ones.
+  - `nd_film_f4_holdout`: +6.3% (1k) → +4.9% (2k) → +2.7% (3k) → 0% (5k).
+  - `nd_abl_uncond`: +4.3% → +4.2% → +1.7%.
+  - One explanation: with one sample per step and a constant learning rate, the per-step noise random-walks the FiLM weights and erodes the coarse era effect learned at the start. Larger batches (`nd_abl_accum4`) or learning-rate decay would counter it.
+- **The modern dates are the harmful part (suggestive; the date-gap probe has only ~8 samples per era).** Effect of swapping targets' dates to the other era:
+  - Modern targets: swapping their dates to 1890 *lowers* the loss in `ms13_film_f4_holdout` at every checkpoint (−3% to −4%), and in `nd_film_f4_holdout` at 10k (−6%).
+  - Old targets: swapping their dates to 2015 *raises* it (+3% to +4% at 10k).
+  - The no-hold-out seeds are mixed around 0.
+  - This fits the renders, which break at modern dates, and the `--gap-old-targets-only` hypothesis. The probe needs more samples (32+) for this split.
+- `nd_film_f4_holdout` at 10k, held-out probe (plain average): held-out views +7.8%, trained +4.9% vs plain SEVA. True dates hurt by 12–14%. Training made the denoiser worse, not better.
+- **FiLM-only vs FiLM + LoRA on Notre-Dame with the hold-out, 10k steps** (held-out probe, plain average, vs plain SEVA)
+
+  | | Trained views | Held-out views | True vs unknown dates | High-noise error |
+  |---|---|---|---|---|
+  | FiLM only (`nd_film_f4_holdout`) | +4.9% (worse) | +7.8% | −12% to −14% | +11% |
+  | FiLM + LoRA (`nd_lora_f4_holdout`) | −3.4% (better) | −0.3% | −3% to −6% | ±0% |
+
+  - LoRA is the healthier model. It improves the denoiser, its renders were clean on held-out targets, and the date FiLM does less harm beside it.
+  - Its held-out gain fades (−2.1% at 2k → −0.3% at 10k) while trained views keep improving. That is the first **memorisation** signal, about 3 points by 10k.
+  - Neither model uses the dates yet: swapping them costs about 0 in the date-gap probe.
+- **`ms13_film_f4_holdout` stopped at 15k.** It got steadily worse (held-out / trained vs plain SEVA): +3.6% / +7.2% at 5k, +5.1% / +9.2% at 10k, +8.3% / +11.4% at 15k. True dates hurt by 9–10%. It can be resumed from `latest.pt`.
+- Its slot went to **`ms13_film_noclip_uncond`**: multi-scene FiLM-only, no fixed clip, unconditional branch trained and rendered undated, date-gap probe with 32 samples.
+  - Why: at 5k, `nd_abl_noclip` is the healthiest Notre-Dame run. Its date-gap probe shows unknown −0.2% and swapped +1.5%, and the high-noise error is flat.
+
+## Separating scene adaptation from temporal learning (2026-11-19, after advisor review)
+**The question:** multi-scene LoRA improves held-out views (−6.3% vs −7.1% on trained views, at 4k). That could be ordinary adaptation to these scenes and photo styles rather than anything temporal. Learning a real date dependence is unsolved: in every run so far, swapping dates costs ~0.
+
+**Milestone:** the true date must reliably beat a wrong-era date on unseen, temporally informative photos, without losing the LoRA gains.
+
+**Runs** (multi-scene, identical except as noted)
+
+| Run | What it adds |
+|---|---|
+| `ms13_lora_f4_holdout` | date FiLM + LoRA (the date-conditioned baseline) |
+| `ms13_lora_nodate_holdout` | **no date conditioning** (`--date-injection none`), LoRA only: the control. If the dated run matches it, the gains aren't temporal |
+| `ms13_lora_rank_events` | the baseline + a date-discrimination ranking loss + change-event sampling |
+
+**New measurements**
+- The held-out probe now also scores the targets with a **wrong-era date** (`*_rel_swapped`, > 0 when the true date wins), split by era and by held-out view vs held-out scene. A no-date model scores 0.
+- `scripts/eval_heldout.py` scores checkpoints from several runs and plain SEVA on *identical* held-out samples. It rebuilds the run's hold-out and checks it against `heldout.json`.
+
+**New training options** (off by default)
+- `--rank-weight`: on half the conditional steps with σ ≥ 1, the same noised targets are also scored with a wrong-era date. The term is relu(margin − log(loss_wrong / loss_true)) per target view, margin 0.05. It is scale-free across noise levels and costs one extra forward pass.
+- `--event SCENE:YEAR --event-prob 0.25`: samples across a known physical change, with targets on one side and inputs on the other, preferring inputs within 15 years of the change.
+  - Events: Notre-Dame fire (2019.29), Sphinx excavation (~1930), Sydney bridge completion (1932.2).
+  - Example draws: Notre-Dame 2011–12 targets with 2019–22 inputs; Sydney 1930–31 (under construction) with 1932–41; Sphinx 1850 (buried) with 1935–41.
+- The date encoding is already coarse in all current runs: 4 octaves, periods ≥ 25 years. The 1.6-year features were the 8-octave setting, dropped on 2026-11-18. Era bins would be the next step if this isn't coarse enough.
+- Per the review, no further FiLM-only stability runs. The FiLM ablations already running are left to finish.
