@@ -71,7 +71,11 @@ class DateFiLMConv(nn.Module):
             if features.shape[0] != h.shape[0]:
                 raise ValueError(f"{h.shape[0]} views vs {features.shape[0]} date features")
             scale, shift = self.scale_shift(features)
-            h = h * (1 + scale[:, :, None, None].to(h.dtype)) + shift[:, :, None, None].to(h.dtype)
+            # The change is computed in fp32 and added. With half-precision activations it is still
+            # mostly rounded away when small (bf16 keeps ~0.4% of a value; ``1 + scale`` was exactly 1
+            # for |scale| < 0.004), which is why training runs in fp32 (docs/findings.md, 2026-11-19).
+            delta = h.float() * scale[:, :, None, None].float() + shift[:, :, None, None].float()
+            h = h + delta.to(h.dtype)
         return self.conv(h)
 
 

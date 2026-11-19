@@ -38,6 +38,9 @@ def main() -> None:
     parser.add_argument("--uncond-dates", choices=UNCOND_DATES, default="unknown",
                         help="what the unconditional CFG branch sees")
     parser.add_argument("--steps", type=int, default=25, help="sampler steps (training probes use 25)")
+    parser.add_argument("--frames", type=int, default=21,
+                        help="pad each forward pass to this many frames, as SEVA does (0: unpadded, as before 2026-11-19)")
+    parser.add_argument("--cfg", type=float, default=2.0, help="guidance scale")
     parser.add_argument("--seeds", type=int, nargs="+", default=[0])
     parser.add_argument("--out", type=Path, help="default: <run>/renders_offline/<ckpt>_uncond-<mode>")
     args = parser.parse_args()
@@ -47,7 +50,7 @@ def main() -> None:
         run_cfg = json.loads((args.checkpoint.parent.parent / "config.json").read_text())
         components, ckpt = load_finetuned(args.checkpoint)
         out = args.out or (args.checkpoint.parent.parent / "renders_offline"
-                           / f"{args.checkpoint.stem}_uncond-{args.uncond_dates}")
+                           / f"{args.checkpoint.stem}_uncond-{args.uncond_dates}_frames{args.frames}")
         print(f"checkpoint {args.checkpoint} (step {ckpt['step']})", flush=True)
     else:
         if not (args.dataset and args.probes):
@@ -67,9 +70,10 @@ def main() -> None:
     date_views = run_cfg.get("loss", {}).get("date_views", "all")
     results = []
     for spec in specs:
-        probe = RenderProbe(dataset, spec, date_views=date_views, uncond_dates=args.uncond_dates)
+        probe = RenderProbe(dataset, spec, date_views=date_views, uncond_dates=args.uncond_dates,
+                            frames=args.frames or None)
         for seed in args.seeds:
-            result = probe(components, out / f"seed{seed}", num_steps=args.steps, seed=seed)
+            result = probe(components, out / f"seed{seed}", num_steps=args.steps, seed=seed, cfg=args.cfg)
             results.append({**result, "seed": seed})
             print(f"{spec.name} seed {seed} done", flush=True)
     out.mkdir(parents=True, exist_ok=True)

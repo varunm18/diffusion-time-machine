@@ -38,12 +38,12 @@ from timemachine.data.dataset import DatedViewsDataset
 from timemachine.data.holdout import era_index
 from timemachine.data.images import color_stats
 from timemachine.data.sampling import tolerance
-from timemachine.model.inference import generate_targets
+from timemachine.model.inference import SEVA_FRAMES, generate_targets
 from timemachine.model.loading import SevaComponents
 from timemachine.training.conditioning import sample_conditions
 from timemachine.training.loss import (  # noqa: F401  (swap constants re-exported for older scripts)
-    MODERN_SWAP, NUM_LEVELS, OLD_SWAP, SWAP_BOUNDARY, TRAIN_AUTOCAST_DTYPE, noise_prediction_loss, predict_noise,
-    shown_dates, swapped_years,
+    MODERN_SWAP, NUM_LEVELS, OLD_SWAP, SWAP_BOUNDARY, TRAIN_AUTOCAST_DTYPE, autocast, noise_prediction_loss,
+    predict_noise, shown_dates, swapped_years,
 )
 
 PROBE_SAMPLE_SEED = 0    # dataset sampling seed for probe samples, independent of the training seed
@@ -56,7 +56,7 @@ class DateGapProbe:
     """Loss with true / swapped / unknown dates on fixed samples, noise levels and noise."""
 
     def __init__(self, components: SevaComponents, dataset: DatedViewsDataset, n_samples: int = 16,
-                 seed: int = 1234, device: str = "cuda", autocast_dtype: torch.dtype = TRAIN_AUTOCAST_DTYPE,
+                 seed: int = 1234, device: str = "cuda", autocast_dtype: torch.dtype | None = TRAIN_AUTOCAST_DTYPE,
                  date_views: str = "all"):
         self.autocast_dtype = autocast_dtype            # match the training run's precision
         self.date_views = date_views                    # ... and which views see their date
@@ -82,7 +82,7 @@ class DateGapProbe:
         rows = []
         for it in self.items:
             ones = shown_dates(torch.ones_like(it["is_input"]), it["is_input"], self.date_views)
-            with torch.autocast("cuda", dtype=self.autocast_dtype):
+            with autocast(self.autocast_dtype):
                 def loss(year, valid):
                     return float(noise_prediction_loss(model, sigmas, it["latents"], it["cond"], it["level"],
                                                        it["noise"], year, valid))
@@ -204,7 +204,7 @@ class HeldoutProbe:
 
     def __init__(self, components: SevaComponents, dataset: DatedViewsDataset, baseline_path: Path,
                  n_pairs: int = 48, seed: int = 4321, device: str = "cuda",
-                 autocast_dtype: torch.dtype = TRAIN_AUTOCAST_DTYPE, date_views: str = "all",
+                 autocast_dtype: torch.dtype | None = TRAIN_AUTOCAST_DTYPE, date_views: str = "all",
                  era_edges: tuple[float, ...] = (1900.0, 1970.0, 2000.0)):
         if not dataset.heldout.any():
             raise ValueError("HeldoutProbe needs a dataset with held-out views (DatedViewsDataset.hold_out).")
@@ -240,7 +240,7 @@ class HeldoutProbe:
         t = torch.full((latents.shape[0],), level, device=latents.device, dtype=torch.long)
         sigma = sigmas[t].to(latents.device)
         noisy = latents.float() + sigma.view(-1, 1, 1, 1) * noise
-        with torch.autocast("cuda", dtype=self.autocast_dtype):
+        with autocast(self.autocast_dtype):
             eps_hat, _ = predict_noise(model, noisy, sigma, t, s["cond"], s["year"], valid)
         m = self.measured
         return float((eps_hat[m].float() - noise[m]).pow(2).mean())
@@ -376,10 +376,11 @@ def _year_label(year: float | None) -> str:
 
 class RenderProbe:
     def __init__(self, dataset: DatedViewsDataset, spec: RenderProbeSpec, date_views: str = "all",
-                 uncond_dates: str = "same"):
+                 uncond_dates: str = "same", frames: int | None = SEVA_FRAMES):
         self.spec = spec
         self.date_views = date_views                    # as in training
         self.uncond_dates = uncond_dates                # what the unconditional CFG branch sees
+        self.frames = frames                            # pad each forward pass to this many frames (None: no padding)
         self.camera_scale = dataset.camera_scale
         self.rows = select_probe_rows(dataset, spec)
         self.sample = dataset.make_sample(self.rows, spec.n_inputs)
@@ -404,7 +405,8 @@ class RenderProbe:
             valid = shown_dates(torch.full_like(is_input, year is not None), is_input, self.date_views)
             out = generate_targets(components, s["images"].cuda(), s["K"].cuda(), s["c2w"].cuda(),
                                    is_input.cuda(), dates=dates, date_valid=valid, camera_scale=self.camera_scale,
-                                   num_steps=num_steps, seed=seed, cfg=cfg, uncond_dates=self.uncond_dates).cpu()
+                                   num_steps=num_steps, seed=seed, cfg=cfg, uncond_dates=self.uncond_dates,
+                                   pad_to=self.frames).cpu()
             renders[year] = out
             stats = [color_stats(_pil(out[j], 96)) for j in targets]
             metrics.append({"year": year,

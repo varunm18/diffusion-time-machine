@@ -46,6 +46,21 @@ def default_hub() -> Path:
     return Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 
 
+def allow_full_precision_attention() -> None:
+    """Let SEVA's attention run in fp32.
+
+    SEVA pins ``scaled_dot_product_attention`` to the flash kernel, which only exists for half
+    precision, so an fp32 forward pass fails with "No available kernel". Un-pinning lets PyTorch
+    choose: still the flash kernel under fp16/bf16 autocast (its first choice, so those results
+    do not change), the memory-efficient or math kernel in fp32.
+    """
+    import contextlib
+
+    import seva.modules.transformer as seva_transformer
+
+    seva_transformer.sdpa_kernel = lambda *args, **kwargs: contextlib.nullcontext()
+
+
 class LocalAutoEncoder(AutoEncoder):
     """SEVA's VAE wrapper, loading the SD 2.1-base VAE from a local folder."""
 
@@ -82,8 +97,10 @@ def load_components(hub: Path | None = None, version: float = 1.1, device: str =
     weight_name = "modelv1.1.safetensors" if version > 1 else "model.safetensors"
     seva = load_seva_weights(pretrained_model_name_or_path=str(snapshot_dir(hub, SEVA_REPO)),
                              weight_name=weight_name, device="cpu").eval()
-    # SEVA is bf16; the (new, trainable) date module stays fp32. All SEVA calls run
-    # under torch.autocast, which casts its matmuls to bf16.
+    # SEVA's weights are fp32 in memory (the file stores fp32; ``load_state_dict(assign=True)`` keeps
+    # that), like our trainable modules. Precision is set by the caller's autocast: fp16 in SEVA's
+    # sampler, fp32 (no autocast) in training since the 2026-11-19 audit.
+    allow_full_precision_attention()
     model = DatedSGMWrapper(seva) if dated else SGMWrapper(seva)
     ae = LocalAutoEncoder(snapshot_dir(hub, VAE_REPO), chunk_size=1)
     clip = LocalCLIPConditioner(snapshot_dir(hub, CLIP_REPO) / "open_clip_model.safetensors")

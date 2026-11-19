@@ -8,7 +8,7 @@ pytest.importorskip("seva.eval", reason="SEVA not installed (scripts/setup_seva.
 
 from timemachine.training.conditioning import build_conditions, camera_rays  # noqa: E402
 from timemachine.training.loss import (  # noqa: E402
-    LossConfig, draw_dates, noise_prediction_loss, predict_noise, training_loss,
+    LossConfig, draw_dates, level_weight, noise_prediction_loss, predict_noise, training_loss,
 )
 from timemachine.training.probes import RenderProbeSpec, select_probe_rows, swapped_years  # noqa: E402
 
@@ -152,11 +152,19 @@ def test_rank_loss_rewards_the_true_date():
                                 torch.Generator().manual_seed(0), is_input=IS_INPUT)
     assert "rank_loss" not in info
     ranked, info = training_loss(DateBlind(), sigmas, latents, cond, uncond, interval,
-                                 LossConfig(uncond_prob=0.0, date_dropout=0.0, rank_weight=2.0, rank_margin=0.1),
+                                 LossConfig(uncond_prob=0.0, date_dropout=0.0, rank_weight=2.0, rank_margin=0.1, rank_detach=True),
                                  torch.Generator().manual_seed(0), is_input=IS_INPUT)
     assert info["rank_log_ratio"] == pytest.approx(0.0, abs=1e-6)
     assert info["rank_loss"] == pytest.approx(0.1, abs=1e-6)               # a date-blind model pays the margin
     assert float(ranked) == pytest.approx(float(plain) + 2.0 * 0.1, rel=1e-5)
+
+
+def test_rank_needs_a_detached_reference():
+    with pytest.raises(ValueError):
+        LossConfig(rank_weight=1.0)                                      # reference with gradient: refused
+    LossConfig(rank_weight=1.0, rank_detach=True, rank_reference="unknown")
+    with pytest.raises(ValueError):
+        LossConfig(rank_reference="other")
 
 
 def test_lr_schedules():
@@ -208,3 +216,23 @@ def test_divergence_guard_watches_loss_and_high_noise_error(monkeypatch, tmp_pat
     assert "x0_mse_high_noise" in t.run_gap_probe()
     results = iter([{"loss_true": 0.061, "x0_mse_high_noise": 0.10}])   # denoising loss above 3x: stop
     assert "loss_true" in t.run_gap_probe()
+
+
+def test_resume_refuses_a_checkpoint_trained_at_another_precision(tmp_path):
+    """A requeued job must not continue a bf16 run in fp32 (audit of 2026-11-19)."""
+    from types import SimpleNamespace
+
+    import timemachine.training.trainer as tr
+    torch.save({"autocast": "bf16", "trainable": {}}, tmp_path / "latest.pt")
+    torch.save({"trainable": {}}, tmp_path / "old.pt")                   # before the field existed: bf16
+    fake = SimpleNamespace(cfg=SimpleNamespace(autocast="fp32"))
+    for name in ("latest.pt", "old.pt"):
+        with pytest.raises(ValueError, match="bf16"):
+            tr.Trainer.resume(fake, tmp_path / name)
+
+
+def test_lora_skips_the_cross_attention_query_and_key():
+    """SEVA cross-attends to one CLIP token, so attn2 q/k adapters would have zero gradient."""
+    from timemachine.model.lora import ATTENTION_TARGETS
+    assert "attn2.to_q" not in ATTENTION_TARGETS and "attn2.to_k" not in ATTENTION_TARGETS
+    assert {"attn1.to_q", "attn1.to_k", "attn2.to_v", "attn2.to_out.0"} <= set(ATTENTION_TARGETS)

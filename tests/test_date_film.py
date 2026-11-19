@@ -69,6 +69,20 @@ def test_date_film_is_identity_at_init_and_uses_dates_after_training():
     assert model.date_module.state.features is None
 
 
+def test_small_date_scale_acts_exactly_in_fp32():
+    """A scale of 0.002 changes fp32 activations by exactly 0.2% (half precision rounds most of it away)."""
+    model = _model()
+    layer = next(iter(date_film_layers(model.module).values()))
+    channels = layer.conv.in_channels
+    with torch.no_grad():
+        layer.film.bias[:channels] = 0.002                             # scale; shift stays 0
+    layer.conv = nn.Identity()
+    layer._state.features = torch.zeros(3, layer.film.in_features)
+    h = torch.rand(3, channels, 16, 16) + 0.5
+    torch.testing.assert_close(layer(h), h * 1.002, rtol=1e-6, atol=0)
+    layer._state.features = None
+
+
 def test_date_film_handles_the_doubled_cfg_batch():
     x, t, c = _inputs()
     model = _model(perturb=True)
@@ -110,6 +124,24 @@ def test_date_film_gradients_survive_checkpointing():
     for plain, ckpt in zip(*grads):
         torch.testing.assert_close(plain, ckpt)
     assert all(g.abs().sum() > 0 for g in grads[1])                    # encoder and every block learn
+
+
+def test_checkpointed_gradients_ignore_an_earlier_gradient_free_pass():
+    """The ranking loss runs a no-grad pass with other dates first; recomputation must use the last pass's dates."""
+    x, t, c = _inputs()
+    years, wrong = torch.tensor([1860.0, 1900.0, 2020.0, 2021.0]), torch.tensor([2015.0, 2015.0, 1890.0, 1890.0])
+    grads = []
+    for earlier_pass in (False, True):
+        model = _model(perturb=True)
+        enable_gradient_checkpointing(model.module)
+        model.train()
+        if earlier_pass:
+            with torch.no_grad():
+                model(x, t, c, date=wrong)
+        model(x, t, c, date=years).pow(2).mean().backward()
+        grads.append([p.grad.clone() for p in model.film_parameters()])
+    for a, b in zip(*grads):
+        torch.testing.assert_close(a, b)
 
 
 def test_finetune_with_film_trains_only_film_and_round_trips():

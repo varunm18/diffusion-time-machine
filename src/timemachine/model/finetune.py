@@ -2,7 +2,7 @@
 
 Fine-tuning recipe (first version, for the single-scene overfit):
 
-* SEVA's 1.26B weights are frozen (bf16).
+* SEVA's 1.26B weights are frozen (fp32 in memory; the forward precision is the caller's).
 * Trainable: how the date gets in (``date_injection``), plus optional LoRA
   adapters (zero-init) on the attention and feed-forward layers of every
   multi-view transformer block. At step 0 the model is exactly SEVA.

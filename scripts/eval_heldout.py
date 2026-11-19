@@ -44,7 +44,8 @@ def build_dataset(run_dir: Path) -> tuple[DatedViewsDataset, dict, HoldoutConfig
                                 resolution=cfg["resolution"], seed=cfg["seed"], camera_scale=cfg["camera_scale"],
                                 group_weight_power=cfg.get("group_weight_power", 0.5))
     h = cfg["holdout"]
-    holdout = HoldoutConfig(fraction=h["fraction"], probe_targets=h["probe_targets"], scenes=tuple(h["scenes"]),
+    holdout = HoldoutConfig(fraction=h["fraction"], probe_targets=h["probe_targets"],
+                            scenes=tuple(h.get("scenes", ())),          # runs from before held-out scenes existed
                             seed=h["seed"], era_edges=tuple(h["era_edges"]))
     probes = [SimpleNamespace(spec=s, rows=select_probe_rows(dataset, s))
               for s in (RenderProbeSpec.from_dict(d) for d in cfg["render_probes"])]

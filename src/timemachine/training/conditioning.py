@@ -65,8 +65,10 @@ def sample_conditions(components: SevaComponents, sample: dict, device: str = "c
     is_input = sample["is_input"].to(device)
     _, _, H, W = images.shape
     plucker = camera_rays(sample["c2w"], sample["K"], int(is_input.sum()), H, W, camera_scale)
-    with torch.autocast(device):
+    with torch.autocast(device):                    # VAE and CLIP in fp16, as in seva.eval.do_sample
         latents, clip = encode_sample(components, images, is_input)
-    cond, uncond = build_conditions(latents, clip, plucker.to(device), is_input)
+    # fp32 holders of the same values: the denoiser may then run at any precision (fp32 training).
+    cond, uncond = build_conditions(latents.float(), clip.float(), plucker.to(device), is_input)
+    latents = latents.float()
     return latents, cond, uncond
 

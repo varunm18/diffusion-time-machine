@@ -988,6 +988,7 @@ The same checkpoint rendered clean on the nearest *trained* views, which first l
 | `ms13_lora_f4_holdout` | date FiLM + LoRA (the date-conditioned baseline) |
 | `ms13_lora_nodate_holdout` | **no date conditioning** (`--date-injection none`), LoRA only: the control. If the dated run matches it, the gains aren't temporal |
 | `ms13_lora_rank_events` | the baseline + a date-discrimination ranking loss + change-event sampling |
+| `ms13_lora_rank` / `ms13_lora_events` | each of the two alone, to tell which matters |
 
 **New measurements**
 - The held-out probe now also scores the targets with a **wrong-era date** (`*_rel_swapped`, > 0 when the true date wins), split by era and by held-out view vs held-out scene. A no-date model scores 0.
@@ -1000,3 +1001,135 @@ The same checkpoint rendered clean on the nearest *trained* views, which first l
   - Example draws: Notre-Dame 2011–12 targets with 2019–22 inputs; Sydney 1930–31 (under construction) with 1932–41; Sphinx 1850 (buried) with 1935–41.
 - The date encoding is already coarse in all current runs: 4 octaves, periods ≥ 25 years. The 1.6-year features were the 8-octave setting, dropped on 2026-11-18. Era bins would be the next step if this isn't coarse enough.
 - Per the review, no further FiLM-only stability runs. The FiLM ablations already running are left to finish.
+- **Dated multi-scene LoRA does not use the dates** (`scripts/eval_heldout.py`, 64 held-out pairs, vs plain SEVA on identical samples)
+
+  | `ms13_lora_f4_holdout` | Held-out views | Trained views | Held-out scene (Garnier) | True vs unknown | **True vs wrong-era** |
+  |---|---|---|---|---|---|
+  | step 2500 | −5.5% | −6.5% | −0.6% | −3.2% | **+0.5%** |
+  | step 4500 | −3.9% | −5.6% | +1.7% | −3.9% | **−0.6%** |
+
+  - A wrong-era date is as good as the true one (±1%), on old and modern views and on the unseen scene alike. **The LoRA gains are scene/photo adaptation, not temporal learning**, as the review suspected. The no-date control should match them.
+  - The gains also fade with training (held-out −5.5% → −3.9%; Garnier −0.6% → +1.7%).
+- **`nd_abl_noclip` degrades by 10k too:** about +10% vs plain SEVA on held-out and trained views, true dates −9%. No FiLM-only variant tested here stays healthy.
+- **FiLM-only single-change runs at 10k** (Notre-Dame with the hold-out; held-out probe, plain average, vs plain SEVA)
+
+  | Run | Held-out | Trained | True vs unknown | Date-gap swap | High-noise error |
+  |---|---|---|---|---|---|
+  | `nd_film_f4_holdout` (reference) | +7.8% | +4.9% | −12% / −14% | −0.3% | 0.620 |
+  | `nd_abl_uncond` (undated uncond branch) | +2.1% | +0.8% | −7% / −8% | −1.8% | 0.631 |
+  | `nd_abl_noclip` (+ no clip) | +2.7% | +2.2% | −9% / −10% | +0.4% | 0.578 |
+  | **`nd_abl_cosine`** (+ cosine decay) | **−4.2%** | **−5.4%** | −3% | −1.3% | 0.594 |
+
+  - **A decaying learning rate stops the drift:** it is the only FiLM-only run that ends better than plain SEVA. This fits the explanation that per-step noise at a constant rate washes things out. Use cosine decay by default from now on.
+  - **But none of them uses the dates:** the swap costs ~0 everywhere. Stability isn't temporal learning, which is the review's point.
+- **First sign of date discrimination:** `ms13_lora_rank_events` at step 700. The training-sample log ratio (wrong-era / true loss) is +0.014 and rising. The date-gap probe swap is +0.8% at step 500. Early and on training samples only; held-out checks come at 2.5k.
+- `nd_abl_gapold` stopped at ~5k: at 5k it was +9% / +8% (held-out / trained) vs plain SEVA, with true dates −8%. No better than the others, and it was preempted repeatedly. `nd_abl_accum4` stays queued.
+
+### Step 2500: no-date control vs dated LoRA vs ranking + events (`scripts/eval_heldout.py`, identical held-out samples, vs plain SEVA)
+
+| Run | Held-out | Trained | Garnier | True vs unknown | **True vs wrong-era** | old | modern | Garnier |
+|---|---|---|---|---|---|---|---|---|
+| `ms13_lora_f4_holdout` (dated LoRA) | −5.5% | −6.5% | −0.6% | −3.2% | +0.5% | +0.6% | +0.5% | +0.6% |
+| `ms13_lora_nodate_holdout` (no dates) | **−7.4%** | **−8.0%** | **−2.8%** | 0 | 0 | 0 | 0 | 0 |
+| `ms13_lora_rank_events` | −2.5% | −3.3% | +6.9% | −5.9% | **+2.4%** | **+4.9%** | +0.7% | **+4.1%** |
+
+- **The no-date control beats the dated LoRA** on every denoising number. The LoRA gains are scene/photo adaptation, and the date FiLM costs about 2 points. This is the review's suspicion, confirmed.
+- **Ranking + events gives the first temporal signal that carries over to unseen data.** The true date beats a wrong-era date on held-out views (+4.9% for old ones) and on the unseen scene (+4.1%), as much as on trained views.
+- **But it got there the wrong way.** Unknown still beats the true date (−5.9%), the denoising gains shrink, Garnier ends 6.9% worse than plain SEVA, and **renders at modern dates break badly** (purple Sphinx, red Sydney, fragmented Notre-Dame).
+  - The hinge can be satisfied by making wrong-date predictions *worse*. That is harmful for generation, where any date must give a plausible image.
+- **Fix: `--rank-detach`.** No gradient through the reference branch, so only the true-date prediction can improve. In effect it puts extra denoising weight where the date isn't helping yet. It also runs the reference without a backward pass, which is cheaper.
+- `ms13_lora_rank_events` and `ms13_lora_rank` stopped at ~2.6k. Replaced by:
+  - `ms13_lora_events_rankdet`: events + detached rank vs a **wrong-era** date.
+  - `ms13_lora_events_rankunk`: events + detached rank vs **unknown**. The true date must add information over no date.
+  - `ms13_lora_events` (events only, no ranking) continues.
+- **Correction: `ms13_lora_rank_events` (and `ms13_lora_rank`) were trained with a gradient bug.** Their numbers above don't test the ranking idea.
+  - The date-FiLM layers read the dates of the *last* forward pass when gradient checkpointing recomputes a block in the backward pass.
+  - The ranking loss ran a second pass (the wrong-era reference) after the true-date pass and before the backward. So the true-date loss's gradients were computed with the wrong-era dates' features.
+  - It failed silently while both passes had gradients. It surfaced as a checkpoint error once the reference was detached.
+  - This may explain the broken renders and the lost gains.
+  - **Fixed:** the reference pass now runs first and without gradients, and the true-date pass runs last. Ranking without a detached reference is refused. A new test checks that checkpointed gradients are unaffected by an earlier gradient-free pass with other dates.
+  - The ranking runs were restarted: `ms13_lora_events_rankdet` (vs wrong-era) and `ms13_lora_events_rankunk` (vs unknown).
+  - The rest of the step-2500 table stands: the no-date control beats the dated LoRA.
+
+---
+
+## Full pipeline audit: every run so far trained on numerical noise (2026-11-19)
+*Full report with tables: `docs/audit_2026-11-19.md`. Raw evidence: `data/audit_2026-11-19/`.*
+
+**Root cause: half-precision training.**
+- In bf16 (all runs since 11-10) and fp16 (all runs before), the gradient reaching the adapters is rounding noise. Its norm is ~1,000 against a true (fp32) norm of ~1, and its direction is unrelated to the true one (cosine ≈ 0).
+- Why: SEVA predicts the noise, and at medium and high noise its error is ~1–2% of its output, the same size as bf16's rounding. The loss is built from that small difference.
+- The logs' gradient norms of 700–1,200 ("clipped 100%") were this noise, not the loss weighting.
+- **Proof:** on one fixed sample with fixed noise, the loss stalls at −6% to −11% in bf16 and falls −34% to −40% in 60 steps in fp32. Two same-seed bf16 runs move their weights in unrelated directions.
+- **Fixed:** training and loss probes now run in fp32 (`--autocast fp32`, the default). Cost: 16 GB instead of 14 GB, ~5 s per step instead of 2.8 s.
+
+**Second cause: we rendered with 8 frames.**
+- SEVA always runs 21 frames (padding by repeating the last one); fewer gives "abnormal color overflows" (its paper).
+- Plain SEVA scores 9.6 dB at 8 frames and 11.6 dB at 21 on easy samples. At 21 frames it is coherent even with guidance 1.
+- The "fragmented renders" were largely this. **Fixed:** renders pad to 21 frames by default.
+
+**Third cause: ill-posed training samples.**
+- 24–74% of training targets (lenient–strict count) show something none of the 3 inputs shows; 42–97% for modern targets with old inputs. An easy same-date baseline: 9–25%.
+- On training-style samples plain SEVA barely uses the cameras: scrambling the target cameras costs 4–6% (12–18% on easy samples).
+- Two of the three Notre-Dame probes (`old_from_modern`, `modern_from_old`) are ill-posed or nearly so. **Not fixed yet.**
+
+**Evaluation artefacts**
+- Seed 0 (every training probe) has an extreme noise draw on the 4th target, which renders dark in 9 of 9 plain-SEVA sheets. Use several seeds.
+- Guidance 2.0 and 25 steps are at the weak end of SEVA's recommendations (2–5, 50 steps).
+
+**Checked and correct:** cameras (0.36 px median reprojection error vs COLMAP), conventions, the conditioning tensors (equal to SEVA's own sampler's), the loss scaling, weights/VAE/CLIP/schedule, gradient plumbing, save/load/resume.
+
+**Smaller fixes made:** LoRA no longer targets the cross-attention query/key (zero gradient, 11% of its parameters); resume refuses a precision mismatch; FiLM arithmetic in fp32; stale comments.
+
+**Open data issues:** 7% of Notre-Dame views are sideways (EXIF rotation ignored), 18 duplicate photo pairs, camera scale outside SEVA's training range in >90% of samples, the fixed gradient clip at 1.0.
+
+**What this means for everything above this section**
+- No conclusion about *learning* from any earlier run stands (date-pathway designs, weightings, learning rates, FiLM vs LoRA, the no-date control, the ranking loss): they compared random walks.
+- Findings about plain SEVA and the data stand (census, dating, camera chain).
+
+**Proof the fixed pipeline learns** (two pinned samples, real trainer, 600 steps): 
+- Loss on the two training samples: −32% to −51% in fp32 (LoRA + FiLM, lr 1e-4); the same run in bf16 was +3% to +25%.
+- The fp32 run's renders reproduce its training photos (night-lit facade, blossom tree, rose window); the bf16 run renders white mush.
+- **First real date effect:** with FiLM only, the correct date beats the wrong one by 4–8 points for the pre-fire sample at every noise level.
+
+---
+
+## New direction: MVGenMaster and Photo Tourism (2026-11-19)
+*Plan: `docs/mvgenmaster_time_plan.md`. Setup: `external/MVGenMaster/` (not in git), `slurm/mvgen_gpu.sbatch`.*
+
+**Why MVGenMaster**
+- It is built on SD 2.1 with v-prediction, was trained on MegaScenes among 12 sources, and its training code is released (Apache-2.0).
+- Besides camera rays it conditions on the input views warped into each target by depth.
+- It has a "domain switcher" (one embedding per data source, added to the timestep embedding) made for MegaScenes' varying appearance: a natural slot for a date.
+
+**Setup notes**
+- `stabilityai/stable-diffusion-2-1` is gone from Hugging Face (401). The mirror `sd2-community/stable-diffusion-2-1` works; MVGenMaster needs its VAE, UNet config and scheduler.
+- Its own environment (Python 3.10, torch 2.5.1) lives in `external/MVGenMaster/.venv`, separate from ours.
+- The authors' demo (3 photos → 25 views) runs in 41 s on an A6000.
+
+**Tested on our Notre-Dame view sets** (our COLMAP cameras, real target photos; `scripts/mvgen/nvs_test.py`)
+
+| View set | SEVA, 8 frames | SEVA, 21 frames | MVGenMaster |
+|---|---|---|---|
+| Easy same-year sets (mean of 4) | 9.6 dB | 11.6 dB | **12.6 dB** |
+| Fire probe | 9.9 dB | 10.8 dB | **11.8 dB** |
+
+- Renders are sharp and stable across noise seeds, with no fragmentation.
+- It needs a depth map per input view. Depth-Pro scaled to the view's COLMAP points agrees with them to 1–14% (median) on easy sets.
+- Its domain label "others" scores ~1 dB above "megascenes" on same-date sets.
+
+**Its gradient is sound in bf16** (`scripts/mvgen/grad_precision.py`): cosine 0.998–1.000 with the fp32 gradient at every noise level, where SEVA's was ~0. fp16 without a gradient scaler is not (0.77–0.82).
+
+**Photo Tourism: which scene** (analysis in `data/phototourism/`; `analysis/scene_comparison.csv` compares 35 scenes)
+- **Usable today:**
+  - **MegaDepth** (196 Flickr landmarks): already on the cluster at `/fs/vulcan-datasets/MegaDepth`, original files with EXIF dates for 75% of registered images.
+  - **IMC-PhotoTourism** (the NeRF-W scenes): dates only through YFCC100M lookups; range 2004–2014.
+  - **NeuSC 5Pointz**: change-focused, 6,502 dated images, 2006–2014.
+  - The other change-focused sets (Scene Chronology, Times Square) were never released.
+- **Nothing in Photo Tourism spans more than about a decade.** MegaDepth ends in early 2017, IMC in 2014. For decades of range, MegaScenes stays the only source.
+- **Recommended: Milan Cathedral (MegaDepth 0063).** View table built: `data/phototourism/views/megadepth_0063_milan_cathedral/views.parquet` (loads in `DatedViewsDataset`).
+  - 1,696 posed views, 1,045 with an exact EXIF date (2002–2017; 90% in 2007–2016). The other 651 only have an upper bound from the upload time.
+  - **A real change tied to the date:** the facade is fully wrapped in scaffolding in late 2005, half covered by hoardings in 2006, hoardings at the base in 2007–08, clean from January 2009 (checked on the date-sorted contact sheet).
+  - Good overlap: 88% of dated images share 30+ COLMAP points with 5 or more images in each of three eras. Poses: 0.54 px median reprojection error.
+  - Limits: the change is local (the lower 15–50% of the facade) and over by 2009; only 33 dated images are from 2005–06. Expect a before/after step, not smooth date control.
+- **Runner-up: 5Pointz** (murals repainted continuously): far denser change, but photos years apart share almost no feature points, so it is a harder first overfit.

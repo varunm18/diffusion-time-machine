@@ -39,7 +39,7 @@ from timemachine.model.diagnostics import finetune_stats
 from timemachine.model.finetune import FinetuneConfig, load_trainable_state_dict, prepare_for_finetuning, save_checkpoint
 from timemachine.model.loading import SevaComponents, load_components
 from timemachine.training.conditioning import sample_conditions
-from timemachine.training.loss import AUTOCAST_DTYPES, LossConfig, training_loss
+from timemachine.training.loss import AUTOCAST_DTYPES, LossConfig, autocast, training_loss
 from timemachine.training.probes import DateGapProbe, HeldoutProbe, RenderProbe, RenderProbeSpec
 
 
@@ -60,7 +60,7 @@ class TrainConfig:
     grad_clip: float | None = None                  # absolute clip (off by default)
     grad_clip_factor: float | None = 10.0           # spike guard, relative to the running median
     grad_accum: int = 1
-    autocast: str = "bf16"                          # training/probe precision, a key of AUTOCAST_DTYPES
+    autocast: str = "fp32"                          # training/probe precision, a key of AUTOCAST_DTYPES
     resolution: int = 576
     camera_scale: float = 2.0
     group_weight_power: float = 0.5                 # scene sampling weight = training views ** this
@@ -73,6 +73,7 @@ class TrainConfig:
     latest_every: int = 500                         # latest.pt (overwritten; to resume after preemption)
     render_steps: int = 25                          # sampler steps for the render probes
     render_uncond_dates: str = "same"               # render probes: unconditional CFG branch dated "same"/"unknown"
+    render_frames: int | None = 21                  # render probes: pad to SEVA's 21 frames (None: unpadded, pre-audit)
     gap_samples: int = 16
     heldout_every: int = 1000                       # held-out probe interval (runs with a hold-out only)
     heldout_pairs: int = 48
@@ -160,7 +161,8 @@ class Trainer:
         self.probe_baseline: dict[str, float] = {}      # first value of each watched probe loss (step 0 if fresh)
         # Render probes pick their views from the full table, before any hold-out (so they can be held out).
         self.render_probes = [RenderProbe(self.dataset, spec, date_views=cfg.loss.date_views,
-                                          uncond_dates=cfg.render_uncond_dates) for spec in cfg.render_probes]
+                                          uncond_dates=cfg.render_uncond_dates, frames=cfg.render_frames)
+                              for spec in cfg.render_probes]
         (self.run_dir / "probes.json").write_text(json.dumps([p.describe() for p in self.render_probes], indent=2))
         if cfg.holdout.active:
             self.hold_out_views()
@@ -210,15 +212,21 @@ class Trainer:
     def save(self, tag: str | None = None) -> Path:
         """``step_XXXXXX.pt``: trainable weights only. ``latest.pt`` (tag) also has the optimizer, to resume."""
         path = self.run_dir / "checkpoints" / (tag or f"step_{self.step:06d}.pt")
-        extra = {"epoch": self.epoch, "probe_baseline": self.probe_baseline}
+        extra = {"epoch": self.epoch, "probe_baseline": self.probe_baseline, "autocast": self.cfg.autocast}
         if tag is not None:
-            extra.update(optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict())
+            extra.update(optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(),
+                         grad_norm_history=list(self.grad_norm_history))
         save_checkpoint(path, self.model, self.cfg.finetune, self.step, extra=extra)
         return path
 
     def resume(self, path: Path) -> None:
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        trained_at = ckpt.get("autocast", "bf16")          # checkpoints before 2026-11-19 are all bf16 (or fp16)
+        if trained_at != self.cfg.autocast:
+            raise ValueError(f"{path} was trained at {trained_at}; resuming at {self.cfg.autocast} would mix "
+                             f"precisions in one run. Pass --autocast {trained_at}, or start a new run.")
         load_trainable_state_dict(self.model, ckpt["trainable"])
+        self.grad_norm_history.extend(ckpt.get("grad_norm_history", []))
         self.optimizer.load_state_dict(ckpt["optimizer"])
         self.scheduler.load_state_dict(ckpt["scheduler"])
         self.step, self.epoch = ckpt["step"], ckpt.get("epoch", 0) + 1
@@ -315,7 +323,7 @@ class Trainer:
             for _ in range(cfg.grad_accum):
                 self.epoch, sample = next(stream)
                 latents, cond, uncond = sample_conditions(self.components, sample, camera_scale=cfg.camera_scale)
-                with torch.autocast("cuda", dtype=AUTOCAST_DTYPES[cfg.autocast]):
+                with autocast(AUTOCAST_DTYPES[cfg.autocast]):
                     loss, info = training_loss(self.model, self.sigmas, latents, cond, uncond,
                                                sample["date"], cfg.loss, gen, is_input=sample["is_input"])
                 (loss / cfg.grad_accum).backward()

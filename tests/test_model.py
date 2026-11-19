@@ -76,3 +76,11 @@ def test_date_embedding_bound_keeps_zero_init_and_caps_output():
     assert torch.equal(emb(years), torch.zeros(2, 16))
     nn.init.normal_(emb.mlp[-1].weight, std=10.0)
     assert emb(years).abs().max() <= 0.05
+
+
+def test_padded_indices_repeat_the_last_view_up_to_sevas_frame_count():
+    from timemachine.model.inference import SEVA_FRAMES, padded_indices
+    assert SEVA_FRAMES == 21
+    assert padded_indices(8, 21) == list(range(8)) + [7] * 13
+    assert padded_indices(8, None) == list(range(8)) and padded_indices(21, 21) == list(range(21))
+    assert padded_indices(30, 21) == list(range(30))                # never truncates

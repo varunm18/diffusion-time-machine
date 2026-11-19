@@ -3,13 +3,17 @@
 ``add_lora`` replaces selected ``nn.Linear`` layers by :class:`LoRALinear`, which
 computes ``base(x) + scale * up(down(x))``. ``up`` starts at zero, so a freshly
 adapted model is exactly the original one. Only the adapters are trainable; the
-base weights stay frozen (and in SEVA's bf16).
+base weights stay frozen (fp32, like the adapters).
 
 Targets are matched by the *suffix* of the module's qualified name, e.g.
 ``"attn1.to_q"`` matches every multi-view self-attention query projection.
-:data:`ATTENTION_TARGETS` covers all attention projections of SEVA's spatial
+:data:`ATTENTION_TARGETS` covers the attention projections of SEVA's spatial
 (``TransformerBlock``) and cross-frame (``TransformerBlockTimeMix``) blocks,
-:data:`FEEDFORWARD_TARGETS` their MLPs.
+:data:`FEEDFORWARD_TARGETS` their MLPs. The cross-attention query and key
+projections (``attn2.to_q`` / ``attn2.to_k``) are left out: SEVA cross-attends to a
+single CLIP token, and a softmax over one key is 1 whatever the query and key are,
+so those adapters have exactly zero gradient (64 layers, 11% of the LoRA; audit of
+2026-11-19). Checkpoints trained with them still load (targets are stored per run).
 
 Adapter weights are saved/loaded on their own (:func:`lora_state_dict`,
 :func:`load_lora_state_dict`), keyed by the adapted layer's original name, so a
@@ -22,8 +26,7 @@ import math
 import torch
 from torch import nn
 
-ATTENTION_TARGETS = tuple(f"{attn}.{proj}" for attn in ("attn1", "attn2")
-                          for proj in ("to_q", "to_k", "to_v", "to_out.0"))
+ATTENTION_TARGETS = ("attn1.to_q", "attn1.to_k", "attn1.to_v", "attn1.to_out.0", "attn2.to_v", "attn2.to_out.0")
 FEEDFORWARD_TARGETS = ("ff.net.0.proj", "ff.net.2", "ff_in.net.0.proj", "ff_in.net.2")
 
 
@@ -41,7 +44,7 @@ class LoRALinear(nn.Module):
         nn.init.zeros_(self.up.weight)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Adapters are fp32; outside autocast, cast the (bf16) activations to match.
+        # Adapters are fp32; outside autocast, cast half-precision activations (if any) to match.
         lora_in = x if torch.is_autocast_enabled(x.device.type) else x.to(self.down.weight.dtype)
         return self.base(x) + (self.scale * self.up(self.down(lora_in))).to(x.dtype)
 
