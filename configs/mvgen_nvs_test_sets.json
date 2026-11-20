@@ -1,0 +1,47 @@
+[
+ {
+  "name": "easy0",
+  "refs": [
+   "Paris_Cathédrale_Notre-Dame_Fassade_2.jpg",
+   "Paris_Cathédrale_Notre-Dame_Fassade_3.jpg",
+   "Paris_Cathédrale_Notre-Dame_Rosette_1.jpg"
+  ],
+  "targets": [
+   "Notre-Dame_de_Paris_-_July_2016_(08).jpg",
+   "Notre_Dame_de_Paris_(24112984425).jpg",
+   "Façade_ouest_Cathédrale_Notre-Dame_Paris_12.jpg",
+   "Façade_ouest_Cathédrale_Notre-Dame_Paris_7.jpg",
+   "Paris_Notre-Dame_west_facade_20161109_18h43.jpg"
+  ]
+ },
+ {
+  "name": "easy1",
+  "refs": [
+   "Paris_Notre-Dame_South_Tower_02.JPG",
+   "Cathedral_Notre_Dame_de_Paris_(28214450822).jpg",
+   "Cathedral_Notre_Dame_de_Paris_(27702454693).jpg"
+  ],
+  "targets": [
+   "Cathedral_Notre_Dame_de_Paris_(28214426742).jpg",
+   "Paris_Cathédrale_Notre-Dame_Südliches_Langhaus_02.jpg",
+   "Cathédrale_Notre-Dame_de_Paris_12_2016_0953.jpg",
+   "Paris_Cathédrale_Notre-Dame_Südliches_Langhaus_01.jpg",
+   "Paris_-_inondations_-_juin_2016_-_131.jpg"
+  ]
+ },
+ {
+  "name": "fire",
+  "refs": [
+   "Notre_Dame_comp.jpg",
+   "Île_de_la_Cité_(30438306655).jpg",
+   "Notre_Dame_from_the_side_(7179056976).jpg"
+  ],
+  "targets": [
+   "Notre-Dame_de_Paris_from_Quai_de_Montebello,_Paris.jpg",
+   "Cathédrale_Notre-Dame_en_cours_de_reconstruction_le_30_octobre_2023_02.jpg",
+   "Notre-Dame_de_Paris_en_travaux_4.jpg",
+   "Cathédrale_Notre-Dame_façade_sud_Paris_28.jpg",
+   "Notre_Dame_Cathedral_Renovation_Feb_29,2020.jpg"
+  ]
+ }
+]

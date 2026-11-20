@@ -18,6 +18,10 @@ so those adapters have exactly zero gradient (64 layers, 11% of the LoRA; audit 
 Adapter weights are saved/loaded on their own (:func:`lora_state_dict`,
 :func:`load_lora_state_dict`), keyed by the adapted layer's original name, so a
 checkpoint holds only the new parameters.
+
+MVGenMaster's fine-tuning (``timemachine.mvgen.model``) reuses this module with its
+own targets. What a wrapped layer returns under bf16 autocast, and what that means
+for comparing a LoRA run with the unadapted model, is in :class:`LoRALinear`.
 """
 from __future__ import annotations
 
@@ -31,7 +35,27 @@ FEEDFORWARD_TARGETS = ("ff.net.0.proj", "ff.net.2", "ff_in.net.0.proj", "ff_in.n
 
 
 class LoRALinear(nn.Module):
-    """A frozen ``nn.Linear`` plus a trainable rank-``rank`` update (zero at init)."""
+    """A frozen ``nn.Linear`` plus a trainable rank-``rank`` update (zero at init).
+
+    **Output dtype.** The update is cast to the *input's* dtype and added to ``base(x)``. Outside
+    autocast that is the dtype of ``base(x)`` too, and a new layer returns ``base(x)`` bit for bit.
+
+    Under bf16 autocast a bare ``nn.Linear`` returns bf16 whatever its input, and so do ``base`` and
+    the adapter here. With a bf16 input the sum is bf16 as well. With an fp32 input the update is
+    cast back to fp32 and the sum is taken in fp32, so the wrapped layer returns fp32 where the bare
+    layer returned bf16. This is on purpose: bf16 keeps 8 significant bits, and in a bf16 sum an
+    update below about 0.2% of ``base(x)`` would be rounded away.
+
+    The price: wherever a wrapped layer has fp32 input, the layers after it compute from an fp32
+    tensor instead of a bf16 one, so a bf16 LoRA run is not bit-identical to the unadapted model at
+    step 0; the two differ by rounding. On a GPU this concerns the layers that follow a layer norm
+    (autocast runs the norm in fp32 there; on a CPU it does not, so CPU tests of those layers stay
+    exact: ``data/mvgen_review/impl2_results.json``, "learning-hazards" finding 4, derived from
+    PyTorch's autocast rules on a CPU stand-in, not measured on a GPU). On any device it concerns
+    MVGenMaster's ``time_emb_proj``, whose input is always fp32 (``tests/test_mvgen_model.py``).
+    So compare a bf16 LoRA run with its own step-0 probe, not with the released model's output.
+    In fp32 the wrapped model is exact at step 0.
+    """
 
     def __init__(self, base: nn.Linear, rank: int, alpha: float | None = None):
         super().__init__()
@@ -46,6 +70,8 @@ class LoRALinear(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Adapters are fp32; outside autocast, cast half-precision activations (if any) to match.
         lora_in = x if torch.is_autocast_enabled(x.device.type) else x.to(self.down.weight.dtype)
+        # The update takes the input's dtype, not base(x)'s: under bf16 autocast an fp32 input keeps the sum in
+        # fp32 (see the class docstring).
         return self.base(x) + (self.scale * self.up(self.down(lora_in))).to(x.dtype)
 
 

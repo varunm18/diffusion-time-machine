@@ -6,7 +6,10 @@ vs ~1 in fp32, cosine ~0), so nothing trained. MVGenMaster's authors train with 
 This script builds one real training step (as in MVGenMaster's ``train.py``: 3 clean reference
 views, 5 noised targets, camera rays, depth-warped 3D priors, v-prediction loss on the targets)
 from a view set exported by ``scripts/export_nvs_samples.py``, and compares the gradient under
-fp16 and bf16 autocast with the fp32 gradient, at several timesteps.
+fp16 and bf16 autocast with the fp32 gradient, at several timesteps. The priors are computed as the
+training step computes them, from depth whose far values are contracted once
+(``timemachine.mvgen.step.depth_for_priors``); the results recorded on 2026-11-19 predate this and
+had the warped pixels from depth contracted twice.
 
 Gradients are taken for three groups: the domain-switcher embedding (next to where a date
 embedding will go), the time-embedding projection of every ResBlock (what a date embedding
@@ -33,6 +36,7 @@ from my_diffusers.models import UNet2DConditionModel
 from src.modules.camera import get_camera_embedding
 from src.modules.position_encoding import get_3d_priors
 from src.modules.schedulers import get_diffusion_scheduler
+from timemachine.mvgen.step import depth_for_priors
 
 sys.path.insert(0, str(Path(__file__).parent))
 from nvs_test import load_sample, normalise_scale, reference_depth  # noqa: E402
@@ -86,7 +90,7 @@ def main() -> None:
     torch.cuda.empty_cache()
     w2c, depth, _, _ = normalise_scale(s["w2c"], depth, config.camera_longest_side)
     image = s["images"][None].to(device)                                     # [1, f, 3, H, W]
-    K, w2c, depth = s["K"].to(device), w2c.to(device), depth.to(device)
+    K, w2c = s["K"].to(device), w2c.to(device)
     with torch.no_grad():
         latents = vae.encode(image[0]).latent_dist.mode()[None] * vae.config.scaling_factor     # [1, f, 4, h, w]
         masks = torch.ones((1, f, 1, H, W), device=device)
@@ -94,8 +98,10 @@ def main() -> None:
         masks[:, :n_in], latent_masks[:, :n_in] = 0, 0
         camera = get_camera_embedding(K, w2c, 1, f, H, W, config=config).to(device=device, dtype=latents.dtype)
         add_inputs = torch.cat([masks, camera], dim=2)
-        coords = get_3d_priors(config, depth, K, w2c, n_in, nframe=f, device=device, colors=image[0], latents=latents,
-                               vae=vae, prior_type=config.model_cfg.get("prior_type", "3dpe"))
+        # a private float64 copy: each prior then contracts far depth once in its own copy, as in the training step
+        coords = get_3d_priors(config, depth_for_priors(depth, device), K, w2c, n_in, nframe=f, device=device,
+                               colors=image[0], latents=latents, vae=vae,
+                               prior_type=config.model_cfg.get("prior_type", "3dpe"))
     class_labels = torch.tensor([args.class_label], dtype=torch.long, device=device)
 
     def gradient(t: int, noise: torch.Tensor, precision: str):

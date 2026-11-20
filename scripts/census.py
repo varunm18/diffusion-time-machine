@@ -26,7 +26,8 @@ def main() -> None:
     paths = DataPaths()
     names = pd.read_parquet(paths.scene_table, columns=["scene_id", "scene"]).dropna()
     names = dict(zip(names["scene_id"].astype(int), names["scene"]))
-    scene_ids = sorted(int(p.stem) for p in (paths.tables / "dates").glob("*.parquet"))
+    # Only <scene id>.parquet: the folder also holds backups such as 25512_before_audit.parquet.
+    scene_ids = sorted(int(p.stem) for p in (paths.tables / "dates").glob("*.parquet") if p.stem.isdigit())
 
     summaries, models, all_files = [], [], []
     for sid in scene_ids:

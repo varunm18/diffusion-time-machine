@@ -1133,3 +1133,90 @@ The same checkpoint rendered clean on the nearest *trained* views, which first l
   - Good overlap: 88% of dated images share 30+ COLMAP points with 5 or more images in each of three eras. Poses: 0.54 px median reprojection error.
   - Limits: the change is local (the lower 15–50% of the facade) and over by 2009; only 33 dated images are from 2005–06. Expect a before/after step, not smooth date control.
 - **Runner-up: 5Pointz** (murals repainted continuously): far denser change, but photos years apart share almost no feature points, so it is a harder first overfit.
+
+**Scene decision: Notre-Dame from MegaScenes** (2026-11-19; measured on one rubric with an independent verifier per scene, `data/scene_choice_2026-11-19/`; every headline number reproduced)
+
+| | MegaScenes Notre-Dame | Milan (MegaDepth 0063) | Photo Tourism's Notre-Dame (MegaDepth 0004) |
+|---|---|---|---|
+| Views dated to within a year | 3,262 | 1,045 | 4,186 |
+| Dates (5th–95th percentile) | 2004.9–2019.6 (min 1840) | 2007.1–2016.1 | 2004.8–2009.6 |
+| Views in the changed state | 460 after the fire | 41 wrapped, 338 with base hoardings | 105 show a scaffold on one tower |
+| Frame share that changes | 4–10% in side and apse views; <1% frontal | 7–26%, clearly visible in ~100 views | small |
+| Changed-state views with 5+ co-visible views from another state | 87% | 91–95% | 96–97% |
+| Sideways photos | 7.2% | 0.8% | 3.4% |
+
+- **Why Notre-Dame:** the most photos of a changed state, the only range beyond a decade, and everything already built targets it. Photo Tourism's own Notre-Dame ends in 2009, ten years before the fire.
+- **The fire is invisible from the front:** under 1% of the frame in west-facade views. About 37% of modern views show the spire or roof at all; about 70% of after-fire views show the damage. Probes and samples should use south, south-east and apse views.
+- **"Before the spire" is not a usable state:** 5 exactly dated views, one misdated, two the same photograph.
+- **Only 58 exactly dated views predate 1970.** Old photos' co-visibility with other periods is split: 20 of 53 (west facade) see 30+ views of other states, 14 (river side) see none.
+- **Date fixes** (`configs/notre_dame_date_fixes.json`): the fire boundary is 2019.2849, not 2019.29 (68 fire-day photos were on the wrong side); 6 "after-fire" photos show the intact spire (3 confirmed, 3 suspected) and one "1851" photo shows the spire.
+- Milan is kept as a clean modern control: an orderly restoration sequence, almost no sideways photos, excellent overlap.
+
+**Census re-dated without the fake 30 Nov 1899 date** (2026-11-19; all 802 scenes re-dated from cached metadata, no downloads; old tables in `data/census_before_redate_2026-11-19/`)
+- The fake date is gone: 520 files before, 0 now. 380 are now dated 2000+ from their categories, 137 are undated, 3 fall in 1900–1969.
+- Pre-1900 photos: 13,653 → 13,179 (posed 2,242 → 1,956). Pre-1970: 45.4K → 44.9K (posed 7.0K → 6.7K).
+- Scenes passing the gate: posed in one model 148 → 140; with our own posing 482 → 471. Every lost scene is a fake-date scene (Faisal Mosque 108 → 0, the six Cochabamba churches, Hiran Minar). 42 scenes lose all their "pre-1900" photos.
+- **Side effect of the audit's upload-date change** (`resolve.py`, a capture date may end up to 2 days after the upload day, was 1): 407 photos went from undated to 2000+ (good), but 36 files moved from an older era to 2000+, and about 23 of those look like real old images now dated by their upload day (judged from file names only: Brooklyn Bridge 1896, Moscow 1986, St Paul's 1951). No gate changed. Worth revisiting.
+- Other suspicious exact days are still counted and not yet checked: 1900-01-01 (111 files), 1865-01-01 (57), 1980-01-01 (56).
+- The totals table higher up in this file (15.8K / 2.3K pre-1900) came from an earlier run; the committed tables had 13,653 / 2,242 before this fix.
+- `scripts/census.py` crashed on a backup file in the dates folder (`25512_before_audit.parquet`); it now skips names that are not scene ids.
+
+
+**MVGenMaster date conditioning: code written, checked against the authors' training code** (2026-11-19, evening; code in `src/timemachine/mvgen/`, nothing trained yet)
+- **What exists:** date module, model wrapper with LoRA, training step, dataset loader with a co-visibility sampler, trainer, probes, train and render scripts. Tests run in MVGenMaster's own environment.
+- **First GPU check passed:** our training step gives the same loss as a hand-built copy of the authors' step at five noise levels (within 0.3%). The comparison is against our copy of `train.py`, not their script run end to end.
+- **A gradient hazard closed before training.** With gradient checkpointing, a second forward pass before `backward()` would silently corrupt the date gradients (34% error on a toy model). Each forward pass now carries its own date embedding, attached to its timestep-embedding tensor, so this cannot happen. This is the same kind of bug as the SEVA ranking loss.
+- **Dataset rebuilt:** `data/datasets/25512_model0_v2`, 1,314 views. Usable before the second round of date fixes: 420 after the fire, 632 modern, 88 before 1970. Excluded: 100 sideways, 44 taken on the day of the fire, 23 duplicates, 7 misdated.
+- **More wrong dates found by review:** five "2020" photos are film scans showing the intact spire (upload dates), one photo of the burnt building is dated before the fire, two are before/after montages. After-fire photos now need a precise date unless checked by eye. The few pre-1859 views are dropped (two show the spire, two are one photo).
+
+**How our code compares with the authors' training code** (125 details compared, each difference re-checked by a second reader; full list in `data/mvgen_fidelity/audit_results.json`)
+- **The authors released** `train.py`, two stage configs and seven dataset classes. The MegaScenes dataset class is not released, so how they chose a scene's 8 views is unknown.
+- **Matches (73 details):** architecture and weight loading, noise schedule, loss on target views only, clean reference views, camera embedding, where an extra condition is added, dropout rates.
+- **Scene scale differs.** They scale a scene once, by the extent of all its cameras (Notre-Dame: ×0.087). We used their demo's per-sample rule (×1.0 on our test sets, and a different factor from draw to draw on about 40% of sampled sets). Fix: one constant factor per scene; value to be chosen on GPU.
+- **Domain label differs.** They trained MegaScenes with label 1; we used 0 because it scored about 1 dB higher on same-date sets. That score rewards copying the input's look. To be decided from the loss on cross-period sets.
+- **Far-depth compression differs.** Their training compresses far depth once; their demo, which we followed, does it twice for the warped pixels (sky shifts about 2 px on our gate sets, 43 px on one close-up set). Fix: once.
+- **Earlier MVGenMaster numbers** (12.6 dB and others) were measured the demo's way: priors computed in half precision, double compression, per-sample scale. They are a sanity check, not a reference.
+- **Half-precision warps are fragile.** The code that warps the input photos is not protected from autocast. Under bf16 the warped pixels covered 24% of the targets instead of 70% in a CPU test. Our training and render paths compute it in fp32.
+- **Only the date encoder trains by default,** against frozen layers that read it. An arm that also adapts those layers is added.
+- **The released weights are probably not a smooth average.** Their EMA was accumulated in half precision, which loses small updates. This is an inference from the code, not measured.
+- **Authors' recipe, for reference:** learning rate 5e-5 then 2.5e-5, constant after 500 warm-up steps, clip 1.0, 8 views, 3 reference views in stage 1 and 1–3 in stage 2, fp16 through DeepSpeed.
+
+**Why appearance has to be modelled** (2026-11-19; a design discussion, not yet built)
+- Fitting six numbers per image (gain and offset per colour channel) to MVGenMaster's renders removes 56% of their squared error against the real photos (12.4 → 15.7 dB; an oracle fit on 5 view sets, so an upper bound). The fire changes only 4–10% of the frame.
+- The date is confounded with the look: 65% of after-fire photos were taken in spring (26% of modern ones), and ten days hold 56% of the after-fire photos. 61% of pre-1970 photos are monochrome.
+- Two published designs cover this: WildCAT3D (an appearance encoder for multi-view diffusion on in-the-wild photos) and Neural Scene Chronology (per-image lighting code plus time as learned step functions; a Fourier time code overfitted per-image lighting there).
+- Proposal: learn appearance first (no dates needed, so any posed photos can be used), then time as step functions with appearance given. The main risk is that an appearance code computed from the target leaks the building's state.
+
+**Fixes after review, and the two open choices settled on the GPU** (2026-11-19, night; `scripts/mvgen/baseline_choices.py`, `scripts/mvgen/nvs_test.py --scales`)
+- **All review and audit fixes are in** (323 tests pass; two independent re-checks found no major defect). Far depth is compressed once, the scene scale is one constant per scene, a resumed run refuses changed settings, and the size of the date embedding is logged at every step.
+- **Dataset after the second round of date fixes:** 1,314 views, **1,115 usable: 77 before 1970, 630 modern, 408 after the fire.** Excluded: 100 sideways, 44 fire-day, 26 duplicates, 15 misdated, 7 before the spire, 5 after-fire photos with an uncertain date, 2 montages.
+- **The sampler now redraws references until every target is seen by one** (before: 5% of targets were seen by none). Side effect: old (pre-1970) targets almost never get references only from other periods (23% → 3% of old-target samples). The fire periods are barely affected (about 50% stay cross-period).
+- **Scene scale does not matter to the released model.** Loss on 11 fixed view sets changes by at most 0.2% between factors 0.087, 0.2, 0.5 and 1; render PSNR by at most 0.05 dB between 0.087 and 3. We use the authors' training rule (×0.087 for Notre-Dame). Caveat: measured with the 3D priors present; without them the camera rays carry all the geometry and the scale may matter.
+
+| Released model, 5 view sets, 2 seeds | Label 0 (regular) | Label 1 (MegaScenes) |
+|---|---|---|
+| Render PSNR, scale 1 | 12.42 dB | 11.64 dB |
+| Render PSNR, scale 0.087 | 12.37 dB | 11.61 dB |
+| Training loss, 11 view sets (lower is better) | 0.3508 | 0.3497 (−0.4% ± 0.4%) |
+
+- **Domain label: 0 stays the default.** The two labels give the same training loss, but label 1 renders 0.8 dB lower. Reading: with label 1 the model draws a look of its own instead of copying the references' look, which costs PSNR against the real photo but not loss. That may make label 1 the better start for date control; it is compared at gate 2.
+- **The step check was re-recorded** after the depth fix: losses moved by up to 0.6%, most at high noise.
+- **Smoke test on the GPU:** at step 0 the adapted model equals the released one (true, swapped and unknown dates give the same loss); a step takes 2.6 s and 8.5 GB with 8 views, rank-32 LoRA and bf16.
+- **The date embedding grows fast at learning rate 1e-4:** 15–19% of the timestep embedding's size after 6 steps. Gate 1 is run at 1e-4 and at 1e-5 to see whether this hurts.
+- **GPU jobs now run from a task list** (`slurm/mvgen_gpu_queue.sbatch`): one job holds a GPU and runs the next task appended to a file, so short runs do not each wait hours in the queue.
+
+**Gate 1 passed: the trainer overfits one fixed sample** (2026-11-20; `data/experiments/mvgen/train/gate1*`; date encoder + rank-32 LoRA, 400 steps of 1 s, bf16, same 3 pre-fire reference photos in both runs)
+
+| Run | Targets | Loss on the sample (fixed noise) | Render PSNR, step 0 → 400 |
+|---|---|---|---|
+| gate1a_post | 5 photos after the fire | −48% | 12.5 → **19.4 dB** |
+| gate1a_post, date learning rate 1e-5 | same | −48% | 12.5 → 19.4 dB |
+| gate1b_pre | 5 photos before the fire | −39% | 13.3 → **19.3 dB** |
+
+- **The structure changes as it should (1a).** The released model draws the intact spire and roof it sees in the references. After 400 steps the renders show no spire, the bare vaults and the scaffold (still blurred), from references that all predate the fire. Pictures: `gate1a_post/gate1a_summary.jpg`.
+- **Most of the gain is the photos' look, not the building (1b).** With targets from the references' own period the structure was already right at step 0. The 6 dB gained are sky, light and the colour of the water (one target shows the Seine in flood). This is the appearance problem in one picture: `gate1b_pre/gate1b_summary.jpg`.
+- **The loss is still falling at step 400** (about −10% per 100 steps), so "more than half" needs a few hundred more steps; the renders already reproduce the targets.
+- **Dates play no part yet, as expected for one sample:** true and swapped dates give the same render (19.4 vs 19.4 dB) and the same loss (+0.6%). One sample can be memorised without reading the date. Gate 2 is the test of that.
+- **The date learning rate did not matter here.** At 1e-4 the date embedding grew to 0.9–1.1 times the timestep embedding without harming the renders; at 1e-5 it stayed at 0.13 with the same result.
+- **Depth for the whole dataset is done:** 1,205 of 1,314 views have reliable depth (1,019 of the 1,115 usable ones); median disagreement with COLMAP's points 2–3%.
+- The step check varies by up to 0.8% from run to run because it re-estimates depth each time (Depth-Pro is not deterministic on the GPU). Training reads stored depth maps.

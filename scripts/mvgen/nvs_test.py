@@ -12,6 +12,15 @@ scale it to the view's COLMAP points (median ratio).
 For every set, domain label (0 = regular datasets, 1 = MegaScenes) and noise seed it writes the
 generated targets, the warped-input prior, a contact sheet and the PSNR against the real targets.
 
+This harness keeps the numerics of MVGenMaster's demo (fp16 weights, autocast around the whole
+pipeline, the sample's own scene scale) with one exception: depth is handed to the pipeline as
+float64, so that far depth is contracted once for each 3D prior, as in the authors' training, and
+not twice for the warped pixels, as when the demo hands over float32 depth on the GPU. Results
+written before the evening of 2026-11-19 (the first ones under ``data/experiments/mvgen/nvs_test``,
+and the released-model baselines quoted from them) were made with the double contraction. The
+fine-tuning code renders through ``timemachine.mvgen.probes.render_views`` instead, which has the
+numerics of a training step.
+
     SCRIPT=$PWD/scripts/mvgen/nvs_test.py ARGS="--samples $PWD/data/experiments/mvgen/samples \\
         --out $PWD/data/experiments/mvgen/nvs_test" sbatch slurm/mvgen_gpu.sbatch
 """
@@ -103,6 +112,9 @@ def main() -> None:
     p.add_argument("--seeds", type=int, nargs="+", default=[0, 1])
     p.add_argument("--cfg", type=float, default=2.0)
     p.add_argument("--steps", type=int, default=50)
+    p.add_argument("--scales", type=float, nargs="+", default=[1.0],
+                   help="extra factors on camera translations and depth, after the longest-side rule: MVGenMaster's "
+                        "training scales a scene by the extent of ALL its cameras, its demo by the sample's")
     args = p.parse_args()
 
     config, pipeline = load_pipeline(args.model_dir)
@@ -128,21 +140,26 @@ def main() -> None:
         rows = [("REAL (inputs | targets)", real)]
         out_dir = args.out / name
         out_dir.mkdir(parents=True, exist_ok=True)
-        for label in args.class_labels:
-            for seed in args.seeds:
-                with torch.no_grad(), torch.autocast("cuda"):
-                    preds = pipeline(images=images, nframe=n, cond_num=n_in, key_rescale=None, height=H, width=W,
-                                     intrinsics=s["K"].cuda(), extrinsics=w2c.cuda(), num_inference_steps=args.steps,
-                                     guidance_scale=args.cfg, output_type="np", config=cfg_run, tag=["custom"] * n,
-                                     class_label=label, depth=depth.cuda(), vae=pipeline.vae,
-                                     generator=torch.Generator().manual_seed(seed)).images
-                preds = (preds * 255).astype(np.uint8)
-                score = float(np.mean([psnr(preds[j], real[j]) for j in range(n_in, n)]))
-                results.append({"set": name, "class_label": label, "seed": seed, "psnr": score})
-                rows.append((f"domain {label}, seed {seed}: {score:.1f} dB", preds))
-                for j in range(n_in, n):
-                    Image.fromarray(preds[j]).save(out_dir / f"label{label}_seed{seed}_view{j}.png")
-                print(f"   domain {label} seed {seed}: PSNR {score:.2f} dB", flush=True)
+        for scale in args.scales:
+            w2c_s, depth_s = w2c.clone(), depth * scale
+            w2c_s[:, :3, 3] *= scale
+            suffix = "" if scale == 1.0 else f"_scale{scale:g}"
+            for label in args.class_labels:
+                for seed in args.seeds:
+                    with torch.no_grad(), torch.autocast("cuda"):
+                        preds = pipeline(images=images, nframe=n, cond_num=n_in, key_rescale=None, height=H, width=W,
+                                         intrinsics=s["K"].cuda(), extrinsics=w2c_s.cuda(),
+                                         num_inference_steps=args.steps, guidance_scale=args.cfg, output_type="np",
+                                         config=cfg_run, tag=["custom"] * n, class_label=label,
+                                         depth=depth_s.double().cuda(),      # see the module docstring
+                                         vae=pipeline.vae, generator=torch.Generator().manual_seed(seed)).images
+                    preds = (preds * 255).astype(np.uint8)
+                    score = float(np.mean([psnr(preds[j], real[j]) for j in range(n_in, n)]))
+                    results.append({"set": name, "class_label": label, "seed": seed, "scale": scale, "psnr": score})
+                    rows.append((f"scale {scale:g}, domain {label}, seed {seed}: {score:.1f} dB", preds))
+                    for j in range(n_in, n):
+                        Image.fromarray(preds[j]).save(out_dir / f"label{label}_seed{seed}_view{j}{suffix}.png")
+                    print(f"   scale {scale:g} domain {label} seed {seed}: PSNR {score:.2f} dB", flush=True)
         with torch.no_grad():          # what the model is given: the inputs warped into each target camera by their depth
             warp = global_position_encoding_3d(cfg_run, depth.cuda(), s["K"].cuda(), w2c.cuda(), n_in, nframe=n, device="cuda",
                                                pe_scale=1 / 8, embed_dim=config.model_cfg.get("coord_dim", 192),
@@ -159,11 +176,13 @@ def main() -> None:
         sheet.save(out_dir / "sheet.jpg", quality=88)
         (args.out / "results.json").write_text(json.dumps(results, indent=1))
     print("\nmean PSNR vs the real targets (dB):")
-    for label in args.class_labels:
-        for name in names:
-            vals = [r["psnr"] for r in results if r["set"] == name and r["class_label"] == label]
-            print(f"   {name:8s} domain {label}: {np.mean(vals):.2f}", flush=True)
-
+    for scale in args.scales:
+        for label in args.class_labels:
+            per_set = [np.mean([r["psnr"] for r in results
+                                if r["set"] == name and r["class_label"] == label and r["scale"] == scale])
+                       for name in names]
+            print(f"   scale {scale:g} domain {label}: " + "  ".join(f"{name} {v:.2f}" for name, v in zip(names, per_set))
+                  + f"  | mean {np.mean(per_set):.2f}", flush=True)
 
 if __name__ == "__main__":
     main()

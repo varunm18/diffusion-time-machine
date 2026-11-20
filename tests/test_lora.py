@@ -58,6 +58,24 @@ def test_lora_state_dict_round_trip():
     assert set(lora_state_dict(a)) == {"0.attn1.to_q.down", "0.attn1.to_q.up"}
 
 
+def test_lora_keeps_an_fp32_sum_for_fp32_input_under_bf16_autocast():
+    """LoRALinear's docstring: the wrapped layer returns fp32 there, so that a small update is not rounded away."""
+    torch.manual_seed(0)
+    base = nn.Linear(8, 8)
+    layer = LoRALinear(base, rank=2)
+    x = torch.randn(16, 8)
+    assert torch.equal(layer(x), base(x))                               # outside autocast: bit for bit
+    nn.init.normal_(layer.up.weight, std=1e-5)                          # an update far below bf16's resolution
+    with torch.no_grad(), torch.autocast("cpu", dtype=torch.bfloat16):
+        plain, adapted = base(x), layer(x)
+        assert plain.dtype == torch.bfloat16 and adapted.dtype == torch.float32
+        assert layer(x.bfloat16()).dtype == torch.bfloat16
+        large = plain.float().abs() > 0.1                               # bf16 resolves these to 2e-4 at best
+        update = (adapted - plain.float())[large]
+        assert torch.count_nonzero(update) > 0.9 * update.numel() > 0   # the fp32 sum keeps the update
+        assert torch.equal(plain[large] + update.bfloat16(), plain[large])      # a bf16 sum would lose it
+
+
 class TinyUNet(nn.Module):
     """Has Seva's block attributes and calling convention (keyword args)."""
 
