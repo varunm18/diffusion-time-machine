@@ -15,6 +15,8 @@ date               (V, 2)           [earliest, latest) in decimal years
 date_mid           (V,)             interval midpoint
 is_input           (V,)             bool, True for the first n_inputs views
 is_monochrome       (V,)             bool, weak pixel-based monochrome (B&W/sepia) hint
+appearance         (V, F)           appearance statistics of each view's pixels, only when
+                                    ``with_appearance`` (see timemachine.data.appearance)
 medium             (V,)             int code, see MEDIUM_CODES
 file_keys          list[str]        Commons file of each view
 =================  ===============  ==================================================
@@ -31,6 +33,7 @@ from timemachine.data.cameras import (
     adjust_intrinsics, camera_features, colmap_to_c2w, intrinsics_matrix, normalize_cameras,
     normalize_intrinsics, resize_and_center_crop_params, undistorted_crop,
 )
+from timemachine.data.appearance import appearance_batch
 from timemachine.data.sampling import SamplingConfig, eligible_anchors, event_anchors, sample_views
 from timemachine.dating.medium import Medium
 
@@ -84,7 +87,7 @@ class DatedViewsDataset(Dataset):
 
     def __init__(self, views: pd.DataFrame, config: SamplingConfig = SamplingConfig(),
                  resolution: int = 576, samples_per_epoch: int = 1000, seed: int = 0,
-                 camera_scale: float = 2.0, group_weight_power: float = 0.5):
+                 camera_scale: float = 2.0, group_weight_power: float = 0.5, with_appearance: bool = False):
         missing = [c for c in _REQUIRED if c not in views]
         if missing:
             raise ValueError(f"View table is missing columns: {missing}")
@@ -94,6 +97,9 @@ class DatedViewsDataset(Dataset):
         self.samples_per_epoch = samples_per_epoch
         self.seed = seed
         self.camera_scale = camera_scale
+        # Appearance statistics describe how each photo looks (colour, tone, grain).
+        # They are conditioning, not data: see timemachine.model.appearance_film for why.
+        self.with_appearance = with_appearance
         self.group_weight_power = group_weight_power
         self.epoch = 0
         self.dates = self.views["date_mid"].to_numpy(dtype=np.float64)
@@ -197,8 +203,9 @@ class DatedViewsDataset(Dataset):
         c2w = normalize_cameras(self.c2ws[rows], camera_scale=self.camera_scale)
         is_input = np.zeros(len(rows), dtype=bool)
         is_input[:n_inputs] = True
-        return {
-            "images": torch.stack(images),
+        stacked = torch.stack(images)
+        sample = {
+            "images": stacked,
             "K": torch.from_numpy(K_norm).float(),
             "c2w": torch.from_numpy(c2w).float(),
             "date": torch.tensor(sub[["date_lo", "date_hi"]].to_numpy(np.float32)),
@@ -208,3 +215,7 @@ class DatedViewsDataset(Dataset):
             "medium": torch.tensor([MEDIUM_CODES.get(m, 0) for m in sub["medium"]]),
             "file_keys": sub["file_key"].tolist(),
         }
+        if self.with_appearance:
+            # Computed from the cropped pixels the model sees, not from the file.
+            sample["appearance"] = appearance_batch(stacked)
+        return sample

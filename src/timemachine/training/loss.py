@@ -31,17 +31,6 @@ Training choices (see :class:`LossConfig`):
   conditional steps the same noised targets are also scored with a wrong-era date,
   and a hinge on the log ratio of the two losses rewards the true date winning by
   ``rank_margin``: relu(margin - log(loss_wrong / loss_true)), per target view.
-  The reference branch gets no gradient (``rank_detach`` must be on), so only the
-  true-date prediction can improve: in effect, extra denoising weight where the date
-  does not help yet. The reference can also be the unknown date
-  (``rank_reference="unknown"``): the true date must then add information over having
-  no date.
-
-  Order matters: the date-FiLM layers read the dates of the *last* forward pass during
-  gradient-checkpointing recomputation (``date_film.DateState``), so the gradient-free
-  reference pass runs first and the true-date pass last. Before 2026-11-19 the order
-  was reversed and the reference kept its gradient; the true-date gradients were then
-  recomputed with the wrong-era dates (docs/findings.md).
 """
 from __future__ import annotations
 
@@ -51,22 +40,11 @@ import torch
 from torch import nn
 
 NUM_LEVELS = 1000
-# Training precision. fp32 (autocast off; ``None`` here) is the default since the 2026-11-19 audit.
-# SEVA predicts the noise, and at high noise levels its error is only ~1% of its output, about the
-# size of bf16's rounding (0.4%): the gradient of that error is then mostly rounding noise, and the
-# adapters' small corrections are partly rounded away when added to half-precision activations.
-# Measured: same-seed bf16 runs move their weights in unrelated directions, and a fixed sample's
-# loss stalls after a few steps in bf16 but falls steadily in fp32 (docs/findings.md). fp16 without
-# a GradScaler is no alternative (many gradient entries underflow to zero). fp32 costs ~15% more
-# memory and ~30% more time.
-TRAIN_AUTOCAST_DTYPE = None
-# By name, for configs and the command line ("bf16": runs of 2026-11-10..19; "fp16": earlier ones).
-AUTOCAST_DTYPES = {"fp32": None, "bf16": torch.bfloat16, "fp16": torch.float16}
-
-
-def autocast(dtype: torch.dtype | None):
-    """The autocast context of a training precision: half-precision ``dtype``, or ``None`` for fp32."""
-    return torch.autocast("cuda", dtype=dtype) if dtype is not None else torch.autocast("cuda", enabled=False)
+# Training (and the date-gap probe) autocast to bf16: torch's CUDA default is fp16, which
+# without a GradScaler lets small gradients underflow (code audit, docs/findings.md).
+TRAIN_AUTOCAST_DTYPE = torch.bfloat16
+# By name, for configs and the command line ("fp16" reproduces the pre-audit runs).
+AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
 
 
 WEIGHTINGS = ("eps", "edm", "min_snr")
@@ -85,6 +63,7 @@ DATE_VIEWS = ("all", "targets")
 class LossConfig:
     uncond_prob: float = 0.1     # share of steps on the unconditional (CFG) branch
     date_dropout: float = 0.1    # share of samples whose dates are all marked unknown
+    appearance_dropout: float = 0.1   # share of samples whose appearance is marked unknown
     date_jitter: bool = True     # draw years inside each view's interval (else: midpoint)
     weighting: str = "eps"       # per-level loss weight, one of WEIGHTINGS
     min_snr_gamma: float = 5.0
@@ -94,8 +73,6 @@ class LossConfig:
     rank_margin: float = 0.05   # required log(loss_wrong / loss_true) per target view
     rank_prob: float = 1.0      # share of eligible steps that compute it (one extra forward pass)
     rank_min_sigma: float = 1.0  # only at noise levels where the date can matter (global look)
-    rank_reference: str = "wrong"  # compare the true date with a "wrong"-era date or the "unknown" date
-    rank_detach: bool = False   # no gradient through the reference branch; required when rank_weight > 0
 
     def __post_init__(self):
         if self.weighting not in WEIGHTINGS:
@@ -104,11 +81,6 @@ class LossConfig:
             raise ValueError(f"date_views must be one of {DATE_VIEWS}")
         if self.uncond_dates not in ("same", "unknown"):
             raise ValueError("uncond_dates must be 'same' or 'unknown'")
-        if self.rank_reference not in ("wrong", "unknown"):
-            raise ValueError("rank_reference must be 'wrong' or 'unknown'")
-        if self.rank_weight > 0 and not self.rank_detach:
-            raise ValueError("rank_weight > 0 needs rank_detach: a second gradient pass would be recomputed with "
-                             "the other pass's dates under gradient checkpointing (and can be won by degrading it)")
 
 
 def level_weight(sigma: float, cfg: LossConfig) -> float:
@@ -121,14 +93,17 @@ def level_weight(sigma: float, cfg: LossConfig) -> float:
 
 
 def predict_noise(model: nn.Module, noisy: torch.Tensor, sigma: torch.Tensor, t: torch.Tensor, cond: dict,
-                  year: torch.Tensor | None = None, date_valid: torch.Tensor | None = None
-                  ) -> tuple[torch.Tensor, torch.Tensor]:
+                  year: torch.Tensor | None = None, date_valid: torch.Tensor | None = None,
+                  appearance: torch.Tensor | None = None,
+                  appearance_valid: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
     """The network's noise estimate, prepared exactly as in ``DiscreteDenoiser.__call__``.
 
     Args:
         noisy: (T, C, h, w) ``z + sigma * eps``.  sigma, t: (T,) noise level, as value and index.
         cond: SEVA conditioning dict incl. ``replace`` (see ``training.conditioning``).
         year, date_valid: (T,) per-view dates for the dated model (omit for plain SEVA).
+        appearance, appearance_valid: (T, F) per-view appearance statistics and their
+            validity, for a model with an appearance pathway (omit otherwise).
 
     Returns:
         ``(eps_hat, replaced)``: (T, C, h, w) estimate and the (T,) bool mask of replaced (input) views.
@@ -137,29 +112,50 @@ def predict_noise(model: nn.Module, noisy: torch.Tensor, sigma: torch.Tensor, t:
     clean, mask = cond.pop("replace").split((noisy.shape[1], 1), dim=1)
     x = noisy * (1 - mask) + clean * mask
     c_in = (1.0 / (sigma ** 2 + 1.0) ** 0.5).view(-1, 1, 1, 1)
-    date_kwargs = {} if year is None else {"date": year, "date_valid": date_valid}
-    eps_hat = model(x * c_in, t, cond, num_frames=noisy.shape[0], **date_kwargs)
+    extra = {} if year is None else {"date": year, "date_valid": date_valid}
+    if appearance is not None:
+        extra |= {"appearance": appearance, "appearance_valid": appearance_valid}
+    eps_hat = model(x * c_in, t, cond, num_frames=noisy.shape[0], **extra)
     return eps_hat, mask[:, 0, 0, 0] > 0.5
 
 
 def per_view_noise_error(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor, cond: dict,
                          level: int, noise: torch.Tensor, year: torch.Tensor | None = None,
-                         date_valid: torch.Tensor | None = None) -> torch.Tensor:
+                         date_valid: torch.Tensor | None = None,
+                         appearance: torch.Tensor | None = None,
+                         appearance_valid: torch.Tensor | None = None) -> torch.Tensor:
     """(K,) mean squared noise error of each non-replaced view, at noise index ``level``."""
     T = latents.shape[0]
     t = torch.full((T,), level, device=latents.device, dtype=torch.long)
     sigma = sigmas[t].to(latents.device)
     noisy = latents.float() + sigma.view(-1, 1, 1, 1) * noise
-    eps_hat, replaced = predict_noise(model, noisy, sigma, t, cond, year, date_valid)
+    eps_hat, replaced = predict_noise(model, noisy, sigma, t, cond, year, date_valid,
+                                      appearance, appearance_valid)
     keep = ~replaced
     return (eps_hat.float()[keep] - noise[keep]).pow(2).flatten(1).mean(1)
 
 
 def noise_prediction_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor, cond: dict,
                           level: int, noise: torch.Tensor, year: torch.Tensor | None = None,
-                          date_valid: torch.Tensor | None = None) -> torch.Tensor:
+                          date_valid: torch.Tensor | None = None,
+                          appearance: torch.Tensor | None = None,
+                          appearance_valid: torch.Tensor | None = None) -> torch.Tensor:
     """MSE between predicted and true noise on the non-replaced views, at noise index ``level``."""
-    return per_view_noise_error(model, sigmas, latents, cond, level, noise, year, date_valid).mean()
+    return per_view_noise_error(model, sigmas, latents, cond, level, noise, year, date_valid,
+                                appearance, appearance_valid).mean()
+
+
+def draw_appearance_validity(n_views: int, cfg: LossConfig, device: torch.device,
+                             generator: torch.Generator | None = None) -> torch.Tensor:
+    """(T,) validity for the appearance pathway; whole samples are dropped together.
+
+    Dropping teaches the model to run without an appearance being chosen, which it
+    must do when sampling asks only for a date. Unlike the dates, the appearance is
+    *kept* in the unconditional branch of classifier-free guidance: WildCAT3D found
+    that dropping an appearance code there oversaturated its renders.
+    """
+    drop = torch.rand((), generator=generator) < cfg.appearance_dropout
+    return torch.full((n_views,), not bool(drop), dtype=torch.bool, device=device)
 
 
 def swapped_years(year: torch.Tensor, is_input: torch.Tensor) -> torch.Tensor:
@@ -190,7 +186,8 @@ def draw_dates(interval: torch.Tensor, cfg: LossConfig, generator: torch.Generat
 def training_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor, cond: dict, uncond: dict,
                   date_interval: torch.Tensor | None, cfg: LossConfig,
                   generator: torch.Generator | None = None,
-                  is_input: torch.Tensor | None = None) -> tuple[torch.Tensor, dict]:
+                  is_input: torch.Tensor | None = None,
+                  appearance: torch.Tensor | None = None) -> tuple[torch.Tensor, dict]:
     """One stochastic (weighted) loss sample: random level, noise, branch and dates. Also returns what was drawn."""
     device = latents.device
     level = int(torch.randint(NUM_LEVELS, (), generator=generator))
@@ -206,26 +203,28 @@ def training_loss(model: nn.Module, sigmas: torch.Tensor, latents: torch.Tensor,
             valid = shown_dates(valid, is_input.to(device), cfg.date_views)
         if use_uncond and cfg.uncond_dates == "unknown":
             valid = torch.zeros_like(valid)
+    appearance_valid = None
+    if appearance is not None:
+        appearance = appearance.to(device)
+        appearance_valid = draw_appearance_validity(latents.shape[0], cfg, device, generator)
     rank = (cfg.rank_weight > 0 and not use_uncond and valid is not None and bool(valid.any())
             and float(sigmas[level]) >= cfg.rank_min_sigma
             and bool(torch.rand((), generator=generator) < cfg.rank_prob))
-    if rank:                                    # reference first and gradient-free (see module docstring)
-        if is_input is None:
-            raise ValueError("rank_weight needs is_input")
-        if cfg.rank_reference == "wrong":
-            ref_year, ref_valid = swapped_years(year, is_input.to(device)), valid
-        else:
-            ref_year, ref_valid = year, torch.zeros_like(valid)
-        with torch.no_grad():
-            errors_ref = per_view_noise_error(model, sigmas, latents, cond, level, noise, ref_year, ref_valid)
-    errors = per_view_noise_error(model, sigmas, latents, uncond if use_uncond else cond, level, noise, year, valid)
+    errors = per_view_noise_error(model, sigmas, latents, uncond if use_uncond else cond, level, noise,
+                                  year, valid, appearance, appearance_valid)
     eps_mse = errors.mean()
-    info = {"level": level, "uncond": use_uncond, "eps_mse": float(eps_mse.detach()),
-            "dates_known": bool(valid.any()) if valid is not None else None}
+    info = {"level": level, "uncond": use_uncond, "eps_mse": float(eps_mse),
+            "dates_known": bool(valid.any()) if valid is not None else None,
+            "appearance_known": bool(appearance_valid.any()) if appearance_valid is not None else None}
     loss = eps_mse * level_weight(float(sigmas[level]), cfg)
     if rank:
-        log_ratio = torch.log(errors_ref.clamp_min(1e-12)) - torch.log(errors.clamp_min(1e-12))
+        if is_input is None:
+            raise ValueError("rank_weight needs is_input")
+        wrong = swapped_years(year, is_input.to(device))
+        errors_wrong = per_view_noise_error(model, sigmas, latents, cond, level, noise, wrong, valid,
+                                            appearance, appearance_valid)
+        log_ratio = torch.log(errors_wrong.clamp_min(1e-12)) - torch.log(errors.clamp_min(1e-12))
         rank_loss = torch.relu(cfg.rank_margin - log_ratio).mean()
         loss = loss + cfg.rank_weight * rank_loss
-        info.update(rank_loss=float(rank_loss.detach()), rank_log_ratio=float(log_ratio.detach().mean()))
+        info.update(rank_loss=float(rank_loss), rank_log_ratio=float(log_ratio.mean()))
     return loss, info

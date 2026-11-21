@@ -42,6 +42,15 @@ def main() -> None:
     p.add_argument("--lr-film", type=float, default=TrainConfig.lr_film)
     p.add_argument("--date-injection", choices=["film", "timestep", "none"], default=FinetuneConfig.date_injection,
                    help="film: per-block date scale-and-shift; timestep: date vector added to the timestep embedding")
+    p.add_argument("--appearance-injection", choices=["film", "none"],
+                   default=FinetuneConfig.appearance_injection,
+                   help="how a view's appearance (colour, tone, grain) reaches the model: a per-block "
+                        "scale-and-shift, or not at all. Our dates are largely readable from the medium "
+                        "alone (docs/findings.md), so without this the date path can learn film stock.")
+    p.add_argument("--appearance-dim", type=int, default=FinetuneConfig.appearance_dim)
+    p.add_argument("--appearance-dropout", type=float, default=LossConfig.appearance_dropout,
+                   help="share of samples whose appearance is marked unknown")
+    p.add_argument("--lr-appearance", type=float, default=TrainConfig.lr_appearance)
     p.add_argument("--film-dim", type=int, default=FinetuneConfig.film_dim)
     p.add_argument("--film-freqs", type=int, default=FinetuneConfig.film_freqs,
                    help="Fourier octaves of the FiLM date encoder (shortest period 200/2^(n-1) years)")
@@ -80,18 +89,12 @@ def main() -> None:
     p.add_argument("--rank-margin", type=float, default=LossConfig.rank_margin)
     p.add_argument("--rank-prob", type=float, default=LossConfig.rank_prob)
     p.add_argument("--rank-min-sigma", type=float, default=LossConfig.rank_min_sigma)
-    p.add_argument("--rank-reference", choices=["wrong", "unknown"], default=LossConfig.rank_reference,
-                   help="compare the true date with a wrong-era date or with the unknown date")
-    p.add_argument("--rank-detach", action="store_true",
-                   help="no gradient through the reference branch, so it cannot be made worse")
     p.add_argument("--uncond-prob", type=float, default=0.1)
     p.add_argument("--date-views", choices=DATE_VIEWS, default="all",
                    help="targets: only target views see their date (inputs always unknown)")
     p.add_argument("--date-dropout", type=float, default=0.1)
     p.add_argument("--uncond-dates", choices=["same", "unknown"], default="same",
                    help="unconditional-branch training steps: dates as drawn, or all unknown")
-    p.add_argument("--render-frames", type=int, default=21,
-                   help="render probes: pad each forward pass to this many frames, as SEVA does (0: unpadded)")
     p.add_argument("--render-uncond-dates", choices=["same", "unknown"], default="same",
                    help="render probes: what the unconditional CFG branch sees (unknown: avoids broken renders)")
     p.add_argument("--no-date-jitter", action="store_true")
@@ -127,7 +130,8 @@ def main() -> None:
     cfg = TrainConfig(
         dataset=str(args.dataset[0]) if len(args.dataset) == 1 else tuple(map(str, args.dataset)),
         run_dir=str(args.runs_root / args.run_name), steps=args.steps, group_weight_power=args.group_weight_power,
-        lr_lora=args.lr_lora, lr_date=args.lr_date, lr_film=args.lr_film, warmup_steps=args.warmup, grad_accum=args.grad_accum,
+        lr_lora=args.lr_lora, lr_date=args.lr_date, lr_film=args.lr_film, lr_appearance=args.lr_appearance,
+        warmup_steps=args.warmup, grad_accum=args.grad_accum,
         lr_schedule=args.lr_schedule, lr_min_ratio=args.lr_min_ratio,
         autocast=args.autocast,
         grad_clip=args.grad_clip or None, grad_clip_factor=args.grad_clip_factor or None,
@@ -135,7 +139,6 @@ def main() -> None:
         gap_samples=args.gap_samples,
         render_every=args.render_every, save_every=args.save_every, latest_every=args.latest_every,
         render_steps=args.render_steps, render_uncond_dates=args.render_uncond_dates,
-        render_frames=args.render_frames or None,
         abort_loss_ratio=args.abort_loss_ratio or None, abort_x0_ratio=args.abort_x0_ratio or None,
         sampling=SamplingConfig(n_inputs=args.n_inputs, n_targets=args.n_targets,
                                 old_target_fraction=args.old_target_fraction or None,
@@ -148,11 +151,12 @@ def main() -> None:
                         date_jitter=not args.no_date_jitter, weighting=args.weighting,
                         date_views=args.date_views, uncond_dates=args.uncond_dates,
                         rank_weight=args.rank_weight, rank_margin=args.rank_margin, rank_prob=args.rank_prob,
-                        rank_min_sigma=args.rank_min_sigma, rank_reference=args.rank_reference,
-                        rank_detach=args.rank_detach),
+                        rank_min_sigma=args.rank_min_sigma, appearance_dropout=args.appearance_dropout),
         finetune=FinetuneConfig(lora_rank=args.lora_rank, grad_checkpointing=not args.no_grad_checkpointing,
                                 date_max_abs=args.date_max_abs, date_injection=args.date_injection,
-                                film_dim=args.film_dim, film_freqs=args.film_freqs),
+                                film_dim=args.film_dim, film_freqs=args.film_freqs,
+                                appearance_injection=args.appearance_injection,
+                                appearance_dim=args.appearance_dim),
         heldout_every=args.heldout_every, heldout_pairs=args.heldout_pairs,
         holdout=HoldoutConfig(fraction=args.holdout_fraction, probe_targets=args.holdout_probe_targets,
                               scenes=tuple(args.holdout_scenes), seed=args.holdout_seed),

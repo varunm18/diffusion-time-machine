@@ -2,7 +2,7 @@
 
 Fine-tuning recipe (first version, for the single-scene overfit):
 
-* SEVA's 1.26B weights are frozen (fp32 in memory; the forward precision is the caller's).
+* SEVA's 1.26B weights are frozen (bf16).
 * Trainable: how the date gets in (``date_injection``), plus optional LoRA
   adapters (zero-init) on the attention and feed-forward layers of every
   multi-view transformer block. At step 0 the model is exactly SEVA.
@@ -11,6 +11,11 @@ Fine-tuning recipe (first version, for the single-scene overfit):
     (``date_embedding.py``); runs before 2026-11-03 used this.
   - ``"none"``: no date path trains (the date embedding stays zero): the no-date
     control, LoRA only, for telling scene adaptation from temporal learning.
+* Optionally an independent **appearance** pathway (``appearance_injection``),
+  a per-block scale-and-shift from how each photo looks (``appearance_film.py``).
+  Our capture dates are largely readable from the medium alone (AUC 0.89,
+  ``docs/findings.md``), so without this the date pathway can satisfy the loss by
+  learning film stock; with it, the medium has somewhere else to live.
 * Gradient checkpointing on all UNet blocks.
 
 A checkpoint stores only the trainable parameters plus the :class:`FinetuneConfig`
@@ -24,6 +29,9 @@ from pathlib import Path
 import torch
 from torch import nn
 
+from timemachine.model.appearance_film import (
+    appearance_film_state_dict, load_appearance_film_state_dict,
+)
 from timemachine.model.date_film import date_film_state_dict, load_date_film_state_dict
 from timemachine.model.dated_seva import DatedSGMWrapper
 from timemachine.model.grad_checkpoint import enable_gradient_checkpointing
@@ -43,13 +51,18 @@ class FinetuneConfig:
     date_injection: str = "film"        # one of DATE_INJECTIONS (see module docstring)
     film_dim: int = 256                 # width of the shared date features read by every FiLM layer
     film_freqs: int = 8                 # Fourier octaves for FiLM: periods 200 / 2^k years, k < film_freqs
+    appearance_injection: str = "none"  # one of APPEARANCE_INJECTIONS (see module docstring)
+    appearance_dim: int = 256           # width of the shared appearance features
 
     def __post_init__(self):
         if self.date_injection not in DATE_INJECTIONS:
             raise ValueError(f"date_injection must be one of {DATE_INJECTIONS}")
+        if self.appearance_injection not in APPEARANCE_INJECTIONS:
+            raise ValueError(f"appearance_injection must be one of {APPEARANCE_INJECTIONS}")
 
 
 DATE_INJECTIONS = ("film", "timestep", "none")
+APPEARANCE_INJECTIONS = ("film", "none")
 
 
 def prepare_for_finetuning(model: DatedSGMWrapper, cfg: FinetuneConfig) -> dict[str, list[nn.Parameter]]:
@@ -60,13 +73,16 @@ def prepare_for_finetuning(model: DatedSGMWrapper, cfg: FinetuneConfig) -> dict[
     """
     model.module.requires_grad_(False)
     model.date_module.date_embedding.max_abs = cfg.date_max_abs
-    groups = {"date": [], "film": [], "lora": []}
+    groups = {"date": [], "film": [], "lora": [], "appearance": []}
     if cfg.date_injection == "timestep":
         groups["date"] = model.date_parameters()
     elif cfg.date_injection == "film":
         model.add_date_film(cfg.film_dim, cfg.film_freqs)
         groups["film"] = model.film_parameters()
-    for p in groups["date"] + groups["film"]:
+    if cfg.appearance_injection == "film":
+        model.add_appearance_film(cfg.appearance_dim)
+        groups["appearance"] = model.appearance_parameters()
+    for p in groups["date"] + groups["film"] + groups["appearance"]:
         p.requires_grad_(True)
     if cfg.lora_rank > 0:
         add_lora(model.module, tuple(cfg.lora_targets), cfg.lora_rank, cfg.lora_alpha)
@@ -85,6 +101,9 @@ def trainable_state_dict(model: DatedSGMWrapper) -> dict[str, dict]:
     if model.date_module.film_encoder is not None:
         state["film"] = {"encoder": _cpu_state(model.date_module.film_encoder),
                          "layers": date_film_state_dict(model.module)}
+    if model.date_module.appearance_encoder is not None:
+        state["appearance"] = {"encoder": _cpu_state(model.date_module.appearance_encoder),
+                               "layers": appearance_film_state_dict(model.module)}
     return state
 
 
@@ -95,6 +114,9 @@ def load_trainable_state_dict(model: DatedSGMWrapper, state: dict) -> None:
     if state.get("film"):
         model.date_module.film_encoder.load_state_dict(state["film"]["encoder"])
         load_date_film_state_dict(model.module, state["film"]["layers"])
+    if state.get("appearance"):
+        model.date_module.appearance_encoder.load_state_dict(state["appearance"]["encoder"])
+        load_appearance_film_state_dict(model.module, state["appearance"]["layers"])
 
 
 def save_checkpoint(path: Path, model: DatedSGMWrapper, cfg: FinetuneConfig, step: int,
