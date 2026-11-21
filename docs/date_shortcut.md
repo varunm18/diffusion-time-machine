@@ -40,10 +40,16 @@ information is lying around for free.
 `tone`, `detail`, `framing`), which says *which* cue carries the date rather than
 only that one does.
 
-**3. A causal check.** Modern photos are sepia-toned and fed back to the probe
-fitted on untreated images. The scene is untouched, so any shift in the predicted
-year is caused by the medium alone. Correlational ablations can be argued with;
-this one cannot.
+**3. A causal check.** Modern photos are sepia-toned and fed back to the probes
+fitted on untreated images. The scene is untouched, so any change is caused by
+the medium alone. Correlational ablations can be argued with; this one cannot.
+
+The headline is the **flip rate**: the share of modern photos the old/modern
+classifier moves across its decision boundary once toned. The year-regression
+shift is reported too, but read it loosely — across several scenes that probe is
+pulled towards the middle of a bimodal year distribution, so its absolute shifts
+understate the effect (on one scene it reported -104 years and 94% crossing 1945;
+on four it reported -40 years and 5%, while the classifier flip rate stayed high).
 
 Splits reuse the near-duplicate grouping in `timemachine.eval.splits`, per scene,
 so the same photograph can never sit on both sides.

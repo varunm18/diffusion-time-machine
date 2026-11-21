@@ -82,8 +82,8 @@ def main() -> None:
         for path in modern_paths:
             with Image.open(path) as im:
                 sepia_rows.append(sc.appearance_features(sc.apply_sepia(im.convert("RGB"))))
-        shift = sc.sepia_shift(scores["original"]["probe"], cache["original"][modern],
-                               sc.feature_matrix(sepia_rows), years[modern])
+        shift = sc.sepia_shift(scores["original"]["probe"], scores["original"]["era_probe"],
+                               cache["original"][modern], sc.feature_matrix(sepia_rows), years[modern])
     else:
         print(f"  skipping the sepia check: only {int(modern.sum())} modern test photos")
 

@@ -382,19 +382,26 @@ def score_probe(train_X: np.ndarray, train_y: np.ndarray, test_X: np.ndarray, te
     }
 
 
-def sepia_shift(probe: YearProbe, modern_features: np.ndarray, sepia_features: np.ndarray,
-                years: np.ndarray) -> dict:
-    """The causal test: how many years younger does a modern photo's date look in sepia?
+def sepia_shift(year_probe: YearProbe, era_probe: YearProbe | None, modern_features: np.ndarray,
+                sepia_features: np.ndarray, years: np.ndarray) -> dict:
+    """The causal test: tone a modern photo and ask the probes to date it again.
 
     ``modern_features`` and ``sepia_features`` are the same photographs before and
     after :func:`apply_sepia`, row for row. The scene is identical, so the whole
-    shift is caused by the medium. A large negative ``median_shift`` means the
-    probe (and, by extension, anything else reading these cues) is dating the
-    film stock rather than the building.
+    change is caused by the medium.
+
+    The headline is ``flip_rate``: the share of modern photos that the *old/modern
+    classifier* moves across its decision boundary. That classifier is the one we
+    trust (see :func:`score_era`), and a rate well above zero says the model of
+    "old" is really a model of film stock.
+
+    The year-regression numbers are kept as secondary colour. Read them loosely:
+    across several scenes that probe is pulled towards the middle of a bimodal
+    year distribution, so its absolute shifts understate the effect.
     """
-    before, after = probe.predict(modern_features), probe.predict(sepia_features)
+    before, after = year_probe.predict(modern_features), year_probe.predict(sepia_features)
     shift = after - before
-    return {
+    out = {
         "n": int(len(shift)),
         "median_year_before": float(np.median(before)),
         "median_year_after": float(np.median(after)),
@@ -402,7 +409,15 @@ def sepia_shift(probe: YearProbe, modern_features: np.ndarray, sepia_features: n
         "mean_shift": float(shift.mean()),
         "share_moved_before_1945": float(((before >= 1945) & (after < 1945)).mean()),
         "true_median_year": float(np.median(years)),
+        "flip_rate": float("nan"), "era_score_shift": float("nan"), "called_old_before": float("nan"),
     }
+    if era_probe is not None:
+        era_before, era_after = era_probe.predict(modern_features), era_probe.predict(sepia_features)
+        # The classifier scores +1 for old and -1 for modern, so 0 is the boundary.
+        out["called_old_before"] = float((era_before > 0).mean())
+        out["flip_rate"] = float(((era_before <= 0) & (era_after > 0)).mean())
+        out["era_score_shift"] = float(np.median(era_after - era_before))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -587,9 +602,12 @@ def render_report(table: pd.DataFrame, shift: dict | None, n_scenes: int,
             f"*{shift['n']} modern photos (true median {shift['true_median_year']:.0f}), "
             "grayscaled, flattened and warm-toned. The scene content is untouched, so any shift is "
             "caused by the medium alone.*", "",
-            f"- Predicted year moves from {shift['median_year_before']:.0f} to "
-            f"{shift['median_year_after']:.0f} (median shift **{shift['median_shift']:+.1f} years**).",
-            f"- {_pct(shift['share_moved_before_1945'])} of them cross from 'modern' to 'pre-1945'.",
+            f"- The old/modern classifier calls {_pct(shift['called_old_before'])} of them old "
+            f"untreated, and **{_pct(shift['flip_rate'])} more flip to 'old' once toned** "
+            f"(median score shift {shift['era_score_shift']:+.2f}).",
+            f"- The year probe moves them from {shift['median_year_before']:.0f} to "
+            f"{shift['median_year_after']:.0f} (median **{shift['median_shift']:+.1f} years**), "
+            "though that probe is the less reliable of the two across scenes.",
         ]
     if first is not None:
         lines += [

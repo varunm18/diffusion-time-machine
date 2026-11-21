@@ -186,16 +186,30 @@ def test_sepia_shift_detects_a_medium_driven_probe():
     modern = [noise_image(rng) for _ in range(60)]
     years = np.concatenate([rng.uniform(1870, 1930, 60), rng.uniform(1990, 2020, 60)])
     X, _ = build(old + modern, years)
-    probe = sc.YearProbe().fit(X, years)
+    year_probe = sc.YearProbe().fit(X, years)
+    era = sc.score_era(X, years, X, years)
 
     modern_feats = X[60:]
     sepia_feats, modern_years = build([sc.apply_sepia(im) for im in modern], years[60:])
-    shift = sc.sepia_shift(probe, modern_feats, sepia_feats, modern_years)
+    shift = sc.sepia_shift(year_probe, era["probe"], modern_feats, sepia_feats, modern_years)
 
     assert shift["n"] == 60
-    assert shift["median_shift"] < -30                    # toning alone makes them look old
-    assert shift["share_moved_before_1945"] > 0.8
+    # The headline: the classifier moves these modern photos across its boundary.
+    assert shift["called_old_before"] < 0.1               # untreated, it knows they are modern
+    assert shift["flip_rate"] > 0.8                       # toned, it calls them old
+    assert shift["era_score_shift"] > 0.5
+    assert shift["median_shift"] < -30                    # the year probe agrees
     assert shift["median_year_before"] > shift["median_year_after"]
+
+
+def test_sepia_shift_without_an_era_probe_still_reports_the_year_numbers():
+    rng = np.random.default_rng(13)
+    images = [noise_image(rng) for _ in range(30)]
+    years = rng.uniform(1990, 2020, 30)
+    X, _ = build(images, years)
+    shift = sc.sepia_shift(sc.YearProbe().fit(X, years), None, X, X, years)
+    assert shift["n"] == 30 and np.isnan(shift["flip_rate"])
+    assert shift["median_shift"] == pytest.approx(0.0, abs=1e-9)   # same features in and out
 
 
 # ------------------------------------------------------------------ reporting
@@ -213,10 +227,13 @@ def test_report_is_ordered_and_mentions_the_causal_test():
 
     report = sc.render_report(table, {"n": 50, "median_year_before": 2010.0, "median_year_after": 1925.0,
                                       "median_shift": -85.0, "mean_shift": -83.0,
-                                      "share_moved_before_1945": 0.9, "true_median_year": 2012.0},
+                                      "share_moved_before_1945": 0.9, "true_median_year": 2012.0,
+                                      "flip_rate": 0.72, "era_score_shift": 0.91,
+                                      "called_old_before": 0.04},
                               n_scenes=13)
     assert "date signal is just the photo medium" in report
     assert "-85.0 years" in report and "Causal check" in report
+    assert "72% more flip" in report
     assert sc.render_report(table, None, 1).count("Causal check") == 0
 
 
