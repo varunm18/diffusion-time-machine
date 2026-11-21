@@ -470,3 +470,92 @@ Running notes on what we learn as the project moves forward. Newest sections go 
 - **SEVA copies the inputs' appearance.** In a random sample, a 2017 color target came out as a sepia albumen print copied from an 1870s input (`docs/figures/seva_baseline_random_appearance_copy.jpg`).
 - **The motivating failure, captured.** Given inputs from 2004–2017, SEVA draws Notre-Dame's spire into 2019 targets that actually show scaffolding and no spire after the fire (`docs/figures/seva_baseline_neighbors_spire.jpg`). This is what date conditioning should fix.
 - Random samples with far-apart, sparse inputs give hallucinated generic Gothic architecture. Training samples should favour inputs that overlap with the targets.
+## How much of our date signal is just the photo medium? (2026-11-20)
+*Code: `src/timemachine/analysis/shortcut.py`, `scripts/date_shortcut_probe.py`, `docs/date_shortcut.md`.
+Run: 4 scenes (Notre-Dame 25512, Taj Mahal 113197, Sydney Harbour Bridge 1752, Semperoper 195317),
+1,758 views, near-duplicate-safe split, CPU only.*
+
+**The question.** Every date-conditioned experiment assumes an image's date says something about what
+the *scene* looked like. But our old photos are also grey, sepia, flat and grainy, and our modern ones
+are colour and sharp. If era and medium are the same thing in our data, a model can minimise a
+date-conditioned loss without learning anything about how places change.
+
+**Method.** A deliberately weak **linear** probe predicts the capture year from 14 appearance-only
+statistics - colour, tone, grain, framing - and never sees scene content. It is scored by AUC on
+old (pre-1945) vs modern, because our year distribution is bimodal and ~75% modern, which makes both
+year-MAE and plain accuracy misleading (notes below). Splits reuse `eval.splits` near-duplicate
+grouping, per scene.
+
+### The date is readable from the medium alone
+
+| treatment | removes | AUC | 95% CI |
+|---|---|---|---|
+| original | nothing | **0.892** | 0.84-0.93 |
+| grayscale | colour | 0.853 | 0.81-0.90 |
+| tone_matched | colour + tone curve | 0.712 | 0.64-0.78 |
+
+*440 test views, 58 old / 382 modern.*
+
+Fitting the probe on one cue at a time, on untreated photos:
+
+| features | AUC |
+|---|---|
+| colour | 0.801 |
+| tone | 0.817 |
+| detail (grain, sharpness) | 0.606 |
+| framing (aspect, resolution) | 0.482 |
+| all 14 | 0.892 |
+
+### Causal check: toning a modern photo makes it "old"
+
+348 modern photos (median 2013) were grayscaled, flattened and warm-toned. **The scene content is
+untouched**, so any change is caused by the medium alone.
+
+- The old/modern classifier already calls 37% of them old untreated; **63% more flip once toned**.
+  After toning, essentially **all** of them are classified as pre-1945 (median score shift +0.87).
+- The year probe moves them from 2000 to 1960 (median -39.5 years).
+
+### What this means
+
+1. **Our era signal is substantially photographic medium.** A model trained on this data can reach a
+   good date-conditioned loss without learning anything about how buildings change.
+2. **This is a candidate explanation for the date-blindness.** We already know SEVA copies the input
+   views' appearance, and that the LoRA learned a single sepia cast applied at every date. If era is
+   mostly appearance, and appearance is already copied from the inputs, the date pathway has no
+   residual left to explain - which is what "swapping dates costs ~0" has been telling us.
+3. **PSNR against old targets is partly scoring film look**, not scene reconstruction. Baseline
+   numbers against archival photos should be read with that in mind, and appearance-normalised
+   metrics reported alongside.
+4. **It supports giving the model an explicit per-view appearance representation** (WildCAT3D-style),
+   so lighting, weather and medium are absorbed somewhere other than the date.
+
+### Two corrections to things we assumed
+
+- **Grayscale evaluation is not a defence against this shortcut.** The literature review proposes it
+  as a control. It barely helps (0.892 -> 0.853): an old print is flat and mid-grey as well as brown,
+  and that tone survives desaturation. In synthetic tests the grayscale row sometimes scored *higher*
+  than the original, once the noisy colour features were gone. The tone has to be matched too.
+- **`tone_matched` is an upper bound on content-driven dating, not a measurement of it.** It cannot
+  remove grain, softness or scan resolution, which are medium cues as well. On synthetic images with
+  *no content at all*, it still leaves the probe about a third of its skill.
+
+### Caveats
+
+- 58 old photos in the test split across 4 scenes. The intervals above are bootstrap and already
+  account for this, but more scenes would tighten them.
+- The classifier is class-balanced, so its threshold sits where 37% of modern photos are already
+  called old (recall old 88% / recall modern 60%). The *flip* is the causal part; the 37% is not.
+- `apply_sepia` is a plausible imitation of an albumen print, not a calibrated film model. It only
+  needs to be a medium change with the content held fixed, which it is.
+- Year-regression columns (`mae`, `skill`) are in `treatments.csv` but can go negative even for a
+  probe that separates old from modern well: a least-squares fit is pulled to the mean of a bimodal
+  distribution while the constant-guess baseline sits at the median (~20 years apart on Notre-Dame).
+  Prefer the AUC.
+
+### Reproduce
+
+```bash
+python scripts/process_scenes.py --scenes 25512 113197 1752 195317
+for s in 25512 113197 1752 195317; do python scripts/build_scene_dataset.py --scene $s --max-modern 300; done
+python scripts/date_shortcut_probe.py --dataset data/datasets/*_model0 --max-views 4000
+```
