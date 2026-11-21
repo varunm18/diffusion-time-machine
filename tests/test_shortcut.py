@@ -201,7 +201,8 @@ def test_sepia_shift_detects_a_medium_driven_probe():
 # ------------------------------------------------------------------ reporting
 def test_report_is_ordered_and_mentions_the_causal_test():
     scores = {name: {"n_train": 80, "n_test": 40, "mae": m, "baseline_mae": 30.0, "skill": s,
-                     "auc": a, "balanced_accuracy": a, "recall_old": a, "recall_modern": a,
+                     "auc": a, "auc_lo": a - 0.08, "auc_hi": min(a + 0.08, 1.0),
+                     "balanced_accuracy": a, "recall_old": a, "recall_modern": a,
                      "n_old": 12, "n_modern": 28, "old_share": 0.3, "probe": None, "era_probe": None}
               for name, m, s, a in [("tone_matched", 28.0, 0.07, 0.55),
                                     ("original", 9.0, 0.70, 0.95),
@@ -245,8 +246,9 @@ def test_group_table_points_at_the_group_that_holds_the_signal():
 
 def test_report_includes_the_group_table_when_given_one():
     scores = {"original": {"n_train": 80, "n_test": 40, "mae": 9.0, "baseline_mae": 30.0, "skill": 0.7,
-                           "auc": 0.95, "balanced_accuracy": 0.9, "recall_old": 0.9, "recall_modern": 0.9,
-                           "n_old": 12, "n_modern": 28, "old_share": 0.3, "probe": None, "era_probe": None}}
+                           "auc": 0.95, "auc_lo": 0.88, "auc_hi": 0.99, "balanced_accuracy": 0.9,
+                           "recall_old": 0.9, "recall_modern": 0.9, "n_old": 12, "n_modern": 28,
+                           "old_share": 0.3, "probe": None, "era_probe": None}}
     groups = pd.DataFrame([{"features": "colour", "n_features": 5, "auc": 0.93,
                             "balanced_accuracy": 0.88, "mae": 10.0, "skill": 0.66}])
     report = sc.render_report(sc.results_table(scores), None, 13, groups=groups)
@@ -340,3 +342,40 @@ def test_features_for_applies_the_treatment(tmp_path):
     assert colour.shape == grey.shape == (4, len(sc.FEATURE_NAMES))
     sat = sc.FEATURE_NAMES.index("saturation_mean")
     assert grey[:, sat].max() < 0.02
+
+
+# ------------------------------------------------------ uncertainty on the AUC
+def test_roc_auc_known_values_and_ties():
+    assert sc.roc_auc(np.array([3., 2., 1., 0.]), np.array([1, 1, 0, 0], bool)) == 1.0
+    assert sc.roc_auc(np.array([0., 1., 2., 3.]), np.array([1, 1, 0, 0], bool)) == 0.0
+    # all scores tied -> no information -> 0.5, not 1.0
+    assert sc.roc_auc(np.ones(6), np.array([1, 1, 1, 0, 0, 0], bool)) == 0.5
+    assert np.isnan(sc.roc_auc(np.array([1., 2.]), np.array([1, 1], bool)))   # one class only
+
+
+def test_auc_interval_brackets_the_estimate_and_widens_with_fewer_positives():
+    rng = np.random.default_rng(12)
+    scores = np.concatenate([rng.normal(1.0, 1.0, 200), rng.normal(0.0, 1.0, 200)])
+    positive = np.concatenate([np.ones(200, bool), np.zeros(200, bool)])
+    auc = sc.roc_auc(scores, positive)
+    lo, hi = sc.auc_interval(scores, positive, n_boot=400)
+    assert lo < auc < hi and 0.0 <= lo < hi <= 1.0
+
+    # Same distribution, far fewer positives: the estimate should get no worse, but
+    # the interval must get wider. This is exactly our situation on one scene.
+    few = np.concatenate([scores[:8], scores[200:]])
+    few_pos = np.concatenate([np.ones(8, bool), np.zeros(200, bool)])
+    lo2, hi2 = sc.auc_interval(few, few_pos, n_boot=400)
+    assert (hi2 - lo2) > (hi - lo)              # fewer old photos -> a wider interval
+    assert sc.auc_interval(np.array([1., 2.]), np.array([1, 1], bool)) == pytest.approx((float("nan"),) * 2, nan_ok=True)
+
+
+def test_report_warns_when_the_old_class_is_tiny():
+    def row(n_old):
+        return {"n_train": 300, "n_test": 134, "mae": 26.0, "baseline_mae": 23.0, "skill": -0.1,
+                "auc": 0.9, "auc_lo": 0.81, "auc_hi": 0.97, "balanced_accuracy": 0.82,
+                "recall_old": 0.95, "recall_modern": 0.69, "n_old": n_old, "n_modern": 115,
+                "old_share": 0.14, "probe": None, "era_probe": None}
+    small = sc.render_report(sc.results_table({"original": row(19)}), None, 1)
+    assert "Only 19 old photos" in small and "0.81-0.97" in small
+    assert "old photos are in the test split" not in sc.render_report(sc.results_table({"original": row(200)}), None, 1)

@@ -293,6 +293,27 @@ def roc_auc(scores: np.ndarray, positive: np.ndarray) -> float:
     return float((ranks[positive].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
+def auc_interval(scores: np.ndarray, positive: np.ndarray, n_boot: int = 2000,
+                 seed: int = 0) -> tuple[float, float]:
+    """Percentile bootstrap 95% interval for :func:`roc_auc`.
+
+    Our old photos are few (a single scene can leave fewer than 20 in a test
+    split), so a bare AUC reads as more precise than it is. Resampling is done
+    within each class, which keeps the class sizes fixed and matches how the
+    split was drawn.
+    """
+    scores, positive = np.asarray(scores, dtype=np.float64), np.asarray(positive, dtype=bool)
+    pos, neg = np.flatnonzero(positive), np.flatnonzero(~positive)
+    if len(pos) == 0 or len(neg) == 0:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    draws = np.empty(n_boot)
+    for i in range(n_boot):
+        idx = np.concatenate([rng.choice(pos, len(pos)), rng.choice(neg, len(neg))])
+        draws[i] = roc_auc(scores[idx], positive[idx])
+    return float(np.percentile(draws, 2.5)), float(np.percentile(draws, 97.5))
+
+
 def score_era(train_X: np.ndarray, train_y: np.ndarray, test_X: np.ndarray, test_y: np.ndarray,
               alpha: float = 1.0, old_before: float = 1945.0) -> dict:
     """Can the probe tell an old photo from a modern one, from its look alone?
@@ -307,15 +328,17 @@ def score_era(train_X: np.ndarray, train_y: np.ndarray, test_X: np.ndarray, test
     """
     train_old, test_old = np.asarray(train_y) < old_before, np.asarray(test_y) < old_before
     if not train_old.any() or train_old.all():
-        return {"auc": float("nan"), "balanced_accuracy": float("nan"),
+        return {"auc": float("nan"), "auc_lo": float("nan"), "auc_hi": float("nan"),
+                "balanced_accuracy": float("nan"),
                 "n_old": int(test_old.sum()), "n_modern": int((~test_old).sum()), "probe": None}
     probe = YearProbe(alpha).fit(train_X, np.where(train_old, 1.0, -1.0),
                                  balanced_weights(train_y, old_before))
     scores = probe.predict(test_X)
     recall_old = float((scores[test_old] > 0).mean()) if test_old.any() else float("nan")
     recall_modern = float((scores[~test_old] <= 0).mean()) if (~test_old).any() else float("nan")
+    auc_lo, auc_hi = auc_interval(scores, test_old)
     return {
-        "auc": roc_auc(scores, test_old),
+        "auc": roc_auc(scores, test_old), "auc_lo": auc_lo, "auc_hi": auc_hi,
         "balanced_accuracy": float(np.nanmean([recall_old, recall_modern])),
         "recall_old": recall_old, "recall_modern": recall_modern,
         "n_old": int(test_old.sum()), "n_modern": int((~test_old).sum()),
@@ -347,7 +370,8 @@ def score_probe(train_X: np.ndarray, train_y: np.ndarray, test_X: np.ndarray, te
     era = score_era(train_X, train_y, test_X, test_y, alpha, old_before)
     return {
         "n_train": int(len(train_X)), "n_test": int(len(test_X)),
-        "auc": era["auc"], "balanced_accuracy": era["balanced_accuracy"],
+        "auc": era["auc"], "auc_lo": era["auc_lo"], "auc_hi": era["auc_hi"],
+        "balanced_accuracy": era["balanced_accuracy"],
         "recall_old": era.get("recall_old", float("nan")),
         "recall_modern": era.get("recall_modern", float("nan")),
         "n_old": era["n_old"], "n_modern": era["n_modern"],
@@ -533,12 +557,17 @@ def render_report(table: pd.DataFrame, shift: dict | None, n_scenes: int,
         "modern one: 0.5 is coin-flipping, 1.0 is perfect. It is the headline because it cannot be "
         "gamed by always answering \"modern\", which plain accuracy can when most photos are recent.",
         "",
-        "| treatment | n test | old / modern | AUC | balanced accuracy | recall old | recall modern |",
-        "|---|---|---|---|---|---|---|",
+        "| treatment | n test | old / modern | AUC | 95% CI | balanced accuracy | recall old | recall modern |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for r in table.itertuples():
         lines.append(f"| {r.treatment} | {r.n_test} | {r.n_old} / {r.n_modern} | {r.auc:.3f} | "
-                     f"{_pct(r.balanced_accuracy)} | {_pct(r.recall_old)} | {_pct(r.recall_modern)} |")
+                     f"{r.auc_lo:.2f}-{r.auc_hi:.2f} | {_pct(r.balanced_accuracy)} | "
+                     f"{_pct(r.recall_old)} | {_pct(r.recall_modern)} |")
+    if first is not None and first.n_old < 40:
+        lines += ["", f"**Only {first.n_old} old photos are in the test split**, so the intervals are wide. "
+                      "Treat a single scene as indicative and re-run across several scenes before "
+                      "quoting a number."]
     lines += [
         "", "`tone_matched` removes colour and tone but **not** grain, softness or scan resolution, "
             "which are medium cues too. Its AUC is therefore an upper bound on how much of the date is "
