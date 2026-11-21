@@ -221,19 +221,29 @@ class YearProbe:
         self.coef_: np.ndarray | None = None
         self.intercept_: float = 0.0
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> "YearProbe":
+    def fit(self, X: np.ndarray, y: np.ndarray, weights: np.ndarray | None = None) -> "YearProbe":
+        """Fit, optionally with per-image weights (see :func:`balanced_weights`).
+
+        Weighting matters more than it looks. Our scenes are ~75% modern, so an
+        unweighted fit is dominated by one tight clump of recent photos and
+        effectively ignores the old tail we actually care about.
+        """
         X = np.asarray(X, dtype=np.float64)
         y = np.asarray(y, dtype=np.float64)
         if len(X) < 2:
             raise ValueError("Need at least two training images.")
+        w = np.ones(len(X)) if weights is None else np.asarray(weights, dtype=np.float64)
+        # Normalize to sum to N, not 1, so that `alpha` means the same thing whether
+        # or not weights are given (the Gram matrix keeps its unweighted magnitude).
+        w = w / w.sum() * len(w)
         self.mean_ = X.mean(axis=0)
         self.scale_ = X.std(axis=0)
         self.scale_[self.scale_ < 1e-9] = 1.0        # a constant feature carries nothing
         Z = (X - self.mean_) / self.scale_
-        self.intercept_ = float(y.mean())
-        # (Z'Z + alpha I)^-1 Z'(y - mean). solve() beats inv() for conditioning.
-        gram = Z.T @ Z + self.alpha * np.eye(Z.shape[1])
-        self.coef_ = np.linalg.solve(gram, Z.T @ (y - self.intercept_))
+        self.intercept_ = float((w @ y) / w.sum())
+        # (Z'WZ + alpha I)^-1 Z'W(y - mean). solve() beats inv() for conditioning.
+        gram = Z.T @ (Z * w[:, None]) + self.alpha * np.eye(Z.shape[1])
+        self.coef_ = np.linalg.solve(gram, Z.T @ (w * (y - self.intercept_)))
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -241,6 +251,76 @@ class YearProbe:
             raise ValueError("Probe is not fitted.")
         Z = (np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_
         return Z @ self.coef_ + self.intercept_
+
+
+def balanced_weights(years: np.ndarray, old_before: float = 1945.0) -> np.ndarray:
+    """Weights that give the old and modern photos equal say.
+
+    Our view tables are roughly three-quarters modern, so an unweighted fit is
+    really a fit to recent photos with the old ones as rounding error.
+    """
+    years = np.asarray(years, dtype=np.float64)
+    old = years < old_before
+    w = np.ones(len(years))
+    if old.any() and (~old).any():
+        w[old] = 0.5 / old.sum()
+        w[~old] = 0.5 / (~old).sum()
+    return w / w.sum() * len(w)
+
+
+def roc_auc(scores: np.ndarray, positive: np.ndarray) -> float:
+    """Area under the ROC curve, from ranks (handles ties, no sklearn needed).
+
+    Reads as: the chance that a randomly chosen old photo scores higher than a
+    randomly chosen modern one. 0.5 is coin-flipping, 1.0 is perfect. Unlike
+    accuracy it does not flatter a probe just because one class is rare, which
+    is why it is the headline number here.
+    """
+    scores, positive = np.asarray(scores, dtype=np.float64), np.asarray(positive, dtype=bool)
+    n_pos, n_neg = int(positive.sum()), int((~positive).sum())
+    if n_pos == 0 or n_neg == 0:
+        return float("nan")
+    order = np.argsort(scores, kind="mergesort")
+    ranks = np.empty(len(scores), dtype=np.float64)
+    ranks[order] = np.arange(1, len(scores) + 1)
+    # average the ranks of tied scores, or ties would count as wins
+    sorted_scores = scores[order]
+    start = 0
+    for i in range(1, len(scores) + 1):
+        if i == len(scores) or sorted_scores[i] != sorted_scores[start]:
+            ranks[order[start:i]] = ranks[order[start:i]].mean()
+            start = i
+    return float((ranks[positive].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
+
+
+def score_era(train_X: np.ndarray, train_y: np.ndarray, test_X: np.ndarray, test_y: np.ndarray,
+              alpha: float = 1.0, old_before: float = 1945.0) -> dict:
+    """Can the probe tell an old photo from a modern one, from its look alone?
+
+    A least-squares classifier on a balanced +1 (old) / -1 (modern) target. This,
+    not the year regression, is the question that matters: our year distribution
+    is bimodal and three-quarters modern, so regressing the year punishes a probe
+    that has in fact learned the old/modern split perfectly well.
+
+    Reported as AUC and balanced accuracy (the mean of the two per-class
+    recalls), neither of which can be gamed by always answering "modern".
+    """
+    train_old, test_old = np.asarray(train_y) < old_before, np.asarray(test_y) < old_before
+    if not train_old.any() or train_old.all():
+        return {"auc": float("nan"), "balanced_accuracy": float("nan"),
+                "n_old": int(test_old.sum()), "n_modern": int((~test_old).sum()), "probe": None}
+    probe = YearProbe(alpha).fit(train_X, np.where(train_old, 1.0, -1.0),
+                                 balanced_weights(train_y, old_before))
+    scores = probe.predict(test_X)
+    recall_old = float((scores[test_old] > 0).mean()) if test_old.any() else float("nan")
+    recall_modern = float((scores[~test_old] <= 0).mean()) if (~test_old).any() else float("nan")
+    return {
+        "auc": roc_auc(scores, test_old),
+        "balanced_accuracy": float(np.nanmean([recall_old, recall_modern])),
+        "recall_old": recall_old, "recall_modern": recall_modern,
+        "n_old": int(test_old.sum()), "n_modern": int((~test_old).sum()),
+        "probe": probe,
+    }
 
 
 def baseline_mae(train_years: np.ndarray, test_years: np.ndarray) -> float:
@@ -256,21 +336,25 @@ def score_probe(train_X: np.ndarray, train_y: np.ndarray, test_X: np.ndarray, te
     0 means it learned nothing, 1 means perfect. It is the honest headline here,
     because raw MAE depends on how spread out the years happen to be.
     """
+    # The year fit stays unweighted and is reported only as a secondary number;
+    # balancing belongs in the old/modern classifier below, where the class sizes
+    # are what distort the result.
     probe = YearProbe(alpha).fit(train_X, train_y)
     pred = probe.predict(test_X)
     test_y = np.asarray(test_y, dtype=np.float64)
     mae = float(np.abs(pred - test_y).mean())
     base = baseline_mae(train_y, test_y)
-    ss_res = float(((pred - test_y) ** 2).sum())
-    ss_tot = float(((test_y - test_y.mean()) ** 2).sum())
+    era = score_era(train_X, train_y, test_X, test_y, alpha, old_before)
     return {
         "n_train": int(len(train_X)), "n_test": int(len(test_X)),
+        "auc": era["auc"], "balanced_accuracy": era["balanced_accuracy"],
+        "recall_old": era.get("recall_old", float("nan")),
+        "recall_modern": era.get("recall_modern", float("nan")),
+        "n_old": era["n_old"], "n_modern": era["n_modern"],
         "mae": mae, "baseline_mae": base,
         "skill": float(1.0 - mae / base) if base > 0 else float("nan"),
-        "r2": float(1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan"),
-        "old_accuracy": float(((pred < old_before) == (test_y < old_before)).mean()),
         "old_share": float((test_y < old_before).mean()),
-        "probe": probe,
+        "probe": probe, "era_probe": era["probe"],
     }
 
 
@@ -414,14 +498,14 @@ def group_skill_table(train_X: np.ndarray, train_y: np.ndarray, test_X: np.ndarr
     for group in (*FEATURE_GROUPS, "all"):
         cols = list(range(train_X.shape[1])) if group == "all" else group_columns(group)
         s = score_probe(train_X[:, cols], train_y, test_X[:, cols], test_y, alpha)
-        rows.append({"features": group, "n_features": len(cols), "mae": s["mae"],
-                     "skill": s["skill"], "old_accuracy": s["old_accuracy"]})
+        rows.append({"features": group, "n_features": len(cols), "auc": s["auc"],
+                     "balanced_accuracy": s["balanced_accuracy"], "mae": s["mae"], "skill": s["skill"]})
     return pd.DataFrame(rows)
 
 
 def results_table(scores: dict[str, dict]) -> pd.DataFrame:
     """One row per treatment, in :data:`TREATMENTS` order."""
-    rows = [{"treatment": name, **{k: v for k, v in s.items() if k != "probe"}}
+    rows = [{"treatment": name, **{k: v for k, v in s.items() if not k.endswith("probe")}}
             for name, s in scores.items()]
     table = pd.DataFrame(rows)
     order = [t for t in TREATMENTS if t in set(table["treatment"])]
@@ -439,29 +523,32 @@ def render_report(table: pd.DataFrame, shift: dict | None, n_scenes: int,
     first = table.iloc[0] if len(table) else None
     lines = [
         "## How much of our date signal is just the photo medium?",
-        f"*Linear probe on appearance-only statistics (colour, tone, grain), {n_scenes} scene(s), "
+        f"*Linear probe on appearance-only statistics (colour, tone, grain, framing), {n_scenes} scene(s), "
         f"near-duplicate-safe split. {tol_note}*",
         "",
-        "A probe that only sees *how the photo looks* should not be able to date it. "
-        "Each row removes one more medium cue; whatever skill survives is not colour or tone.",
+        "A probe that only sees *how the photo looks* should not be able to date it. Each row removes "
+        "one more medium cue; whatever survives is not colour or tone.",
         "",
-        "| treatment | n test | MAE (years) | constant-guess MAE | skill | old/modern accuracy |",
-        "|---|---|---|---|---|---|",
+        "**AUC** is the chance that a randomly chosen old photo scores as older than a randomly chosen "
+        "modern one: 0.5 is coin-flipping, 1.0 is perfect. It is the headline because it cannot be "
+        "gamed by always answering \"modern\", which plain accuracy can when most photos are recent.",
+        "",
+        "| treatment | n test | old / modern | AUC | balanced accuracy | recall old | recall modern |",
+        "|---|---|---|---|---|---|---|",
     ]
     for r in table.itertuples():
-        lines.append(f"| {r.treatment} | {r.n_test} | {r.mae:.1f} | {r.baseline_mae:.1f} | "
-                     f"{_pct(r.skill)} | {_pct(r.old_accuracy)} |")
-    if first is not None:
-        lines += ["", f"Chance-level old/modern accuracy here is {_pct(max(first.old_share, 1 - first.old_share))} "
-                      "(always guessing the larger class).",
-                  "", "`tone_matched` removes colour and tone but **not** grain, softness or scan "
-                      "resolution, which are medium cues too. Its skill is therefore an upper bound "
-                      "on how much of the date is readable from scene content, not a measurement of it."]
+        lines.append(f"| {r.treatment} | {r.n_test} | {r.n_old} / {r.n_modern} | {r.auc:.3f} | "
+                     f"{_pct(r.balanced_accuracy)} | {_pct(r.recall_old)} | {_pct(r.recall_modern)} |")
+    lines += [
+        "", "`tone_matched` removes colour and tone but **not** grain, softness or scan resolution, "
+            "which are medium cues too. Its AUC is therefore an upper bound on how much of the date is "
+            "readable from scene content, not a measurement of it.",
+    ]
     if groups is not None and len(groups):
         lines += ["", "### Which cue carries the date?",
                   "*Probe fitted on one group of features at a time, on the untreated photos.*", "",
-                  "| features | n | MAE (years) | skill | old/modern accuracy |", "|---|---|---|---|---|"]
-        lines += [f"| {r.features} | {r.n_features} | {r.mae:.1f} | {_pct(r.skill)} | {_pct(r.old_accuracy)} |"
+                  "| features | n | AUC | balanced accuracy |", "|---|---|---|---|"]
+        lines += [f"| {r.features} | {r.n_features} | {r.auc:.3f} | {_pct(r.balanced_accuracy)} |"
                   for r in groups.itertuples()]
         lines += ["", "`colour`, `tone`, `detail` and `framing` are all properties of the *photograph*, "
                       "not of the scene. Skill here is shortcut, whichever group it comes from."]
@@ -469,9 +556,20 @@ def render_report(table: pd.DataFrame, shift: dict | None, n_scenes: int,
         lines += [
             "", "### Causal check: sepia-toning modern photos",
             f"*{shift['n']} modern photos (true median {shift['true_median_year']:.0f}), "
-            "grayscaled, flattened and warm-toned. The scene content is untouched.*", "",
+            "grayscaled, flattened and warm-toned. The scene content is untouched, so any shift is "
+            "caused by the medium alone.*", "",
             f"- Predicted year moves from {shift['median_year_before']:.0f} to "
             f"{shift['median_year_after']:.0f} (median shift **{shift['median_shift']:+.1f} years**).",
             f"- {_pct(shift['share_moved_before_1945'])} of them cross from 'modern' to 'pre-1945'.",
+        ]
+    if first is not None:
+        lines += [
+            "", "### A note on the year-regression columns",
+            "`treatments.csv` also carries `mae` and `skill` from a probe regressing the *year*. "
+            "Read those with care, and prefer the AUC above: our year distribution is bimodal and "
+            "about three-quarters modern, so a least-squares fit is pulled towards the mean while the "
+            "constant-guess baseline sits at the median. On Notre-Dame those are ~20 years apart, "
+            "which makes `skill` go negative even for a probe that separates old from modern well. "
+            "The split is the real question; the exact year is not.",
         ]
     return "\n".join(lines) + "\n"

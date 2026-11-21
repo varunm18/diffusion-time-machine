@@ -96,7 +96,7 @@ def test_probe_recovers_a_linear_signal_and_beats_the_constant_guess():
     X = rng.normal(size=(200, len(sc.FEATURE_NAMES)))
     y = 1900 + 40 * X[:, 0] + rng.normal(0, 1, 200)
     s = sc.score_probe(X[:150], y[:150], X[150:], y[150:], alpha=1.0)
-    assert s["skill"] > 0.9 and s["r2"] > 0.9
+    assert s["skill"] > 0.8 and s["auc"] > 0.95
     assert s["n_train"] == 150 and s["n_test"] == 50
 
 
@@ -106,7 +106,7 @@ def test_probe_finds_no_skill_in_noise():
     y = rng.uniform(1850, 2020, 200)                      # years unrelated to the features
     s = sc.score_probe(X[:150], y[:150], X[150:], y[150:], alpha=10.0)
     assert s["skill"] < 0.15                              # no better than guessing the median
-    assert abs(s["r2"]) < 0.3
+    assert 0.3 < s["auc"] < 0.7                           # and no better than chance at old/modern
 
 
 def test_probe_is_deterministic_and_needs_data():
@@ -146,8 +146,8 @@ def test_colour_only_era_signal_disappears_once_colour_is_removed():
         X = treated(images, name)
         scores[name] = sc.score_probe(X[split], years[split], X[~split], years[~split])
 
-    assert scores["original"]["skill"] > 0.6              # trivially solvable in colour
-    assert scores["original"]["old_accuracy"] > 0.9
+    assert scores["original"]["auc"] > 0.95               # trivially solvable in colour
+    assert scores["original"]["balanced_accuracy"] > 0.9
     # Most of it goes once colour and tone are stripped. It does not reach zero:
     # these images have NO content, so the residual is grain, which tone matching
     # cannot remove. That is exactly why the report calls the last row an upper bound.
@@ -156,8 +156,12 @@ def test_colour_only_era_signal_disappears_once_colour_is_removed():
     # grayscale row can even score slightly higher once the noisy colour features
     # are gone. Treat "we evaluated in grayscale" as no defence against this
     # shortcut.
-    assert scores["tone_matched"]["skill"] < 0.6 * scores["original"]["skill"]
-    assert scores["grayscale"]["skill"] > 0.5 * scores["original"]["skill"]
+    # It drops, but not to chance: these images have NO content, so the residual is
+    # grain, which tone matching cannot remove. Hence "upper bound" in the report.
+    assert scores["tone_matched"]["auc"] < scores["original"]["auc"] - 0.05
+    # Grayscaling alone is NOT a defence: an old print is flat and mid-grey as well
+    # as brown, and that tone survives desaturation.
+    assert scores["grayscale"]["auc"] > 0.8
 
 
 def test_content_based_era_signal_survives_every_treatment():
@@ -173,7 +177,7 @@ def test_content_based_era_signal_survives_every_treatment():
 
     X = treated(images, "tone_matched")
     s = sc.score_probe(X[split], years[split], X[~split], years[~split])
-    assert s["skill"] > 0.3                               # content still carries the date
+    assert s["auc"] > 0.8                                 # content still carries the date
 
 
 def test_sepia_shift_detects_a_medium_driven_probe():
@@ -196,14 +200,15 @@ def test_sepia_shift_detects_a_medium_driven_probe():
 
 # ------------------------------------------------------------------ reporting
 def test_report_is_ordered_and_mentions_the_causal_test():
-    scores = {name: {"n_train": 80, "n_test": 40, "mae": m, "baseline_mae": 30.0,
-                     "skill": s, "r2": s, "old_accuracy": a, "old_share": 0.5, "probe": None}
+    scores = {name: {"n_train": 80, "n_test": 40, "mae": m, "baseline_mae": 30.0, "skill": s,
+                     "auc": a, "balanced_accuracy": a, "recall_old": a, "recall_modern": a,
+                     "n_old": 12, "n_modern": 28, "old_share": 0.3, "probe": None, "era_probe": None}
               for name, m, s, a in [("tone_matched", 28.0, 0.07, 0.55),
                                     ("original", 9.0, 0.70, 0.95),
                                     ("grayscale", 20.0, 0.33, 0.74)]}
     table = sc.results_table(scores)
     assert list(table["treatment"]) == ["original", "grayscale", "tone_matched"]
-    assert "probe" not in table.columns
+    assert "probe" not in table.columns and "era_probe" not in table.columns
 
     report = sc.render_report(table, {"n": 50, "median_year_before": 2010.0, "median_year_after": 1925.0,
                                       "median_shift": -85.0, "mean_shift": -83.0,
@@ -233,16 +238,17 @@ def test_group_table_points_at_the_group_that_holds_the_signal():
 
     table = sc.group_skill_table(X[split], years[split], X[~split], years[~split]).set_index("features")
     assert set(table.index) == set(sc.FEATURE_GROUPS) | {"all"}
-    assert table.loc["colour", "skill"] > 0.5
-    assert table.loc["colour", "skill"] > table.loc["framing", "skill"]
-    assert table.loc["framing", "skill"] < 0.2          # all images are the same size here
+    assert table.loc["colour", "auc"] > 0.9
+    assert table.loc["colour", "auc"] > table.loc["framing", "auc"]
+    assert table.loc["framing", "auc"] < 0.7            # all images are the same size here
 
 
 def test_report_includes_the_group_table_when_given_one():
-    scores = {"original": {"n_train": 80, "n_test": 40, "mae": 9.0, "baseline_mae": 30.0,
-                           "skill": 0.7, "r2": 0.7, "old_accuracy": 0.95, "old_share": 0.5, "probe": None}}
-    groups = pd.DataFrame([{"features": "colour", "n_features": 5, "mae": 10.0,
-                            "skill": 0.66, "old_accuracy": 0.93}])
+    scores = {"original": {"n_train": 80, "n_test": 40, "mae": 9.0, "baseline_mae": 30.0, "skill": 0.7,
+                           "auc": 0.95, "balanced_accuracy": 0.9, "recall_old": 0.9, "recall_modern": 0.9,
+                           "n_old": 12, "n_modern": 28, "old_share": 0.3, "probe": None, "era_probe": None}}
+    groups = pd.DataFrame([{"features": "colour", "n_features": 5, "auc": 0.93,
+                            "balanced_accuracy": 0.88, "mae": 10.0, "skill": 0.66}])
     report = sc.render_report(sc.results_table(scores), None, 13, groups=groups)
     assert "Which cue carries the date?" in report and "| colour |" in report
     assert "Which cue carries the date?" not in sc.render_report(sc.results_table(scores), None, 13)

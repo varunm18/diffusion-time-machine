@@ -50,15 +50,24 @@ so the same photograph can never sit on both sides.
 
 ## Reading the result
 
-`skill` is the share of the constant-guess error the probe removes: 0 is useless,
-1 is perfect.
+**AUC** is the headline: the chance that a randomly chosen old photo scores as
+older than a randomly chosen modern one. 0.5 is coin-flipping, 1.0 is perfect.
 
-- **High skill on `original`** → the date is trivially readable from the medium.
+- **High AUC on `original`** → the date is trivially readable from the medium.
   Any model trained on this data can reach a good date loss without learning
   anything about how places change, and PSNR against old targets is partly
   measuring film look.
 - **A large negative `median_shift`** in the sepia check → the same, demonstrated
   causally.
+
+**Why AUC and not year error.** Our view tables are bimodal and about
+three-quarters modern (Notre-Dame: 400 of 534 views are 2000+, median year 2009
+but mean 1989). A least-squares fit is pulled towards the mean while the
+constant-guess baseline sits at the median, roughly 20 years apart, so the `skill`
+column in `treatments.csv` can go *negative* for a probe that separates old from
+modern perfectly well. Plain accuracy is no better: with 17% old photos, always
+answering "modern" scores 83%. AUC and balanced accuracy are immune to both.
+`mae` and `skill` are still written to the CSV as secondary diagnostics.
 
 Two caveats the report repeats, because both are easy to get wrong:
 
