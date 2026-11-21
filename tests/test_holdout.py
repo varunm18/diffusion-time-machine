@@ -59,6 +59,7 @@ def test_hold_out_keeps_rows_out_of_samples_and_nothing_held_out_is_the_old_stre
 
 
 def test_measured_view_rows_and_pairs_use_trained_views_only(views):
+    pytest.importorskip("seva.model", reason="SEVA not installed (scripts/setup_seva.sh)")
     from timemachine.training.probes import heldout_pairs, measured_view_rows
     ds = DatedViewsDataset(views, CFG, resolution=16)
     ds.hold_out(np.array([2, 13, 30, 50]))
@@ -134,6 +135,7 @@ def test_heldout_rows_per_scene_reduce_to_era_strata_for_one_scene():
 
 
 def test_pairs_cover_heldout_views_and_heldout_scenes(two_scenes):
+    pytest.importorskip("seva.model", reason="SEVA not installed (scripts/setup_seva.sh)")
     from timemachine.training.probes import heldout_pairs
     ds = DatedViewsDataset(two_scenes, CFG, resolution=16)
     scene2 = ds.group_rows[1]
@@ -151,6 +153,7 @@ def test_pairs_cover_heldout_views_and_heldout_scenes(two_scenes):
 
 
 def test_render_probe_rows_stay_in_their_scene(two_scenes):
+    pytest.importorskip("seva.model", reason="SEVA not installed (scripts/setup_seva.sh)")
     from timemachine.training.probes import RenderProbeSpec, select_probe_rows
     ds = DatedViewsDataset(two_scenes, CFG, resolution=16)
     spec = RenderProbeSpec("old", target_range=(1880, 1900), input_range=(2000, 2030), render_years=(1890,))

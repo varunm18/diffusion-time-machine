@@ -133,6 +133,7 @@ def test_capture_on_the_upload_day_is_not_clipped():
 def test_clip_limit_is_off_until_history_then_relative():
     from collections import deque
 
+    pytest.importorskip("seva.model", reason="SEVA not installed (scripts/setup_seva.sh)")
     from timemachine.training.trainer import Trainer, TrainConfig
     t = object.__new__(Trainer)
     t.cfg = TrainConfig(dataset="x", run_dir="x")
