@@ -280,3 +280,33 @@ def test_cross_validation_uses_every_label_not_a_quarter_of_them():
     assert out["folds"] >= 2
     assert out["auc_full"] > 0.9                 # every label contributed a score
     assert out["sufficient"] is (int(night.sum()) >= ent.MIN_LABELS_PER_CLASS)
+
+
+# ------------------------------------------------- choosing a usable question
+def test_sun_question_is_the_default_shape_and_night_still_works():
+    import pandas as pd
+
+    assert set(ent.QUESTIONS) == {"sun", "night"}
+    for name, spec in ent.QUESTIONS.items():
+        assert spec["positive"] in spec["classes"] and "unclear" in spec["classes"]
+        page = ent.render_lighting_sheet(["a"], ["data:image/jpeg;base64,AA"], spec["title"], name)
+        for c in spec["classes"]:
+            assert f'data-v="{c}"' in page
+        assert "Do not look them up" in page
+
+    frame = pd.DataFrame({"id": list("abcdef"),
+                          "lighting": ["sunlit", "overcast", "unclear", "", "SUNLIT", "night"]})
+    is_sun, labelled = ent.parse_lighting_labels(frame, "sun")
+    assert list(labelled) == [True, True, False, False, True, False]   # "night" is not a sun answer
+    assert list(is_sun[labelled]) == [True, False, True]
+
+    with pytest.raises(KeyError, match="Unknown question"):
+        ent.parse_lighting_labels(frame, "weather")
+    with pytest.raises(KeyError, match="Unknown question"):
+        ent.render_lighting_sheet(["a"], ["data:image/jpeg;base64,AA"], "t", "weather")
+
+
+def test_each_question_asks_about_light_not_about_age():
+    """The instruction that keeps the labels independent of what we are testing."""
+    for name, spec in ent.QUESTIONS.items():
+        assert "age of the photo" in spec["help"], name

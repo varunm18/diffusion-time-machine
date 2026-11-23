@@ -48,6 +48,10 @@ def main() -> None:
     p.add_argument("--make-labels", action="store_true", help="write a lighting labelling sheet and stop")
     p.add_argument("--n-labels", type=int, default=150, help="images to put on the sheet")
     p.add_argument("--labels", type=Path, help="filled lighting_labels.csv")
+    p.add_argument("--question", choices=sorted(ent.QUESTIONS), default="sun",
+                   help="which lighting question the sheet asks. 'sun' (sunlit vs overcast) gives "
+                        "balanced classes in both eras; 'night' yielded 7 usable night photos out "
+                        "of a 150-image sheet, because landmarks are daylight-photographed.")
     args = p.parse_args()
 
     out = args.out or Path("data/experiments/appearance_entanglement")
@@ -77,7 +81,8 @@ def main() -> None:
         print(f"rendering {len(ids)} thumbnails ...", flush=True)
         uris = [ent.thumbnail_uri(p) for p in sample["image_path"]]
         (out / "lighting_sheet.html").write_text(
-            ent.render_lighting_sheet(ids, uris, "Lighting labels"), encoding="utf-8")
+            ent.render_lighting_sheet(ids, uris, ent.QUESTIONS[args.question]["title"], args.question),
+            encoding="utf-8")
         sample[["file_key", "image_path", "date_mid", "dataset"]].to_csv(
             out / "lighting_key.csv", index=False, encoding="utf-8")
         print(f"\nwrote {out}/lighting_sheet.html  (label this; it needs no network)")
@@ -97,10 +102,12 @@ def main() -> None:
         merged = views[["file_key"]].astype(str).merge(
             labels.rename(columns={"id": "file_key"}), on="file_key", how="left")
         merged["lighting"] = merged["lighting"].fillna("")
-        is_night, labelled = ent.parse_lighting_labels(merged)
+        spec = ent.QUESTIONS[args.question]
+        is_night, labelled = ent.parse_lighting_labels(merged, args.question)
         n_night = int(is_night[labelled].sum())
-        print(f"{labelled.sum()} usable lighting labels ({n_night} night, "
-              f"{int(labelled.sum()) - n_night} day)")
+        other = [c for c in spec["classes"] if c not in ("unclear", spec["positive"])][0]
+        print(f"{labelled.sum()} usable lighting labels ({n_night} {spec['positive']}, "
+              f"{int(labelled.sum()) - n_night} {other}; question={args.question})")
         if min(n_night, int(labelled.sum()) - n_night) < 2:
             print("  one class is empty; skipping the lighting half")
         else:

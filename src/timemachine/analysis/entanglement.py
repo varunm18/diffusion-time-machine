@@ -259,7 +259,36 @@ def group_alignment(direction: np.ndarray) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Collecting lighting labels
 # ---------------------------------------------------------------------------
-LIGHTING_CLASSES = ("day", "night", "unclear")
+# Two questions we can ask a labeller about lighting. "night" was the obvious one and
+# turned out unusable: a 150-image sheet across four scenes yielded 7 night photos,
+# because landmarks are overwhelmingly photographed in daylight - in every era. Hard
+# shadow versus flat light occurs constantly in both, so it gives balanced classes
+# while still being a pure lighting property with nothing to do with the date.
+QUESTIONS = {
+    "sun": {
+        "classes": ("sunlit", "overcast", "unclear"),
+        "positive": "sunlit",
+        "title": "Sunlit or overcast?",
+        "help": ("For each photo, is the scene in <b>direct sunlight</b> (hard-edged shadows, a bright "
+                 "side and a shaded side) or <b>overcast</b> (flat, shadowless light)?<ul>"
+                 "<li>Judge the <i>light</i>, not the age of the photo. A faded sepia print with crisp "
+                 "shadows is <code>sunlit</code>.</li>"
+                 "<li>Look at the building's edges and the ground: hard shadows mean sun.</li>"
+                 "<li><code>unclear</code> for interiors, close-ups, night shots, or genuinely "
+                 "ambiguous light - but try to decide, since every unclear is a label lost.</li></ul>"),
+    },
+    "night": {
+        "classes": ("day", "night", "unclear"),
+        "positive": "night",
+        "title": "Day or night?",
+        "help": ("For each photo, say whether it was taken in <code>day</code> or <code>night</code> "
+                 "light; <code>unclear</code> if you cannot tell.<ul>"
+                 "<li>Judge the <i>light</i>, not the age of the photo. A dim, flat old print taken at "
+                 "noon is <code>day</code>.</li>"
+                 "<li>Night photographs of landmarks are rare, so expect few.</li></ul>"),
+    },
+}
+LIGHTING_CLASSES = QUESTIONS["night"]["classes"]      # kept for older callers
 
 # Era buckets for spreading a labelling sheet. Defined here rather than imported so
 # this analysis does not move when the shortcut probe's reporting changes.
@@ -317,7 +346,7 @@ document.getElementById("dl").addEventListener("click",()=>{
 
 
 def render_lighting_sheet(ids: Sequence[str], thumbnails: Sequence[str],
-                          page_title: str = "Lighting labels") -> str:
+                          page_title: str = "Lighting labels", question: str = "night") -> str:
     """A self-contained HTML page for labelling day vs night.
 
     Thumbnails are embedded as data URIs, so the page works with no network and no
@@ -327,20 +356,18 @@ def render_lighting_sheet(ids: Sequence[str], thumbnails: Sequence[str],
     """
     if len(ids) != len(thumbnails):
         raise ValueError("ids and thumbnails must be the same length")
+    if question not in QUESTIONS:
+        raise KeyError(f"Unknown question {question!r}; known: {sorted(QUESTIONS)}")
+    spec = QUESTIONS[question]
     cells = []
     for item_id, uri in zip(ids, thumbnails):
         buttons = "".join(f'<button type="button" data-v="{c}" aria-pressed="false">{c}</button>'
-                          for c in LIGHTING_CLASSES)
+                          for c in spec["classes"])
         cells.append(f'<div class="cell" data-id="{html.escape(str(item_id), quote=True)}">'
                      f'<img loading="lazy" alt="" src="{uri}">'
                      f'<div class="btns">{buttons}</div></div>')
-    help_html = ("<div class='help'><b>How to label.</b> For each photo, say whether it was taken in "
-                 "<code>day</code> or <code>night</code> light; <code>unclear</code> if you cannot tell "
-                 "(heavy fog, interiors, extreme close-ups).<ul>"
-                 "<li>Judge the <i>light</i>, not the age of the photo. A dim, flat old print taken at "
-                 "noon is <code>day</code>.</li>"
-                 "<li>Dusk and dawn: pick whichever is closer, or <code>unclear</code>.</li>"
-                 "<li>The sheet deliberately shows no dates. Do not look them up.</li></ul></div>")
+    help_html = ("<div class='help'><b>How to label.</b> " + spec["help"]
+                 + "<p>The sheet deliberately shows no dates. Do not look them up.</p></div>")
     return (f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>{html.escape(page_title)}</title><style>{_SHEET_CSS}</style></head><body>"
@@ -392,11 +419,18 @@ def thumbnail_uri(path: str, size: int = 180, quality: int = 70) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
-def parse_lighting_labels(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """``(is_night, labelled)`` from a frame with ``id`` and ``lighting`` columns."""
+def parse_lighting_labels(frame: pd.DataFrame, question: str = "night") -> tuple[np.ndarray, np.ndarray]:
+    """``(is_positive, labelled)`` from a frame with ``id`` and ``lighting`` columns.
+
+    Rows outside the question's two decided classes (``unclear``, blank, anything
+    unrecognised) are not labelled and take no part in the measurement.
+    """
+    if question not in QUESTIONS:
+        raise KeyError(f"Unknown question {question!r}; known: {sorted(QUESTIONS)}")
+    spec = QUESTIONS[question]
+    decided = tuple(c for c in spec["classes"] if c != "unclear")
     values = frame["lighting"].astype(str).str.strip().str.lower()
-    labelled = values.isin(("day", "night")).to_numpy()
-    return (values == "night").to_numpy(), labelled
+    return (values == spec["positive"]).to_numpy(), values.isin(decided).to_numpy()
 
 
 def _pct(x: float) -> str:
