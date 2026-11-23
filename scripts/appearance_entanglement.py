@@ -126,7 +126,8 @@ def main() -> None:
             print("  one class is empty; skipping the lighting half")
         else:
             lighting = ent.label_separability(X[labelled], is_night[labelled],
-                                              report["directions"], args.alpha)
+                                              report["directions"], args.alpha,
+                                              question=args.question)
 
     text = ent.render_report(report, lighting, views["dataset"].nunique())
     (out / "report.md").write_text(text, encoding="utf-8")

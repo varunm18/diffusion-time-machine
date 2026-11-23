@@ -559,3 +559,84 @@ python scripts/process_scenes.py --scenes 25512 113197 1752 195317
 for s in 25512 113197 1752 195317; do python scripts/build_scene_dataset.py --scene $s --max-modern 300; done
 python scripts/date_shortcut_probe.py --dataset data/datasets/*_model0 --max-views 4000
 ```
+## Appearance can be conditioned on without handing over the date (2026-11-23)
+*Code: `src/timemachine/analysis/entanglement.py`, `scripts/appearance_entanglement.py`,
+`docs/appearance_entanglement.md`. Run: 4 scenes (Notre-Dame, Taj Mahal, Sydney Harbour
+Bridge, Semperoper), 1,730 views, 1,290 train / 440 test, CPU only.*
+
+**The problem.** `model/appearance_film.py` conditions the model on a per-view appearance
+vector so lighting and medium have somewhere to live other than the date. But those
+statistics were chosen *because* they predict era (AUC 0.89), which risks handing the model
+the date through a side channel and making date-blindness worse, not better. At training
+time the target's own appearance is given, so a model could render the right look from
+appearance alone and never consult the date.
+
+**Method.** Remove era directions from the 14-dimensional appearance space one at a time,
+**refitting a fresh classifier after each removal**, until the date can no longer be read.
+Refitting matters: a second, weaker era direction survives the first removal every time, and
+assuming otherwise would report a success that is not there.
+
+### Era occupies half of appearance space
+
+| dimensions removed | era AUC | 95% CI | variance kept |
+|---|---|---|---|
+| 0 | 0.892 | 0.84-0.93 | 100% |
+| 1 | 0.872 | 0.82-0.91 | 97% |
+| 3 | 0.785 | 0.72-0.84 | 87% |
+| 5 | 0.670 | 0.60-0.74 | 67% |
+| **7** | **0.527** | 0.44-0.61 | **59%** |
+
+Era is not a direction in appearance space - it takes **7 of 14 dimensions**, and 41% of the
+variance, before the date becomes unreadable (58 old photos in the test split).
+
+The first era direction is **52% colour, 42% tone**: `saturation_mean` (0.50), `lum_mean`
+(0.49), `chroma_major` (0.41), `lum_p95` (0.35). The earlier single-scene shortcut probe
+found colour dominant; across four scenes tone is nearly equal to it.
+
+### Lighting survives that removal almost intact
+
+67 hand-labelled views (25 sunlit, 42 overcast), scored by 5-fold cross-validation:
+
+| appearance features | sunlit-vs-overcast AUC |
+|---|---|
+| as-is | 0.822 |
+| 7 era directions removed | **0.785** (88% of the signal above chance retained) |
+
+**Verdict: separable.** An era-free part of appearance exists and still carries lighting.
+The model can be conditioned on the residual and get the look without the date.
+
+### What this changes
+
+- **Phase C should run on era-residualized appearance features**, not raw ones. The
+  factorization the appearance pathway was built for is achievable rather than hoped for.
+- It also sharpens what a null result would mean. If date conditioning still fails with an
+  era-free appearance code, the appearance confound is not the blocker, and the next suspect
+  is the data - too few genuinely informative old/modern pairs of the same place.
+
+### Caveats
+
+- 58 old photos in the test split, 67 lighting labels. Bootstrap intervals account for this,
+  but more scenes would tighten everything.
+- The residual keeps 59% of the variance. Whether that is enough capacity for the model to
+  express appearance usefully is an empirical question the training run answers.
+- "Separable" is a statement about *these* 14 statistics. A learned appearance code (as
+  WildCAT3D uses) could re-entangle, since nothing would stop it encoding era.
+
+### Two methodological notes worth keeping
+
+- **Day/night does not work as the lighting question.** A 150-image sheet across four scenes
+  yielded **7** night photos: landmarks are daylight-photographed in every era. Sunlit vs
+  overcast occurs constantly in both and gives balanced classes. Enriching night candidates
+  from EXIF capture times would *not* have been safe either - EXIF exists only on digital
+  photos, so it would reintroduce the night-equals-modern confound.
+- **The lighting AUC is cross-validated over the labelled rows.** A global 25% hold-out left
+  one night photo in test, and an AUC over one positive is that photo's rank, not a
+  measurement. The report now refuses to conclude below 12 labels per class.
+
+### Reproduce
+
+```bash
+python scripts/appearance_entanglement.py --dataset data/datasets/*_model0 --make-labels --n-labels 150
+# label the sheet in a browser, download lighting_labels.csv
+python scripts/appearance_entanglement.py --dataset data/datasets/*_model0 --labels lighting_labels.csv
+```

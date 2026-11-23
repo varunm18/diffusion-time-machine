@@ -6,6 +6,7 @@ build synthetic appearance spaces where we *know* the answer - era and lighting
 on orthogonal axes, then on the same axis - and check the report says so.
 """
 import numpy as np
+import pandas as pd
 import pytest
 
 from timemachine.analysis import entanglement as ent
@@ -310,3 +311,29 @@ def test_each_question_asks_about_light_not_about_age():
     """The instruction that keeps the labels independent of what we are testing."""
     for name, spec in ent.QUESTIONS.items():
         assert "age of the photo" in spec["help"], name
+
+
+def test_report_names_the_classes_that_were_actually_labelled():
+    """Regression: the report said "25 night / 42 day" for a sunlit/overcast sheet."""
+    rng = np.random.default_rng(7)
+    n = 120
+    X = rng.normal(0, 1, (n, F))
+    sunlit = rng.random(n) < 0.4
+    X[:, 9] += np.where(sunlit, 2.0, -2.0)
+    directions = np.zeros((1, F)); directions[0, 0] = 1.0
+
+    out = ent.label_separability(X, sunlit, directions, question="sun")
+    assert out["positive_name"] == "sunlit" and out["negative_name"] == "overcast"
+
+    report = {"era_removed": True, "dims_removed": 7, "n_features": 14, "target_auc": 0.6,
+              "era_auc_full": 0.89, "era_auc_full_ci": (0.84, 0.93), "era_auc_residual": 0.53,
+              "era_auc_residual_ci": (0.44, 0.61), "variance_kept": 0.59,
+              "trace": pd.DataFrame([{"dims_removed": 0, "era_auc": 0.89, "ci_low": 0.84,
+                                      "ci_high": 0.93, "variance_kept": 1.0}]),
+              "direction": directions[0],
+              "loadings": pd.DataFrame({"feature": list(FEATURE_NAMES),
+                                        "era_loading": np.abs(directions[0])}),
+              "n_train": 1290, "n_test": 440, "n_old_test": 58}
+    text = ent.render_report(report, out, n_scenes=4)
+    assert "sunlit" in text and "overcast" in text
+    assert "night" not in text and " day " not in text

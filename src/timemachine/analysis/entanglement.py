@@ -192,7 +192,8 @@ MIN_LABELS_PER_CLASS = 12       # below this an AUC is a handful of ranks, not a
 
 
 def label_separability(X: np.ndarray, labels: np.ndarray, directions: np.ndarray,
-                       alpha: float = 1.0, folds: int = 5, seed: int = 0) -> dict:
+                       alpha: float = 1.0, folds: int = 5, seed: int = 0,
+                       question: str = "night") -> dict:
     """Does some other property (lighting, say) survive removing the era directions?
 
     ``labels`` is a boolean array from outside these statistics - hand labels, or any
@@ -210,7 +211,10 @@ def label_separability(X: np.ndarray, labels: np.ndarray, directions: np.ndarray
     """
     labels = np.asarray(labels, dtype=bool)
     n_pos, n_neg = int(labels.sum()), int((~labels).sum())
+    spec = QUESTIONS.get(question, QUESTIONS["night"])
+    negative_name = next(c for c in spec["classes"] if c not in ("unclear", spec["positive"]))
     out = {"n_positive": n_pos, "n_negative": n_neg,
+           "positive_name": spec["positive"], "negative_name": negative_name, "question": question,
            "sufficient": n_pos >= MIN_LABELS_PER_CLASS and n_neg >= MIN_LABELS_PER_CLASS,
            "auc_full": float("nan"), "auc_residual": float("nan"), "retained": float("nan"),
            "folds": 0}
@@ -457,8 +461,8 @@ def verdict(report: dict, lighting: dict | None) -> str:
                 "is unanswered until lighting labels are supplied.")
     if not lighting.get("sufficient", True):
         return (f"**Era can be removed** ({kept}), but the lighting half is **not answerable from "
-                f"these labels**: {lighting['n_positive']} night and {lighting['n_negative']} day "
-                f"views, and at least {MIN_LABELS_PER_CLASS} of each are needed before an AUC means "
+                f"these labels**: {lighting['n_positive']} {lighting.get('positive_name', 'night')} "
+                f"and {lighting['n_negative']} {lighting.get('negative_name', 'day')} views, and at least {MIN_LABELS_PER_CLASS} of each are needed before an AUC means "
                 "anything. Night photographs of landmarks are rare, so a larger sheet - or one "
                 "enriched with night candidates found from EXIF capture times, which are "
                 "independent of these pixel statistics - is needed to finish this.")
@@ -508,7 +512,8 @@ def render_report(report: dict, lighting: dict | None = None, n_scenes: int = 0)
     if lighting:
         lines += [
             "", "### Does lighting survive?",
-            f"*{lighting['n_positive']} night / {lighting['n_negative']} day hand-labelled views, "
+            f"*{lighting['n_positive']} {lighting.get('positive_name', 'night')} / "
+            f"{lighting['n_negative']} {lighting.get('negative_name', 'day')} hand-labelled views, "
             f"scored by {lighting['folds']}-fold cross-validation so every label is used.*", "",
             f"- From the full appearance vector, lighting is predicted at AUC **{lighting['auc_full']:.3f}**.",
             f"- With the era directions removed, **{lighting['auc_residual']:.3f}** "
