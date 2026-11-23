@@ -108,7 +108,21 @@ def main() -> None:
         other = [c for c in spec["classes"] if c not in ("unclear", spec["positive"])][0]
         print(f"{labelled.sum()} usable lighting labels ({n_night} {spec['positive']}, "
               f"{int(labelled.sum()) - n_night} {other}; question={args.question})")
-        if min(n_night, int(labelled.sum()) - n_night) < 2:
+        if labelled.sum() == 0:
+            # Almost always a question/label mismatch: a sheet labelled day/night read
+            # back with --question sun matches nothing, and "0 usable" alone does not
+            # say why. Show what is actually in the file and which question fits it.
+            seen = sorted({v for v in merged["lighting"].astype(str).str.strip().str.lower() if v})
+            fits = [q for q, cfg in ent.QUESTIONS.items()
+                    if set(seen) & {c for c in cfg["classes"] if c != "unclear"}]
+            print(f"  none of these match --question {args.question} "
+                  f"(expects {', '.join(spec['classes'])}).")
+            print(f"  values found in {args.labels}: {', '.join(seen) if seen else '(none)'}")
+            if fits:
+                print(f"  that file looks like --question {fits[0]}; "
+                      f"re-run with --question {fits[0]}, or regenerate the sheet with "
+                      f"--make-labels --question {args.question} and label it again.")
+        elif min(n_night, int(labelled.sum()) - n_night) < 2:
             print("  one class is empty; skipping the lighting half")
         else:
             lighting = ent.label_separability(X[labelled], is_night[labelled],
