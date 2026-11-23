@@ -70,6 +70,23 @@ also modern, "night" and "modern" would become the same label and the result wou
 be meaningless. Spreading across eras breaks that confound in the draw itself,
 before any labelling happens.
 
+## Sample size for the lighting half
+
+Night photographs of famous landmarks are rare: a 150-image sheet across four
+scenes yielded roughly a dozen. Two consequences, both learned the hard way:
+
+- **The lighting AUC is cross-validated over the labelled rows**, not measured on a
+  global hold-out. A single 25% split left *one* night photo in test, and an AUC
+  over one positive is that photo's rank, not a measurement.
+- **The report refuses to conclude** when either class is under
+  `MIN_LABELS_PER_CLASS` (12). It says so instead of printing a confident number.
+
+If night photos are still too few, enrich the sheet with candidates found from
+**EXIF capture times**, which the data pipeline already extracts and which are
+independent of these pixel statistics - so the sampling is enriched without the
+measurement becoming circular. Picking candidates by brightness would *not* be
+safe: brightness is one of the 14 features being tested.
+
 ## Reading the verdict
 
 The report ends with one of four statements, because there are four cases and an

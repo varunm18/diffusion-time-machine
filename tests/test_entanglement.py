@@ -108,7 +108,7 @@ def test_orthogonal_lighting_survives_the_era_removal():
     """The good case: era and lighting on different axes -> clean factorization."""
     X, years, night, train = make_space(era_axis=0, light_axis=1)
     r = ent.residual_report(X, years, train)
-    light = ent.label_separability(X, night, train, r["directions"])
+    light = ent.label_separability(X[train], night[train], r["directions"])
 
     assert light["auc_full"] > 0.95
     assert light["auc_residual"] > 0.9               # lighting is untouched
@@ -121,7 +121,7 @@ def test_lighting_on_the_same_axis_as_era_does_not_survive():
     """The bad case: the two are the same signal, so neither can be kept alone."""
     X, years, night, train = make_space(era_axis=2, light_axis=2)    # same axis
     r = ent.residual_report(X, years, train)
-    light = ent.label_separability(X, night, train, r["directions"])
+    light = ent.label_separability(X[train], night[train], r["directions"])
 
     assert light["auc_full"] > 0.6                   # lighting is readable to start with
     assert light["auc_residual"] < light["auc_full"] # and is damaged by the removal
@@ -131,8 +131,9 @@ def test_lighting_on_the_same_axis_as_era_does_not_survive():
 def test_label_separability_handles_a_one_sided_label():
     X, years, _, train = make_space()
     r = ent.residual_report(X, years, train)
-    out = ent.label_separability(X, np.ones(len(years), dtype=bool), train, r["directions"])
+    out = ent.label_separability(X, np.ones(len(years), dtype=bool), r["directions"])
     assert np.isnan(out["auc_full"]) and np.isnan(out["auc_residual"])
+    assert out["sufficient"] is False
 
 
 # ----------------------------------------------------------------- report
@@ -213,7 +214,7 @@ def test_verdict_covers_the_case_where_era_cannot_be_removed():
     report = {"era_removed": False, "dims_removed": 8, "n_features": 14,
               "era_auc_residual": 0.91, "variance_kept": 0.3, "target_auc": 0.6}
     text = ent.verdict(report, {"auc_full": 0.9, "auc_residual": 0.9, "retained": 1.0,
-                                "n_positive": 30, "n_negative": 40})
+                                "n_positive": 30, "n_negative": 40, "sufficient": True})
     assert "**Era could not be removed.**" in text and "8 of 14" in text
     # It must say this even when lighting looks fine: era surviving is the headline.
     assert "Separable" not in text
@@ -223,7 +224,7 @@ def test_verdict_flags_labels_that_were_never_informative():
     report = {"era_removed": True, "dims_removed": 2, "n_features": 14,
               "era_auc_residual": 0.52, "variance_kept": 0.8, "target_auc": 0.6}
     text = ent.verdict(report, {"auc_full": 0.55, "auc_residual": 0.51, "retained": 0.2,
-                                "n_positive": 20, "n_negative": 25})
+                                "n_positive": 20, "n_negative": 25, "sufficient": True})
     assert "**Inconclusive.**" in text          # losing a signal that was never there proves nothing
     assert "Entangled" not in text
 
@@ -250,3 +251,32 @@ def test_sheet_javascript_escapes_survive_into_the_page():
     # The specific line that broke: the CSV builder must be intact on one line.
     blob = [line for line in script.splitlines() if "new Blob(" in line]
     assert len(blob) == 1 and blob[0].rstrip().endswith(");"), blob
+
+
+def test_verdict_refuses_to_conclude_from_too_few_night_photos():
+    """The real run came back with 1 night photo in the test split; an AUC over one
+    positive is that photo's rank, not a measurement."""
+    report = {"era_removed": True, "dims_removed": 7, "n_features": 14,
+              "era_auc_residual": 0.53, "variance_kept": 0.59, "target_auc": 0.6}
+    text = ent.verdict(report, {"auc_full": 0.947, "auc_residual": 0.947, "retained": 1.0,
+                                "n_positive": 1, "n_negative": 19, "sufficient": False})
+    assert "not answerable from these labels" in text
+    assert "**Separable**" not in text          # the bug this guards against
+    assert "1 night and 19 day" in text
+
+
+def test_cross_validation_uses_every_label_not_a_quarter_of_them():
+    """A single hold-out wastes 75% of a hand-labelled sheet; CV scores all of it."""
+    rng = np.random.default_rng(5)
+    n = 200
+    X = rng.normal(0, 1, (n, F))
+    night = rng.random(n) < 0.12                 # rare, as night photos really are
+    X[:, 7] += np.where(night, 2.5, -2.5)
+    years = rng.uniform(1990, 2020, n)
+    directions = np.zeros((1, F)); directions[0, 0] = 1.0
+
+    out = ent.label_separability(X, night, directions)
+    assert out["n_positive"] == int(night.sum()) and out["n_negative"] == int((~night).sum())
+    assert out["folds"] >= 2
+    assert out["auc_full"] > 0.9                 # every label contributed a score
+    assert out["sufficient"] is (int(night.sum()) >= ent.MIN_LABELS_PER_CLASS)

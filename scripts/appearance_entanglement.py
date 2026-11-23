@@ -98,12 +98,14 @@ def main() -> None:
             labels.rename(columns={"id": "file_key"}), on="file_key", how="left")
         merged["lighting"] = merged["lighting"].fillna("")
         is_night, labelled = ent.parse_lighting_labels(merged)
-        print(f"{labelled.sum()} usable lighting labels ({is_night[labelled].sum()} night)")
-        if labelled.sum() < 20:
-            print("  too few to analyse; skipping the lighting half")
+        n_night = int(is_night[labelled].sum())
+        print(f"{labelled.sum()} usable lighting labels ({n_night} night, "
+              f"{int(labelled.sum()) - n_night} day)")
+        if min(n_night, int(labelled.sum()) - n_night) < 2:
+            print("  one class is empty; skipping the lighting half")
         else:
             lighting = ent.label_separability(X[labelled], is_night[labelled],
-                                              train[labelled], report["direction"], args.alpha)
+                                              report["directions"], args.alpha)
 
     text = ent.render_report(report, lighting, views["dataset"].nunique())
     (out / "report.md").write_text(text, encoding="utf-8")

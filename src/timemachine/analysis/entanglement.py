@@ -188,31 +188,63 @@ def residual_report(X: np.ndarray, years: np.ndarray, train: np.ndarray,
     }
 
 
-def label_separability(X: np.ndarray, labels: np.ndarray, train: np.ndarray,
-                       directions: np.ndarray, alpha: float = 1.0) -> dict:
-    """Does some other property (lighting, say) survive removing the era direction?
+MIN_LABELS_PER_CLASS = 12       # below this an AUC is a handful of ranks, not a measurement
 
-    ``labels`` is a boolean array from outside these statistics - hand labels, or
-    any independent source. Using a label derived from the features themselves
-    would make this meaningless.
+
+def label_separability(X: np.ndarray, labels: np.ndarray, directions: np.ndarray,
+                       alpha: float = 1.0, folds: int = 5, seed: int = 0) -> dict:
+    """Does some other property (lighting, say) survive removing the era directions?
+
+    ``labels`` is a boolean array from outside these statistics - hand labels, or any
+    independent source. Using a label derived from the features themselves would make
+    this meaningless.
+
+    Scored by **stratified k-fold cross-validation over the labelled rows**, not by a
+    single hold-out. Night photos of landmarks are rare - a global 25% test split left
+    one of them, and an AUC over one positive is that photo's rank, not a measurement.
+    Cross-validation uses every label for evaluation exactly once, which is the
+    difference between ~1 and ~15 positives on a sheet of 150.
+
+    ``sufficient`` is False when either class is below :data:`MIN_LABELS_PER_CLASS`;
+    the caller should decline to conclude anything rather than read the AUC.
     """
     labels = np.asarray(labels, dtype=bool)
+    n_pos, n_neg = int(labels.sum()), int((~labels).sum())
+    out = {"n_positive": n_pos, "n_negative": n_neg,
+           "sufficient": n_pos >= MIN_LABELS_PER_CLASS and n_neg >= MIN_LABELS_PER_CLASS,
+           "auc_full": float("nan"), "auc_residual": float("nan"), "retained": float("nan"),
+           "folds": 0}
+    if n_pos < 2 or n_neg < 2:
+        return out
+
     Z, mean, scale = standardize(X)
     residual = project_out(X, np.atleast_2d(directions), mean, scale)
+    rng = np.random.default_rng(seed)
+    k = max(2, min(folds, n_pos, n_neg))
+    # Stratify so every fold holds out some of each class; otherwise a fold can
+    # contain no night photos at all and contribute nothing.
+    fold_of = np.empty(len(labels), dtype=int)
+    for mask in (labels, ~labels):
+        idx = rng.permutation(np.flatnonzero(mask))
+        fold_of[idx] = np.arange(len(idx)) % k
 
-    def fit_auc(features):
-        if not labels[train].any() or labels[train].all() or not labels[~train].any() or labels[~train].all():
-            return float("nan")
-        w = np.where(labels[train], 0.5 / labels[train].sum(), 0.5 / (~labels[train]).sum())
-        probe = YearProbe(alpha).fit(features[train], np.where(labels[train], 1.0, -1.0), w)
-        return roc_auc(probe.predict(features[~train]), labels[~train])
+    def cv_auc(features):
+        scores = np.empty(len(labels), dtype=float)
+        for fold in range(k):
+            test = fold_of == fold
+            train = ~test
+            if len(np.unique(labels[train])) < 2:
+                return float("nan")
+            w = np.where(labels[train], 0.5 / max(labels[train].sum(), 1),
+                         0.5 / max((~labels[train]).sum(), 1))
+            probe = YearProbe(alpha).fit(features[train], np.where(labels[train], 1.0, -1.0), w)
+            scores[test] = probe.predict(features[test])
+        return roc_auc(scores, labels)
 
-    full, residual_auc = fit_auc(Z), fit_auc(residual)
-    return {
-        "auc_full": full, "auc_residual": residual_auc,
-        "retained": float(residual_auc - 0.5) / max(full - 0.5, 1e-9) if full > 0.5 else float("nan"),
-        "n_positive": int(labels[~train].sum()), "n_negative": int((~labels[~train]).sum()),
-    }
+    full, res = cv_auc(Z), cv_auc(residual)
+    out.update(auc_full=full, auc_residual=res, folds=k,
+               retained=float(res - 0.5) / max(full - 0.5, 1e-9) if full > 0.5 else float("nan"))
+    return out
 
 
 def group_alignment(direction: np.ndarray) -> pd.DataFrame:
@@ -389,6 +421,13 @@ def verdict(report: dict, lighting: dict | None) -> str:
     if lighting is None:
         return (f"**Era can be removed** ({kept}). Whether anything worth conditioning on survives "
                 "is unanswered until lighting labels are supplied.")
+    if not lighting.get("sufficient", True):
+        return (f"**Era can be removed** ({kept}), but the lighting half is **not answerable from "
+                f"these labels**: {lighting['n_positive']} night and {lighting['n_negative']} day "
+                f"views, and at least {MIN_LABELS_PER_CLASS} of each are needed before an AUC means "
+                "anything. Night photographs of landmarks are rare, so a larger sheet - or one "
+                "enriched with night candidates found from EXIF capture times, which are "
+                "independent of these pixel statistics - is needed to finish this.")
     if lighting["auc_residual"] > 0.65:
         return (f"**Separable** ({kept}). Lighting survives the removal "
                 f"(AUC {lighting['auc_residual']:.2f}) while era does not, so the model can be "
@@ -435,12 +474,15 @@ def render_report(report: dict, lighting: dict | None = None, n_scenes: int = 0)
     if lighting:
         lines += [
             "", "### Does lighting survive?",
-            f"*{lighting['n_positive']} night / {lighting['n_negative']} day labelled views in the "
-            "test split.*", "",
+            f"*{lighting['n_positive']} night / {lighting['n_negative']} day hand-labelled views, "
+            f"scored by {lighting['folds']}-fold cross-validation so every label is used.*", "",
             f"- From the full appearance vector, lighting is predicted at AUC **{lighting['auc_full']:.3f}**.",
             f"- With the era directions removed, **{lighting['auc_residual']:.3f}** "
             f"({_pct(lighting['retained'])} of the signal above chance retained).",
         ]
+        if not lighting.get("sufficient", True):
+            lines += ["", f"> **Too few to conclude from.** At least {MIN_LABELS_PER_CLASS} of each "
+                          "class are needed before an AUC is a measurement rather than a few ranks."]
     else:
         lines += ["", "*No lighting labels supplied, so this only shows whether an era-free part of "
                       "appearance exists - not whether it still carries anything we want.*"]
