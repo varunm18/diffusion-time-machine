@@ -226,3 +226,27 @@ def test_verdict_flags_labels_that_were_never_informative():
                                 "n_positive": 20, "n_negative": 25})
     assert "**Inconclusive.**" in text          # losing a signal that was never there proves nothing
     assert "Entangled" not in text
+
+
+def test_sheet_javascript_escapes_survive_into_the_page():
+    """Regression: the JS block must be a raw string.
+
+    Written as a normal Python string, the CSV builder's escape sequences were
+    interpreted by Python instead of passed through, so a real newline landed inside
+    a JavaScript string literal and split it across two lines. The whole script then
+    failed to parse with "Invalid or unexpected token", and no button did anything -
+    the sheet looked normal and silently recorded nothing.
+    """
+    page = ent.render_lighting_sheet(["a"], ["data:image/jpeg;base64,AA"])
+    script = page[page.index("<script>") + 8:page.index("</script>")]
+
+    # Built from chr(92) so this test cannot fall into the same trap it guards against.
+    backslash = chr(92)
+    assert backslash + "ufeff" in script
+    assert backslash + "r" + backslash + "n" in script
+    # ... and the interpreted forms must NOT be there.
+    assert "\r" not in script and "\ufeff" not in script
+
+    # The specific line that broke: the CSV builder must be intact on one line.
+    blob = [line for line in script.splitlines() if "new Blob(" in line]
+    assert len(blob) == 1 and blob[0].rstrip().endswith(");"), blob

@@ -259,7 +259,7 @@ code{background:#333}.bar{background:#161616}.btns button{background:#2c2c2c;col
 .btns button[aria-pressed="true"]{background:#eee;color:#111}}
 """
 
-_SHEET_JS = """
+_SHEET_JS = r"""
 const KEY="lighting:"+document.title;
 const store={get(){try{return JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){return{}}},
              set(v){try{localStorage.setItem(KEY,JSON.stringify(v))}catch(e){}}};

@@ -53,6 +53,17 @@ def main() -> None:
     out = args.out or Path("data/experiments/appearance_entanglement")
     out.mkdir(parents=True, exist_ok=True)
 
+    # Check this before the expensive part: computing appearance features for a few
+    # thousand images takes minutes, and finding out afterwards that the labels file
+    # was missing or mis-spelled wastes all of it.
+    if args.labels and not args.labels.exists():
+        sheet = out / "lighting_sheet.html"
+        raise SystemExit(
+            f"{args.labels} does not exist.\n"
+            + (f"Label {sheet} in a browser first, then pass the CSV it downloads."
+               if sheet.exists() else
+               "Run with --make-labels first, label the sheet it writes, then pass the CSV."))
+
     views = sc.load_views(list(args.dataset), args.max_views, args.seed)
     years = views["date_mid"].to_numpy(float)
     print(f"{len(views)} views from {views['dataset'].nunique()} scene(s); "
