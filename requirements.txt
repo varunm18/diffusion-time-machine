@@ -2,6 +2,7 @@ torch
 diffusers
 transformers
 mini-dust3r
-msplat
+msplat; sys_platform == 'darwin'
+gsplat
 rerun-sdk>=0.40.0
 plyfile

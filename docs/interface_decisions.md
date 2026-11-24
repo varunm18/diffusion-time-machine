@@ -1,6 +1,6 @@
 # Interface Decisions (Data pair <-> SEVA pair)
 
-**Status:** DRAFT for team sign-off. Anything marked **TBD (SEVA pair)** needs an answer from the SEVA side before the data side can finalize the loader.
+**Status (updated 2026-10-27):** the SEVA-side questions below are now answered, using the SEVA study in `docs/findings.md`. The dataset and sampler are implemented in `src/timemachine/data/` (8 views per sample: 3 inputs and 5 targets, cameras normalized like SEVA, one date interval and image type per view). Sections 1, 7 and 8 describe the original plan; where the code differs, the code wins. Items still open are marked **OPEN**.
 
 **Why this exists:** the data pair builds the dataset and the SEVA pair builds the model and training script, in parallel. These are the decisions both sides must agree on up front, because changing them later means redoing work on both sides.
 
@@ -58,16 +58,15 @@ Why store it now: adding a column later means reprocessing the whole dataset. Th
 
 ## 5. Image preprocessing
 
-- SEVA's project page states it was trained on 576x576 square images, so we target **576x576**. **TBD (SEVA pair): confirm the resolution the codebase actually expects.**
-- **TBD (joint): pad vs. center-crop.** Architecture photos are often wide or tall, and center-cropping can cut off the building. Default proposal: **pad to square** with a consistent fill, and rescale `K` accordingly. Whatever we pick, `K` must be updated to match the transformation.
-- Pixel range / normalization: **TBD (SEVA pair)**, to match SEVA's input expectations.
+- **Resolved:** SEVA works at **576x576** (SEVA study, `docs/findings.md`).
+- **Resolved for now: center-crop**, because SEVA itself center-crops, and `src/timemachine/data/dataset.py` follows that. Trade-off: old photos are portrait or odd-shaped more often, so cropping can cut off content. Padding to square is the fallback if that proves to matter. Either way, `K` must be updated to match the transformation.
+- **Resolved:** pixel values are scaled to [-1, 1].
 
 ## 6. Cameras and scale
 
 - MegaScenes reconstructions are in **COLMAP format**, which stores world-to-camera poses in COLMAP's convention (OpenCV-style camera axes).
-- **TBD (SEVA pair): which pose convention does SEVA expect** (camera-to-world vs. world-to-camera, axis directions), and does it take raw poses or Plucker ray maps?
-- The data pair will write **one conversion function** (`colmap_to_seva`) with unit tests, so no one else ever converts poses by hand.
-- **Scene scale:** SfM scale is arbitrary per scene. We normalize each scene so the camera positions have a consistent scale (proposal: scale so the median distance of cameras from the scene center is 1). **TBD (SEVA pair): confirm this matches what SEVA expects.**
+- **Resolved:** SEVA takes **camera-to-world** poses in OpenCV axes, encoded as Plucker ray maps relative to the first input view. The conversion lives in `src/timemachine/data/cameras.py` (tests in `tests/test_posing.py`), so no one converts poses by hand.
+- **Scene scale:** SfM scale is arbitrary per scene. **Resolved:** SEVA re-centers on the mean camera position and scales so that a reference camera sits at distance 2 (not the "median distance 1" we first proposed), and the dataset code does the same.
 
 ## 7. How samples are composed
 
@@ -94,6 +93,8 @@ The PyTorch `Dataset` returns the fields from Section 1 as tensors, and nothing 
 
 ## 8b. Data cleaning rules (learned from the Taj Mahal scene)
 
+**Where each rule stands in `src/timemachine/data`:** duplicates are handled (one row per unique file, `drop_duplicates("file_key")`); images that fail to download are skipped; dates are filtered by confidence and interval width. **OPEN:** images whose shape disagrees with their COLMAP camera are not dropped. `scripts/build_scene_dataset.py` only prints the worst-case aspect mismatch after writing the table. On the Taj Mahal, 2 of 300 sampled images were far off (for example 1473x814 against a 1800x1350 camera), so a filter is needed.
+
 The sample maker must apply these before an image can appear in any sample:
 
 1. **Drop images that are missing from disk.** (5 of 5,334 in the Taj Mahal; the filenames contain a double quote, which Windows can't store.)
@@ -111,14 +112,13 @@ The sample maker must apply these before an image can appear in any sample:
 
 ## 10. Open questions checklist
 
-- [ ] SEVA pair: resolution and normalization SEVA expects (Section 5)
-- [ ] SEVA pair: pose convention and whether it uses Plucker rays (Section 6)
-- [ ] SEVA pair: scene-scale expectation (Section 6)
-- [ ] SEVA pair: does the SEVA repo include **training code**, or only inference? (This changes the SEVA pair's scope.)
-- [ ] Joint: pad vs. center-crop (Section 5)
-- [ ] Joint: approve date-embedding and unknown-date handling (Section 2)
+- [x] SEVA pair: resolution and normalization (576x576, [-1, 1]); see Section 5
+- [x] SEVA pair: pose convention (camera-to-world, OpenCV axes, Plucker rays); see Section 6
+- [x] SEVA pair: scene-scale expectation (reference camera at distance 2); see Section 6
+- [x] SEVA pair: training code? **No**, only inference code and weights are public, so we write our own training loop (`docs/findings.md`).
+- [x] Joint: pad vs. center-crop (center-crop for now); see Section 5
+- [x] Joint: date embedding and unknown-date handling are implemented in `src/timemachine/model/` (sine/cosine features plus a small network, with a learned "unknown date" input, added to each view's timestep embedding)
 
 ## Sign-off
 
-- [ ] Data pair
-- [ ] SEVA pair
+- [ ] OPEN: filter images whose shape disagrees with their camera (Section 8b)

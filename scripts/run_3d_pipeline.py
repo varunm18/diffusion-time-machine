@@ -3,27 +3,28 @@ End-to-End 3D Scene Reconstruction and Gaussian Splatting CLI.
 
 Orchestrates the entire 3D pipeline:
 1. Reconstruction: mini-DUSt3R pose estimation & sparse point cloud (transforms.json + points3D.ply).
-2. Optimization: Metal-accelerated msplat 3D Gaussian Splatting (scene_3dgs.ply + scene_3dgs.splat).
+2. Optimization: 3D Gaussian Splatting via msplat (Apple Metal) or gsplat (CUDA / Windows / Linux).
 3. Visualization: Interactive Rerun 3D viewer with camera frustums and non-transparent splats.
 
 Example usage:
     python scripts/run_3d_pipeline.py \
       --image_dir data/sample_images/riverview \
       --workspace workspace/riverview \
-      --msplat \
+      --splat \
       --visualize
 """
 
 import sys
 from pathlib import Path
 import argparse
+import torch
 
 # Ensure repository root is in sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.viz import DUST3R, MSplat, visualize
+from src.viz import DUST3R, MSplat, GSplat, visualize
 
 
 def main():
@@ -33,7 +34,11 @@ def main():
     parser.add_argument("--workspace", type=str, default="workspace",
                         help="Output workspace folder for 3DGS points3D.ply and transforms.json")
     parser.add_argument("--msplat", action="store_true",
-                        help="Train 3D Gaussian Splatting with msplat after reconstruction")
+                        help="Train 3D Gaussian Splatting with msplat (Apple Metal)")
+    parser.add_argument("--gsplat", action="store_true",
+                        help="Train 3D Gaussian Splatting with gsplat (CUDA / Windows / Linux)")
+    parser.add_argument("--splat", action="store_true",
+                        help="Train 3D Gaussian Splatting (auto-selects msplat for Metal or gsplat for CUDA)")
     parser.add_argument("--device", type=str, default=None,
                         help="Device to use ('mps', 'cuda', 'cpu', or auto-detect by default)")
     parser.add_argument("--view_reconstruction", action="store_true",
@@ -54,10 +59,14 @@ def main():
     dust3r = DUST3R(device=args.device, view_reconstruction=args.view_reconstruction)
     dust3r.run(image_dir=image_dir, output_workspace=workspace)
 
-    # Step 2: 3D Gaussian Splatting Optimization (Metal GPU)
-    if args.msplat:
-        print(f"\n=== Step 2: MSplat 3DGS Training ===")
+    # Step 2: 3D Gaussian Splatting Optimization
+    if args.msplat or (args.splat and not torch.cuda.is_available()):
+        print(f"\n=== Step 2: MSplat 3DGS Training (Metal) ===")
         splatter = MSplat()
+        splatter.train(workspace_dir=workspace)
+    elif args.gsplat or args.splat:
+        print(f"\n=== Step 2: GSplat 3DGS Training (CUDA) ===")
+        splatter = GSplat(device=args.device)
         splatter.train(workspace_dir=workspace)
 
     # Step 3: Interactive Rerun Visualization

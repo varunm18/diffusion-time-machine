@@ -3,8 +3,7 @@
 """
 
 from .reconstruction import DUST3R
-from .splat import MSplat
+from .splat import MSplat, GSplat
 from .viewer import visualize, visualize_splats
 
-__all__ = ["DUST3R", "MSplat", "visualize", "visualize_splats"]
-
+__all__ = ["DUST3R", "MSplat", "GSplat", "visualize", "visualize_splats"]

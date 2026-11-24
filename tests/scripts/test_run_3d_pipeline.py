@@ -68,6 +68,31 @@ def test_pipeline_with_msplat(mock_viz, mock_msplat, mock_dust3r, tmp_path: Path
 
 
 @patch("scripts.run_3d_pipeline.DUST3R")
+@patch("scripts.run_3d_pipeline.GSplat")
+@patch("scripts.run_3d_pipeline.visualize")
+def test_pipeline_with_gsplat(mock_viz, mock_gsplat, mock_dust3r, tmp_path: Path):
+    """Test running pipeline with --gsplat flag enabled."""
+    img_dir = tmp_path / "imgs"
+    ws = tmp_path / "ws"
+    img_dir.mkdir()
+
+    test_args = [
+        "run_3d_pipeline.py",
+        "--image_dir", str(img_dir),
+        "--workspace", str(ws),
+        "--gsplat",
+    ]
+
+    with patch.object(sys, "argv", test_args):
+        pipeline.main()
+
+    mock_dust3r.assert_called_once()
+    mock_gsplat.assert_called_once()
+    mock_gsplat.return_value.train.assert_called_once_with(workspace_dir=ws.resolve())
+    mock_viz.assert_not_called()
+
+
+@patch("scripts.run_3d_pipeline.DUST3R")
 @patch("scripts.run_3d_pipeline.MSplat")
 @patch("scripts.run_3d_pipeline.visualize")
 def test_pipeline_full_workflow_with_multipliers(mock_viz, mock_msplat, mock_dust3r, tmp_path: Path):
@@ -98,4 +123,3 @@ def test_pipeline_full_workflow_with_multipliers(mock_viz, mock_msplat, mock_dus
         opacity_mult=4.5,
         scale_mult=1.2,
     )
-

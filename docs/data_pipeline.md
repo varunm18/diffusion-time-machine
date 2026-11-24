@@ -13,6 +13,19 @@ images and poses but **no dates**. The dates come from Wikimedia Commons, where
 every MegaScenes photo has a file page with a "Date" field. The pipeline joins
 these three sources and cleans the result.
 
+## Status: how this relates to `src/timemachine`
+
+`data_pipeline/` is an **independent pipeline** built before `src/timemachine/` landed. It reads a COLMAP model, looks up each image's Commons metadata through the API, parses a year interval with a confidence, checks files against their cameras, audits old-versus-modern coverage and checks old-photo camera positions. Laith's review (`docs/findings.md`) compared its date parser with the `timemachine` one on the Taj Mahal's model 0: where both gave a usable date (4,587 photos), **99.2% agreed within 2 years and 100% within 10**.
+
+**For training data, `src/timemachine/` is the more complete path.** It uses the Commons metadata shipped inside MegaScenes (`raw_metadata.json`, so no API calls), resolves dates with more evidence (hidden QS dates, EXIF-as-digitization detection, creator lifespans, image type), builds the posed and dated view table, and has the sampler, the camera normalization and the SEVA scaffold. The team should decide whether `data_pipeline/` stays as an independent cross-check or is folded in.
+
+What `data_pipeline/` still adds:
+- regression tests built from real Commons strings (each pins a mistake we actually made)
+- `check_downloads.py`: compares each image's pixel shape with its camera (the `timemachine` builder only prints the worst case)
+- `plot_poses.py`: a two-sided check that old photos sit at believable camera positions (a candidate sanity check for VGGT-posed photos)
+
+Known gaps in this pipeline, from Laith's review and a cross-check on hard strings: an upload day typed into the Date field is not detected; "built" and "in YYYY" count as capture cues; an EXIF scan date can pass the cutoff for old photos with no date text; "(original upload date)" is only down-weighted; years only, no month; no image-type labels.
+
 ## How the pieces fit together
 
 ```
@@ -33,7 +46,7 @@ these three sources and cleans the result.
    plot_poses.py ---> are old photos at believable camera positions?
             |
             v
-   [NOT BUILT YET]  sample maker + PyTorch Dataset  ---> SEVA training
+   (the dataset builder and sampler live in src/timemachine/data; see below)
 ```
 
 ## Running it end to end (Taj Mahal example)
@@ -67,6 +80,7 @@ python data_pipeline/check_downloads.py data/raw/taj/colmap/0 data/raw/taj/image
 
 # 8. Are the old photos at believable camera positions?
 python data_pipeline/plot_poses.py data/raw/taj/colmap/0 data/processed/image_dates.csv
+
 ```
 
 ## How MegaScenes is organized (things we had to figure out)
@@ -128,26 +142,16 @@ python data_pipeline/plot_poses.py data/raw/taj/colmap/0 data/processed/image_da
 7. The same Commons file can appear under several subcategories. **Deduplicate
    by title before splitting train and validation.**
 
-## What is left to build (suggested order)
+## Open items (from `docs/findings.md`)
 
-1. **Sample maker + PyTorch Dataset.** Follow `docs/interface_decisions.md`
-   (Sections 1, 7, 8, 8b). Groups of about 5 input and 5 target views from one
-   COLMAP model, with targets at *different dates* than inputs and a wide spread
-   of date gaps. Apply the cleaning rules in Section 8b first.
-2. **Pose convention conversion** (`colmap_to_seva`) with unit tests. Needs the
-   SEVA pair to say what convention SEVA expects.
-3. **Photo type labels** (`bw`, `painting_or_drawing`, ...): a cheap saturation
-   check for black and white, Commons categories for paintings.
-4. **Month extraction** for the seasonal stretch goal (the raw date text is
-   already saved in `image_dates.csv`, so this can be re-parsed later).
-5. **Scene screening.** Taj Mahal is a poor test of "change over time". Sample
-   about 300 image dates for each of the biggest few hundred scenes and rank
-   them by how many old images they have. Scenes with lots of museum or archive
-   uploads (Rijksmuseum, the Met, Library of Congress) tend to have the old
-   photos.
-6. **Filter extreme image shapes.** Camera widths range from 274 to 38,288 pixels
-   (panoramas). Plan to drop tiny images and extreme aspect ratios before
-   padding to square.
+The sample maker, the pose conversion to SEVA's convention, image-type hints and the scene screening ("census") already exist in `src/timemachine`. What is still open:
+
+1. **Content filter** for training views (exterior of the scene versus interior, document or close-up). Needed before VGGT-posed old photos are merged: two of eight "confident" ones were an interior and a book page.
+2. **Geometric verification** (feature matching against nearby modern views) for VGGT-posed photos.
+3. **A hand-labeled evaluation set** (a few hundred images) to measure the date parser's real accuracy. Agreement between two parsers is not accuracy.
+4. **Drop images whose shape disagrees with their camera** in the dataset builder (see `docs/interface_decisions.md`, Section 8b).
+5. **Real black-and-white / sepia labels** (a VLM or CLIP classifier); the pixel-based hint is weak.
+6. **Border cropping** for prints scanned with their card mount, and near-duplicate detection by image hashing.
 
 ## Known limitations
 
