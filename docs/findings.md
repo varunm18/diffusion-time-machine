@@ -1380,3 +1380,18 @@ Inside the changed region:
 - **Weak case left:** after-fire cameras asked for a pre-fire date. In the gate-2 after-fire set the 2013 date brings back roof and sky but not the spire (`sheets/mvgen_gate2_0.jpg`); in other sets it brings back both. Many after-fire cameras stand where no pre-fire camera stood, so there the model has never seen the intact state.
 - **Whole-frame PSNR at the true date:** after-fire targets 12.6–12.8 dB (released 11.7); pre-fire targets 11.8–11.9 dB (released 12.2). The 0.3–0.4 dB shortfall on pre-fire targets is outside the region: the adapter draws its own light. The loss at the true date is below the released model's everywhere.
 - **Caveat:** the plain control kept its optimiser state, weight average and seed; a like-for-like control (`gate3_init_only`) is running.
+
+**Matched control: the camera balance is what strengthens the date; the region weight adds little** (2026-11-24; `gate3_init_only` = the region-weight run without the weight: same start from step 8,000, same fresh optimiser, same seed, 2,000 steps; same 14 held-out view sets, compared set by set; correction to the entry above)
+
+| Comparison (set by set, 14 sets) | Wrong-date cost inside the region | PSNR, true − wrong date, inside | PSNR at the true date, whole frame |
+|---|---|---|---|
+| Region weight 10 vs matched control | +2.5 ± 0.7 points (12 of 14 up) | −0.03 ± 0.07 dB | −0.07 ± 0.04 dB |
+| Adding camera balance to the weight | **+4.8 ± 1.1 points (14 of 14 up)** | **+0.48 ± 0.22 dB** | −0.20 ± 0.06 dB |
+| Weight + balance vs matched control | +7.3 ± 1.4 points (14 of 14 up) | +0.44 ± 0.19 dB | −0.28 ± 0.07 dB |
+| Matched control vs plain continuation to 10,000 | −0.3 ± 0.3 points | +0.17 ± 0.11 dB | +0.39 ± 0.09 dB |
+
+- **Matched control, absolute:** a wrong date costs +13.9% (pre-fire targets) and +2.7% (after-fire) inside the region; the true date gives the higher PSNR inside the region in **14 of 14** sets. Gate 3's date criterion is met by plain training alone at 10,000 steps.
+- **The region weight alone** raises the loss cost of a wrong date a little, mostly for pre-fire targets (+5.6 points), and does not change how much better the true-date render is. The earlier table overstated it, because the plain control was not like-for-like.
+- **The camera balance** is the ingredient that helps: every one of the 14 sets moves up, most for after-fire targets (+4.4 points, +0.6 dB), where the camera's hint about the period is strongest.
+- **Whole-frame PSNR at the true date is noisy between checkpoints.** Two runs of the same recipe differ by 0.4 dB on average and 0.8 dB on pre-fire targets (matched control 12.1 dB, plain continuation 11.3 dB, step 8,000 11.9 dB; released model 12.2 dB). So the 0.2–0.3 dB cost seen with the balance, and the earlier "0.3–0.4 dB below the released model", are inside that noise. With the matched control the pre-fire shortfall against the released model is 0.1 dB.
+- Not tested: camera balance without the region weight.
