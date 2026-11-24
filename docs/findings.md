@@ -1395,3 +1395,30 @@ Inside the changed region:
 - **The camera balance** is the ingredient that helps: every one of the 14 sets moves up, most for after-fire targets (+4.4 points, +0.6 dB), where the camera's hint about the period is strongest.
 - **Whole-frame PSNR at the true date is noisy between checkpoints.** Two runs of the same recipe differ by 0.4 dB on average and 0.8 dB on pre-fire targets (matched control 12.1 dB, plain continuation 11.3 dB, step 8,000 11.9 dB; released model 12.2 dB). So the 0.2–0.3 dB cost seen with the balance, and the earlier "0.3–0.4 dB below the released model", are inside that noise. With the matched control the pre-fire shortfall against the released model is 0.1 dB.
 - Not tested: camera balance without the region weight.
+
+## Appearance study (2026-11-24)
+*Decision by the project owner: sepia and black-and-white count as appearance, not time. Study: two literature reviews, three measurements on Notre-Dame and our code, three competing designs, two judges. Notes, scripts and tables: `data/appearance_study/` (not in git). Nothing here ran on a GPU.*
+
+**Which appearance signal carries the look without giving the period away** (1,115 usable views, folds grouped by capture day; "leak" = how well the signal tells after-fire from modern photos, 0.5 = not at all; camera pose alone: 0.82)
+
+| Signal computed from one photo | Leak (AUC) | Reads the building itself? | Error it removes from a render if given |
+|---|---|---|---|
+| Frozen DINOv2 or CLIP embedding (also cut to 4 numbers) | 0.96–0.98 | yes (0.996 where the region shows) | not measured |
+| 8×8 colour thumbnail | 0.77 | it is the target's layout | 3 dB (1 dB less when borrowed from a same-day photo) |
+| Mean and spread of colour per class (sky, building, vegetation, ground, water), outside the changed region: 30 numbers | 0.70 | no | 2.0 dB |
+| Six global colour numbers | 0.67 | no | 1.0 dB |
+| Learned 8-number encoder on colour cells without positions (CPU stand-in) | 0.67 | no | 1.5 dB |
+| Season, time of day and pixel flags from metadata | 0.91 | no | under 2% of the look |
+
+- **Colour statistics are the best trade.** They leak less than the camera does, do not read the building (same leak whether the changed region is visible or not), and a learned encoder restricted to the same input carries less at the same leak.
+- **Pretrained image encoders are ruled out as appearance encoders**: they read the fire almost perfectly, even from 4 numbers.
+- **Metadata labels (season, hour) give the period away far more than pixels do** and say little about the look. After-fire photos are 63% spring (modern 27%); ten days hold 58% of them; five photographers hold 58%.
+- **A global code carries a minority of the look**: 1–2 dB. The earlier "six numbers remove 56% of the error" was an oracle fit that also lowered contrast; the honest figure is about 20%. Most of the difference between a render and the real photo is local (clouds, shadows, leaves), which is the noise seed's job.
+- **The date has learnt the period's look.** Outside the changed region a date swap moves the render in the direction of the real difference between after-fire and modern photos (0.48 of a 0.58 standard-deviation gap, growing since step 1,000). Only 20–23% of that is global colour.
+- **The look belongs to the day.** A capture day shares 42–57% of a photo's global colour statistics; smooth functions of the date predict none of it on unseen days. A date code that can tell days apart can memorise the look. The trained date embedding has no step at the fire and moves more across 2018 than across the fire.
+- **Medium:** colour statistics tell monochrome from colour at AUC 0.98, so a colour code carries it. 71 of the 77 pre-1970 photos are monochrome, so "the past in colour" is extrapolation on this scene.
+- **Published work.** WildCAT3D, the one multi-view diffusion model with a learned appearance code, uses 8 numbers from a small CNN, relies on size alone against leaks, reports no leak test, and never uses a target's own code at inference. Neural Scene Chronology lets time explain each photo first and applies the light code last; its Fourier time code overfitted per-image light. Encoders that see the scored photo inflate scores (GS-W: 2.5–4.5 dB). No paper treats sepia or black-and-white as its own factor.
+- **A better instrument for the building's state:** a read-out on a frozen encoder applied to the grey, contrast-normalised crop of the changed region tells the two states apart at AUC 0.998 on real photos of unseen days. On `gate3_region10_bal5` a date swap flips it for 28 of 28 held-out targets.
+- **Corrections to earlier entries:** the "13.2 → 11.9 dB" drop on pre-fire targets compared one view set with five; on the same five sets the released model leads by 0.2–0.4 dB, within noise. 88% of the held-out after-fire views share a capture day and photographer with a training view, so the next fresh run should hold out whole days.
+- **Both judges ranked the designs the same way:** fixed colour statistics with recoloured targets first, the learned encoder second (its own numbers do not yet justify learning), no appearance input last (it needs a mask and a change date per scene).
+- **Related work in the team** (branches `aadhitya/date-shortcut-probe`, `aadhitya/appearance-conditioning`, not merged): across four scenes 14 appearance statistics tell pre-1945 from modern photos at AUC 0.89 and toning a modern photo makes it "old"; removing 7 of the 14 dimensions makes the era unreadable while sunlit-versus-overcast survives; a per-block scale-and-shift pathway for SEVA is written but not wired into training.
