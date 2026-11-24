@@ -27,6 +27,41 @@ distance. Here they are picked by *co-visibility*, the number of COLMAP 3D point
 The number of references is ``n_ref``, or, with ``n_ref_choices``, drawn per sample (MVGenMaster's
 last training stage used 1 to 3); a sample always has ``n_ref + n_targets`` views.
 
+**Camera-balanced anchors** (``balance_cameras``; 0, the default, is off). At Notre-Dame a camera gives
+its period away: after the fire the public could only stand in some places, and a vote of a view's
+15 nearest views (by position and viewing direction) says whether it is from before or after the
+fire for 76% of the views, where always guessing "before" is right for 61%. A model can then draw
+the right state of the building from the camera alone and has no use for the date. With
+``balance_cameras = cap`` an anchor is drawn in proportion to a weight (:func:`camera_balance_weights`):
+1 if its nearest training views (:func:`camera_features`, :func:`nearest_views`) are all of its own
+period, ``1 / p`` if only a share ``p`` of them is, at most ``cap``. Views that stand where another
+period's cameras stand are thus drawn more often, and among the anchors the camera says less about
+the period. Only the anchor is weighted: the other targets are still drawn among the views most
+co-visible with it, and the references as before. The weights are those of the views that train
+(they are made again when the hold-out changes); the scene prints what they do among the anchors
+(``MVGenScene.camera_balance_summary``). The same random numbers are drawn with and without the
+option, and with it off the sampler draws exactly the samples it drew before the option existed.
+
+The option removes only part of what a camera gives away, because four of a sample's five targets
+are not weighted. Measured at Notre-Dame with 140 views held out and a cap of 5, over 5,000 drawn
+samples (2026-11-20, ``data/mvgen_signal/skeptic_sampler``): among the anchors a vote of the 15
+nearest anchors is right about the period for 52.0% (always guessing the period drawn most often:
+49.4%), down from 71.3% (51.5%) without the weights; among all the targets of those samples a vote
+of the 15 nearest training views is still right for 62.3% (48.4%), down from 74.3% (52.8%). For the
+fire alone (after it or not, among modern and later targets) the area under the ROC curve of that
+vote falls from 0.84 to 0.72. Larger caps gain little among the targets (0.70 at a cap of 10) and
+draw the 27 old anchors, all frontal views, ever more often (9 times each in 4,000 samples at a
+cap of 5, 13 times at 10; 6 times without the weights); a cap of 3 leaves 0.74.
+
+A second measurement, on the samples that the run gate3_region10_bal5 draws (seed 1; 2026-11-24, same
+folder), agrees (0.83 to 0.71) and adds three things. Taken per sample, as the model sees a sample's
+five target cameras together (the mean of their votes), the area falls only from 0.89 to 0.81. The
+vote is the measure the weights are made from: gradient boosting on the same six camera numbers still
+names the period of 58% of the anchors at a cap of 5 (47% by guessing). And where one period's
+cameras stand alone, no weight helps: 82% of the anchors from after the fire are not in front of the
+west facade, and the weights raise the frontal share of the after-fire targets from 18% to 33%
+(modern targets: from 60% to 49%).
+
 **Dataset folder** (:class:`MVGenScene` reads it; ``scripts/mvgen/build_dataset.py`` and
 ``scripts/mvgen/prepare_depth.py`` write it):
 
@@ -43,7 +78,18 @@ last training stage used 1 to 3); a sample always has ``n_ref + n_targets`` view
 * ``depth_stats.parquet``: per view ``row``, ``file_key``, ``n_points``, ``scale``,
   ``median_rel_error`` and ``ok`` (:func:`depth_is_reliable`). Only views with ``ok`` are drawn as
   references. ``file_key`` ties the depth maps to the view table they were made for: rebuilding
-  the table can renumber its rows, and a depth map would then silently belong to another photo.
+  the table can renumber its rows, and a depth map would then silently belong to another photo;
+* ``changed_regions.npz`` (optional; ``scripts/mvgen/prepare_regions.py`` writes it from the masks of
+  ``timemachine.mvgen.regions``): where the scene changed at a period edge, per view, at the latents'
+  resolution. ``cells``: uint8 ``[N, S / 8, S / 8]``, the number of masked pixels among the 8 x 8 that
+  a latent cell stands for (over 64 it is the cell's weight in [0, 1]); ``factor`` (8) and
+  ``resolution`` (S, the side of the crops the masks were made for); ``file_keys``, which tie the
+  file to the view table as for the depth; ``share`` ``[N]``, the masked share of each view's frame;
+  ``min_share``, below which a mask was stored empty; ``edge``, the date of the change; ``config``,
+  the masks' thresholds as JSON. :func:`write_region_file` and :func:`read_region_weights` are the
+  two ends. A scene opened on a folder with this file hands the weights to its samples (``region``
+  below; ``MVGenScene.region_weights``). Nothing else about the scene depends on the file: the views
+  that are drawn, the other fields of a sample and the fingerprint are the same with and without it.
 
 **Sample** (F views, references first):
 
@@ -58,6 +104,8 @@ last training stage used 1 to 3); a sample always has ``n_ref + n_targets`` view
 ``date_mid``   float32 [F]           interval midpoints
 ``rows``       int64 [F]             rows of the view table
 ``file_keys``  list of str           Commons file of each view
+``region``     float32 [F, 1, s, s]  ONLY for a folder with ``changed_regions.npz``: how much of each
+                                     latent cell lies where the scene changed, in [0, 1] (s = S / 8)
 =============  ====================  ==========================================================
 
 **Scene scale** (:func:`shrink_factor`; the ``scale`` argument of :class:`MVGenScene`). COLMAP's
@@ -77,6 +125,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import zipfile
+import zlib
 from dataclasses import dataclass
 from numbers import Integral, Real
 from pathlib import Path
@@ -106,6 +156,9 @@ _REQUIRED = ("file_key", "image_path", "image_width", "image_height", "camera_wi
 _SAMPLE_COLUMNS = tuple(column for column in _REQUIRED if column not in ("file_key", "image_path", "usable"))
 _MAX_ATTEMPTS = 1000        # anchors tried per sample before giving up (a drawn anchor can lack references)
 _REF_ATTEMPTS = 20          # reference sets drawn for one target group before giving up on it
+BALANCE_NEIGHBOURS = 15     # nearest training views by which a view's camera is judged (balance_cameras)
+REGIONS_FILE = "changed_regions.npz"        # where the scene changed, per view (scripts/mvgen/prepare_regions.py)
+LATENT_FACTOR = 8           # image pixels per latent cell along a side (the VAE's reduction)
 
 
 # ----------------------------------------------------------------------------
@@ -127,8 +180,12 @@ class ViewSamplingConfig:
     period_edges: tuple[float, ...] = (1970.0, 2019.2877)   # Notre-Dame: old | modern | after the fire
     anchor_period_weights: tuple[float, ...] | None = None  # P(anchor's period); None: uniform over anchors
     cross_period_prob: float = 0.5          # P(all references are drawn from another period than the targets')
+    # Camera-balanced anchors: 0 is off; otherwise the largest weight an anchor may get (camera_balance_weights).
+    balance_cameras: float = 0.0
 
     def __post_init__(self):
+        if not (self.balance_cameras == 0 or self.balance_cameras >= 1):
+            raise ValueError("balance_cameras must be 0 (off) or the largest weight an anchor may get, at least 1.")
         if self.n_ref < 1 or self.n_targets < 1:
             raise ValueError("n_ref and n_targets must be at least 1.")
         choices = self.n_ref_choices
@@ -217,21 +274,106 @@ def eligible_anchors(dates: np.ndarray, covis: np.ndarray, cfg: ViewSamplingConf
     return rows[n_partners >= (cfg.n_targets if n_targets is None else n_targets) - 1]
 
 
-def anchor_probabilities(anchors: np.ndarray, period: np.ndarray, cfg: ViewSamplingConfig) -> np.ndarray | None:
+def anchor_probabilities(anchors: np.ndarray, period: np.ndarray, cfg: ViewSamplingConfig,
+                         weights: np.ndarray | None = None) -> np.ndarray | None:
     """Probability of drawing each of ``anchors``, or None if no anchor can be drawn.
 
     Uniform by default. With ``anchor_period_weights``, a period is drawn with those probabilities
     and then an anchor uniformly inside it; a period without anchors is skipped (the weights of
     the others are renormalised; :class:`MVGenScene` refuses to train like that).
+
+    ``weights`` (``[N]``, one per view of the table; None: none) are the views' own anchor weights,
+    which is how camera-balanced anchors are drawn (``MVGenScene.anchor_weights``). An anchor is then
+    drawn in proportion to its weight, where the text above says uniformly: among all anchors, or,
+    with ``anchor_period_weights``, inside the period that was drawn with those probabilities.
     """
     if len(anchors) == 0:
         return None
+    if weights is not None:
+        own = np.asarray(weights, dtype=np.float64)[anchors]
+        if cfg.anchor_period_weights is not None:
+            anchor_period = period[anchors]
+            per_period = np.bincount(anchor_period, weights=own, minlength=len(cfg.anchor_period_weights))
+            period_weights = np.asarray(cfg.anchor_period_weights, dtype=np.float64)
+            own = own * period_weights[anchor_period] / per_period[anchor_period]
+        return own / own.sum() if own.sum() > 0 else None
     if cfg.anchor_period_weights is None:
         return np.full(len(anchors), 1.0 / len(anchors))
     anchor_period = period[anchors]
     per_period = np.bincount(anchor_period, minlength=len(cfg.anchor_period_weights))
     weights = np.asarray(cfg.anchor_period_weights, dtype=np.float64)[anchor_period] / per_period[anchor_period]
     return weights / weights.sum() if weights.sum() > 0 else None
+
+
+def camera_features(c2ws: np.ndarray) -> np.ndarray:
+    """``[M, 6]``: where each of ``M`` cameras stands and where it looks, on one scale.
+
+    The camera centre, divided by the median distance of the centres from their median (the typical
+    spread of the cameras, so that COLMAP's arbitrary unit drops out), and next to it the unit
+    viewing direction (the camera's z axis; OpenCV axes). Two views are near each other in this
+    space if they stand close together and look the same way.
+
+    Args:
+        c2ws: ``[M, 4, 4]`` camera-to-world matrices.
+    """
+    centres = c2ws[:, :3, 3]
+    spread = float(np.median(np.linalg.norm(centres - np.median(centres, axis=0), axis=1))) if len(centres) else 0.0
+    return np.concatenate([centres / (spread if spread > 0 else 1.0), c2ws[:, :3, 2]], axis=1)
+
+
+def nearest_views(features: np.ndarray, k: int) -> np.ndarray:
+    """``[M, min(k, M - 1)]``: for each row of ``features`` (``[M, D]``) the indices of its ``k`` nearest other
+    rows by Euclidean distance, nearest first (of two equally near rows, the lower index first)."""
+    squared = np.zeros((len(features), len(features)))
+    for axis in range(features.shape[1]):
+        squared += (features[:, None, axis] - features[None, :, axis]) ** 2
+    np.fill_diagonal(squared, np.inf)
+    return np.argsort(squared, axis=1, kind="stable")[:, :max(0, min(k, len(features) - 1))]
+
+
+def camera_balance_weights(neighbours: np.ndarray, period: np.ndarray, cap: float) -> np.ndarray:
+    """``[M]`` anchor weights under which a view's camera says less about its period.
+
+    Args:
+        neighbours: ``[M, k]`` each view's nearest views by camera (:func:`nearest_views` of
+            :func:`camera_features`), as indices into the same ``M`` views.
+        period: ``[M]`` the views' periods.
+        cap: the largest weight a view may get.
+
+    ``p`` is the share of a view's neighbours that lie in its own period. Near 1, the camera gives the
+    period away: whoever stands there photographed in that period. Small, the view stands where the
+    cameras of other periods stand, which is where only the date can tell the periods apart. The
+    weight is ``min(cap, 1 / max(p, 1 / k))``: a view among its own period keeps 1, a view in a mixed
+    neighbourhood is drawn ``1 / p`` times as often, up to ``cap`` (and up to ``k``, for a view
+    without any neighbour of its period). Without neighbours every weight is 1.
+    """
+    period = np.asarray(period)
+    if neighbours.shape[1] == 0:
+        return np.ones(len(period))
+    own = (period[neighbours] == period[:, None]).mean(axis=1)
+    return np.minimum(float(cap), 1.0 / np.maximum(own, 1.0 / neighbours.shape[1]))
+
+
+def period_vote_accuracy(neighbours: np.ndarray, period: np.ndarray, weights: np.ndarray | None = None
+                         ) -> tuple[float, float]:
+    """How well a view's period is predicted from its camera alone: ``(share right, share right by guessing)``.
+
+    Each view's period is predicted by a vote of its neighbours (``neighbours`` and ``period`` as for
+    :func:`camera_balance_weights`; a view is not its own neighbour, so the vote is leave-one-out; a
+    tie goes to the earlier period). The second number is what always guessing the largest period
+    gets: a camera says nothing about the period when the first is no higher than the second.
+
+    With ``weights`` (``[M]``) each neighbour's vote counts with its weight and each view counts with
+    its weight in both shares: the numbers are then those of views drawn in proportion to the
+    weights, which is what camera-balanced anchors do.
+    """
+    period = np.asarray(period)
+    weights = np.ones(len(period)) if weights is None else np.asarray(weights, dtype=np.float64)
+    n_periods = int(period.max()) + 1
+    votes = np.stack([(weights[neighbours] * (period[neighbours] == p)).sum(axis=1) for p in range(n_periods)], axis=1)
+    right = votes.argmax(axis=1) == period
+    largest = np.bincount(period, weights=weights, minlength=n_periods).max()
+    return float((weights * right).sum() / weights.sum()), float(largest / weights.sum())
 
 
 def draw_references(pool: np.ndarray, sees: np.ndarray, n_ref: int, rng: np.random.Generator) -> np.ndarray | None:
@@ -259,7 +401,7 @@ def draw_references(pool: np.ndarray, sees: np.ndarray, n_ref: int, rng: np.rand
 
 def sample_rows(dates: np.ndarray, covis: np.ndarray, cfg: ViewSamplingConfig, rng: np.random.Generator,
                 target_ok: np.ndarray, ref_ok: np.ndarray, anchors: np.ndarray | None = None,
-                n_ref: int | None = None) -> np.ndarray | None:
+                n_ref: int | None = None, anchor_weights: np.ndarray | None = None) -> np.ndarray | None:
     """Draw one sample: the rows ``[references..., targets...]``, or None if the drawn anchor cannot be completed.
 
     Args:
@@ -270,6 +412,8 @@ def sample_rows(dates: np.ndarray, covis: np.ndarray, cfg: ViewSamplingConfig, r
             targets, to avoid recomputing it.
         n_ref: the number of references (default ``cfg.n_ref``); the other ``cfg.n_views - n_ref`` views
             are targets.
+        anchor_weights: ``[N]`` the views' own anchor weights (:func:`anchor_probabilities`), or None. They
+            change which anchor is drawn and nothing else: as many random numbers are drawn either way.
 
     The steps are described in the module docstring. The first target is the anchor. None is
     returned when no view can anchor a sample, or when no ``n_ref`` candidate references that see
@@ -281,7 +425,7 @@ def sample_rows(dates: np.ndarray, covis: np.ndarray, cfg: ViewSamplingConfig, r
     n_targets = cfg.n_views - n_ref
     if anchors is None:
         anchors = eligible_anchors(dates, covis, cfg, target_ok, n_targets)
-    probabilities = anchor_probabilities(anchors, period, cfg)
+    probabilities = anchor_probabilities(anchors, period, cfg, anchor_weights)
     if probabilities is None:
         return None
     anchor = int(rng.choice(anchors, p=probabilities))
@@ -408,6 +552,77 @@ def sparse_depth_points(sparse: Mapping[str, np.ndarray], row: int, c2w: np.ndar
 
 
 # ----------------------------------------------------------------------------
+# Changed regions
+# ----------------------------------------------------------------------------
+def write_region_file(dataset_dir: Path, cells: np.ndarray, file_keys: Sequence[str], share: np.ndarray, *,
+                      resolution: int, min_share: float, edge: float, config: Mapping[str, object]) -> Path:
+    """Write a dataset folder's ``changed_regions.npz`` (its layout is in the module docstring); returns its path.
+
+    Args:
+        cells: uint8 ``[N, h, w]``, per view the number of masked pixels in each latent cell, of the
+            ``LATENT_FACTOR`` squared pixels that a cell stands for (all zero: the view has no region).
+        file_keys: the view table's ``file_key`` column, which ties the file to that table.
+        share: ``[N]`` the masked share of each view's frame, before small masks were emptied.
+        resolution: the side of the crops the masks were made for (``h * LATENT_FACTOR``).
+        min_share, edge, config: how the masks were made: the share of the frame below which a mask is
+            stored empty, the date at which the scene changed, and the thresholds (as JSON types).
+
+    The file is written under another name and renamed, so a scene that is opened meanwhile reads
+    the old file or the new one, never half of one.
+    """
+    cells = np.asarray(cells)
+    side = resolution // LATENT_FACTOR
+    fits = cells.dtype == np.uint8 and cells.shape == (len(file_keys), side, side)
+    if not fits or cells.max(initial=0) > LATENT_FACTOR ** 2:
+        raise ValueError(f"cells must be uint8 [{len(file_keys)}, {side}, {side}] with at most {LATENT_FACTOR ** 2} "
+                         f"masked pixels per cell; got {cells.dtype} {cells.shape}")
+    path = Path(dataset_dir) / REGIONS_FILE
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as file:
+        np.savez_compressed(file, cells=cells, factor=LATENT_FACTOR, resolution=resolution,
+                            file_keys=np.asarray(file_keys, dtype=str), share=np.asarray(share, dtype=np.float32),
+                            min_share=min_share, edge=edge, config=json.dumps(dict(config)))
+    tmp.replace(path)
+    return path
+
+
+def read_region_weights(dataset_dir: Path, file_keys: np.ndarray, resolution: int) -> np.ndarray | None:
+    """The changed-region weights of a dataset folder: float32 ``[N, h, w]`` in [0, 1], or None.
+
+    The weight of a latent cell is the share of its pixels that lie where the scene changed
+    (``cells`` of ``changed_regions.npz`` over the pixels per cell). ``file_keys`` are those of the
+    folder's view table and ``resolution`` the side of the crops the scene is opened with.
+
+    None when the folder has no such file. Also None, with a printed note, when the file cannot be
+    used: it was made for another view table (a rebuild can renumber the rows, and a mask would then
+    belong to another photo) or for crops of another size, or it cannot be read. The regions are
+    optional: a run that does not use them must not fail over them, and one that does refuses to
+    start without them (``timemachine.mvgen.trainer``).
+    """
+    path = Path(dataset_dir) / REGIONS_FILE
+    if not path.exists():
+        return None
+    try:
+        with np.load(path) as stored:
+            cells, keys = stored["cells"], stored["file_keys"]
+            factor, made_for = int(stored["factor"]), int(stored["resolution"])
+    except (OSError, EOFError, ValueError, KeyError, zipfile.BadZipFile, zlib.error) as error:
+        problem = f"it cannot be read ({type(error).__name__}: {error})"
+    else:
+        side = resolution // factor
+        if made_for != resolution or factor != LATENT_FACTOR:
+            problem = (f"it was made for crops of side {made_for} and latent cells of {factor} pixels, and the scene "
+                       f"is opened with {resolution} and {LATENT_FACTOR}")
+        elif cells.shape != (len(file_keys), side, side) or not np.array_equal(keys, np.asarray(file_keys, dtype=str)):
+            problem = "it was made for another view table"
+        else:
+            return cells.astype(np.float32) / factor ** 2
+    print(f"[scene] note: {path} is not used: {problem}. Run scripts/mvgen/prepare_regions.py --overwrite to make "
+          "it for this scene.", flush=True)
+    return None
+
+
+# ----------------------------------------------------------------------------
 # Dataset
 # ----------------------------------------------------------------------------
 class MVGenScene(Dataset):
@@ -427,8 +642,11 @@ class MVGenScene(Dataset):
     ``covis`` (``[N, N]``), ``period`` (``[N]`` period index by ``config.period_edges``), ``c2ws``
     (``[N, 4, 4]``, COLMAP units), ``usable`` and ``depth_ok`` (``[N]`` bool, from the folder),
     ``scale`` (the setting) and ``scale_factor`` (the constant factor of every sample, or None for
-    ``scale="sample"``), and, set by :meth:`hold_out`: ``heldout``, ``target_ok``, ``ref_ok`` (``[N]``
-    bool) and ``anchors`` (the rows that can anchor a sample of ``config.n_targets`` targets).
+    ``scale="sample"``), ``regions`` (float32 ``[N, s, s]``, the changed-region weights of the folder's
+    ``changed_regions.npz``, or None without that file: :meth:`region_weights`), and, set by
+    :meth:`hold_out`: ``heldout``, ``target_ok``, ``ref_ok`` (``[N]`` bool), ``anchors`` (the rows that
+    can anchor a sample of ``config.n_targets`` targets) and ``anchor_weights`` (``[N]``, the views' own
+    anchor weights under ``config.balance_cameras``, or None when that is off).
 
     Args:
         resolution: side of the square crops; the depth maps must have been prepared at this size.
@@ -472,6 +690,7 @@ class MVGenScene(Dataset):
                                   self.views[["tx", "ty", "tz"]].to_numpy())
         self.usable = self.views["usable"].to_numpy(dtype=bool)
         self.depth_ok = self._read_depth_ok()
+        self.regions = read_region_weights(self.dataset_dir, self.views["file_key"].to_numpy(), resolution)
         self.hold_out(np.array([], dtype=int))
 
     def _constant_scale_factor(self) -> float | None:
@@ -525,9 +744,11 @@ class MVGenScene(Dataset):
         """Draw samples only from the other views (replaces any earlier hold-out).
 
         Sets ``heldout``, ``target_ok`` (usable and not held out), ``ref_ok`` (``target_ok`` with
-        reliable depth, if ``require_depth``) and ``anchors``. Raises if no sample can be drawn any
-        more, or none in a period that ``anchor_period_weights`` gives a weight; otherwise prints
-        :meth:`period_table`.
+        reliable depth, if ``require_depth``), ``anchors`` and ``anchor_weights`` (the camera-balance
+        weights among the views that still train; None without ``config.balance_cameras``). Raises
+        if no sample can be drawn any more, or none in a period that ``anchor_period_weights`` gives
+        a weight; otherwise prints :meth:`period_table` and, for camera-balanced anchors, two lines
+        on what the weights do (:meth:`camera_balance_summary`).
         """
         self.heldout = np.zeros(len(self.views), dtype=bool)
         self.heldout[np.asarray(rows, dtype=int)] = True
@@ -536,11 +757,14 @@ class MVGenScene(Dataset):
         self._anchors: dict[int, np.ndarray] = {}           # by number of targets, filled by _anchors_for
         self.anchors = self._anchors_for(self.config.n_targets)
         self._check_anchors()
+        self.anchor_weights = self._camera_balance()        # None unless config.balance_cameras
         largest = max(self.config.target_counts)
         print(f"[scene] {self.dataset_dir}: {len(self.views)} views, {int(self.heldout.sum())} held out; scale "
               f"{self.scale!r}" + ("" if self.scale_factor is None else f" (factor {self.scale_factor:.6g})")
               + f"; anchors are counted for {largest} targets\n"
               + self.period_table().to_string(float_format=lambda value: f"{value:.3f}"), flush=True)
+        if self.anchor_weights is not None:
+            print(self._camera_balance_lines(), flush=True)
 
     def _anchors_for(self, n_targets: int) -> np.ndarray:
         """Rows that can anchor a sample of ``n_targets`` targets, under the current hold-out."""
@@ -578,10 +802,10 @@ class MVGenScene(Dataset):
         ``training`` are the usable views that are not held out; ``references`` those of them that
         can be drawn as references (with reliable depth, if ``require_depth``); ``anchors`` those
         that can anchor a target group of the largest size the config draws (the fewest anchors);
-        ``anchor_share`` is the probability that an anchor is drawn in the period (the share of
-        samples anchored there differs a little, because an anchor that cannot be completed is
-        drawn again). A period with a handful of anchors and a large share is trained on those few
-        views over and over.
+        ``anchor_share`` is the probability that an anchor is drawn in the period, with the
+        camera-balance weights if the config asks for them (the share of samples anchored there
+        differs a little, because an anchor that cannot be completed is drawn again). A period with
+        a handful of anchors and a large share is trained on those few views over and over.
         """
         cfg, names = self.config, period_names(self.config.period_edges)
 
@@ -591,11 +815,117 @@ class MVGenScene(Dataset):
         share = np.zeros(len(names))
         for n_ref in cfg.ref_counts:
             anchors = self._anchors_for(cfg.n_views - n_ref)
-            share += per_period(anchors, anchor_probabilities(anchors, self.period, cfg)) / len(cfg.ref_counts)
+            probabilities = anchor_probabilities(anchors, self.period, cfg, self.anchor_weights)
+            share += per_period(anchors, probabilities) / len(cfg.ref_counts)
         return pd.DataFrame({"usable": per_period(self.usable), "training": per_period(self.target_ok),
                              "references": per_period(self.ref_ok),
                              "anchors": per_period(self._anchors_for(max(cfg.target_counts))),
                              "anchor_share": share}, index=names)
+
+    def _training_cameras(self) -> tuple[np.ndarray, np.ndarray]:
+        """The rows of the training views (``target_ok``) and their :func:`camera_features`, the space in which
+        the views' cameras are compared."""
+        training = np.flatnonzero(self.target_ok)
+        return training, camera_features(self.c2ws[training])
+
+    def _camera_balance(self) -> np.ndarray | None:
+        """``[N]`` every view's own anchor weight under ``config.balance_cameras``; None when that is off.
+
+        The training views get the weights of :func:`camera_balance_weights`, each judged by its
+        ``BALANCE_NEIGHBOURS`` nearest training views (:func:`nearest_views`); every other view gets 1 (it is
+        never an anchor).
+        """
+        if self.config.balance_cameras == 0:
+            return None
+        training, features = self._training_cameras()
+        weights = np.ones(len(self.views))
+        weights[training] = camera_balance_weights(nearest_views(features, BALANCE_NEIGHBOURS), self.period[training],
+                                                   self.config.balance_cameras)
+        return weights
+
+    def camera_balance_summary(self) -> dict:
+        """What camera-balanced anchors do to this scene under the current hold-out, as JSON types.
+
+        * ``anchors`` and ``weight_min`` / ``weight_max`` / ``weight_mean`` / ``share_above_1``: the weights of
+          the anchors (those of ``config.n_targets`` targets);
+        * ``anchor_share`` and ``anchor_share_unbalanced``: per period, the probability that an anchor is
+          drawn there with the weights and without them;
+        * ``vote_right`` / ``vote_guess``: how well an anchor's period is predicted from its camera while the
+          anchors are drawn WITHOUT the weights: by a leave-one-out vote of its nearest anchors, and by
+          always guessing the period that is drawn most often (:func:`period_vote_accuracy`, in which
+          every anchor votes and counts with its probability of being drawn);
+        * ``weighted_vote_right`` / ``weighted_vote_guess``: the same while they are drawn WITH the weights.
+          The closer the first is to the second, the less an anchor's camera says about its period.
+
+        The vote is among the anchors as they are drawn. A training view that cannot anchor a sample has
+        a weight as well, but nothing is drawn by it, so it neither votes nor counts (counting those
+        views made Notre-Dame's anchors look balanced at a cap of 3, where a vote among the anchors was
+        still right 8 points more often than a guess). The numbers say nothing about the other targets
+        of a sample, which are not weighted: among all targets the camera says more (the module
+        docstring has what was measured).
+
+        Only for scenes with ``config.balance_cameras``.
+        """
+        if self.anchor_weights is None:
+            raise ValueError("the scene's anchors are not camera-balanced (config.balance_cameras is 0)")
+        cfg, n_periods = self.config, len(self.config.period_edges) + 1
+        own, period = self.anchor_weights[self.anchors], self.period[self.anchors]
+        training, features = self._training_cameras()
+        # The anchors are training views and both lists of rows ascend: searchsorted finds the anchors' features.
+        neighbours = nearest_views(features[np.searchsorted(training, self.anchors)], BALANCE_NEIGHBOURS)
+
+        def drawn(weights: np.ndarray | None) -> np.ndarray:
+            """The probability of each anchor being drawn, with the given weights (None: without)."""
+            return anchor_probabilities(self.anchors, self.period, cfg, weights)
+
+        def share(weights: np.ndarray | None) -> list[float]:
+            return np.bincount(period, minlength=n_periods, weights=drawn(weights)).tolist()
+
+        right, guess = period_vote_accuracy(neighbours, period, drawn(None))
+        weighted_right, weighted_guess = period_vote_accuracy(neighbours, period, drawn(self.anchor_weights))
+        return {"cap": float(cfg.balance_cameras), "neighbours": int(neighbours.shape[1]), "anchors": len(own),
+                "weight_min": float(own.min()), "weight_max": float(own.max()), "weight_mean": float(own.mean()),
+                "share_above_1": float(np.mean(own > 1)), "anchor_share": share(self.anchor_weights),
+                "anchor_share_unbalanced": share(None), "vote_right": right, "vote_guess": guess,
+                "weighted_vote_right": weighted_right, "weighted_vote_guess": weighted_guess}
+
+    def _camera_balance_lines(self) -> str:
+        """:meth:`camera_balance_summary` as the two lines that :meth:`hold_out` prints under the period table."""
+        s = self.camera_balance_summary()
+        shares = ", ".join(f"{share:.3f}" for share in s["anchor_share_unbalanced"])
+        return (f"[scene] camera-balanced anchors (largest weight {s['cap']:g}): the weights of the {s['anchors']} "
+                f"anchors are {s['weight_min']:.2f} to {s['weight_max']:.2f}, mean {s['weight_mean']:.2f}, "
+                f"{s['share_above_1']:.0%} above 1; anchor_share above is with them, without them: {shares}\n"
+                f"[scene] an anchor's period predicted from its camera by a vote of its {s['neighbours']} nearest "
+                f"anchors: {s['vote_right']:.1%} right while the anchors are drawn without the weights "
+                f"({s['vote_guess']:.1%} by always guessing the period drawn most often), "
+                f"{s['weighted_vote_right']:.1%} with them ({s['weighted_vote_guess']:.1%}); the other targets of a "
+                "sample are not weighted")
+
+    @property
+    def has_regions(self) -> bool:
+        """Whether the dataset folder has changed-region weights for this scene (``changed_regions.npz``)."""
+        return self.regions is not None
+
+    def region_weights(self, rows: np.ndarray) -> torch.Tensor:
+        """float32 ``[F, 1, h, w]``: how much of each latent cell of the given views lies where the scene changed,
+        in [0, 1] (``h = w = resolution // LATENT_FACTOR``). All zeros for a scene without a regions file."""
+        rows = np.asarray(rows, dtype=np.int64)
+        if self.regions is None:
+            side = self.resolution // LATENT_FACTOR
+            return torch.zeros(len(rows), 1, side, side)
+        return torch.from_numpy(self.regions[rows])[:, None]
+
+    def region_fingerprint(self) -> str | None:
+        """A hash (SHA-256, in hex) of the scene's changed-region weights, or None without them.
+
+        It is not part of :meth:`fingerprint`, because most runs do not use the weights. A run that
+        trains with them stores this hash in its checkpoints and is not resumed on other weights
+        (``timemachine.mvgen.trainer``).
+        """
+        if self.regions is None:
+            return None
+        return hashlib.sha256(np.ascontiguousarray(self.regions).tobytes()).hexdigest()
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch = epoch
@@ -603,8 +933,8 @@ class MVGenScene(Dataset):
     def __len__(self) -> int:
         return self.samples_per_epoch
 
-    def draw(self, index: int, epoch: int | None = None, seed: int | None = None, n_ref: int | None = None
-             ) -> tuple[np.ndarray, int]:
+    def draw(self, index: int, epoch: int | None = None, seed: int | None = None, n_ref: int | None = None,
+             balanced: bool = True) -> tuple[np.ndarray, int]:
         """View-table rows of sample ``index`` (references first, then targets) and its number of references.
 
         ``epoch`` / ``seed`` default to the dataset's own; probes pass fixed values so their
@@ -612,6 +942,10 @@ class MVGenScene(Dataset):
         by default it is the config's: ``n_ref``, or a draw from ``n_ref_choices``. It is drawn
         once per sample, and anchors that cannot be completed are redrawn with the same generator,
         so the retries do not favour the numbers of references that are easier to complete.
+
+        ``balanced=False`` draws the anchor without the camera-balance weights also when the config
+        asks for them: the probes' view sets, which are then the same for runs with and without
+        ``balance_cameras``. Without that setting the argument changes nothing.
         """
         cfg = self.config
         rng = np.random.default_rng((self.seed if seed is None else seed,
@@ -622,16 +956,18 @@ class MVGenScene(Dataset):
             raise ValueError(f"n_ref = {n_ref} leaves {n_targets} of the {cfg.n_views} views as targets, which the "
                              f"config does not allow (min_targets_seen {cfg.min_targets_seen}, top_k {cfg.top_k}).")
         anchors = self._anchors_for(n_targets)
+        anchor_weights = self.anchor_weights if balanced else None
         for _ in range(_MAX_ATTEMPTS):
-            rows = sample_rows(self.dates, self.covis, cfg, rng, self.target_ok, self.ref_ok, anchors, n_ref)
+            rows = sample_rows(self.dates, self.covis, cfg, rng, self.target_ok, self.ref_ok, anchors, n_ref,
+                               anchor_weights)
             if rows is not None:
                 return rows, n_ref
         raise RuntimeError(f"No sample of {n_ref} references and {n_targets} targets could be completed in "
                            f"{_MAX_ATTEMPTS} attempts: too few of the {int(self.ref_ok.sum())} views that can be "
                            "references see the targets.")
 
-    def indices(self, index: int, epoch: int | None = None, seed: int | None = None, n_ref: int | None = None
-                ) -> np.ndarray:
+    def indices(self, index: int, epoch: int | None = None, seed: int | None = None, n_ref: int | None = None,
+                balanced: bool = True) -> np.ndarray:
         """The rows of :meth:`draw` alone, for callers that know the number of references.
 
         With ``n_ref_choices`` that number changes from sample to sample and the rows do not say
@@ -641,7 +977,7 @@ class MVGenScene(Dataset):
         if n_ref is None and self.config.n_ref_choices is not None:
             raise ValueError("With n_ref_choices the number of references varies per sample: call draw(), which "
                              "returns it with the rows, or pass n_ref for view sets of a fixed shape.")
-        return self.draw(index, epoch, seed, n_ref)[0]
+        return self.draw(index, epoch, seed, n_ref, balanced)[0]
 
     def __getitem__(self, index: int) -> dict:
         return self.make_sample(*self.draw(index))
@@ -679,7 +1015,7 @@ class MVGenScene(Dataset):
         depth = torch.zeros(len(rows), 1, self.resolution, self.resolution)
         for j in range(n_ref):
             depth[j, 0] = torch.from_numpy(self._load_depth(int(rows[j]))) * factor
-        return {
+        sample = {
             "images": torch.stack(images),
             "K": torch.from_numpy(np.stack(Ks)).float(),
             "w2c": torch.from_numpy(np.linalg.inv(c2w)).float(),
@@ -691,3 +1027,6 @@ class MVGenScene(Dataset):
             "rows": torch.from_numpy(rows),
             "file_keys": sub["file_key"].tolist(),
         }
+        if self.regions is not None:        # only then: a sample of a folder without regions is as it always was
+            sample["region"] = self.region_weights(rows)
+        return sample

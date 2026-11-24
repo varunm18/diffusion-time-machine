@@ -31,6 +31,20 @@ from step 0 in a run folder that already holds a log or checkpoints is refused t
 ``--scale`` is the scene-scale rule for camera translations and depth: ``scene`` (default: one
 factor from the extent of all the scene's cameras, ``scene.json`` of the dataset folder, as in the
 authors' training), ``sample`` (per sample, as in MVGenMaster's demo), or a number (that factor).
+
+Three options strengthen the date's signal; all are off by default, and a run without them trains
+exactly as before they existed (``timemachine/mvgen/trainer.py`` has the details):
+
+* ``--region-weight W``: latent cells inside the changed region (the spire and the roofs) count W
+  times in the loss. Needs ``changed_regions.npz`` in the dataset folder
+  (``scripts/mvgen/prepare_regions.py``).
+* ``--balance-cameras CAP``: the anchors of the training samples are drawn so that a camera says
+  less about its period; CAP is the largest weight an anchor may get.
+* ``--init-from CHECKPOINT``: the new run starts at step 0 from another run's trained weights (its
+  ``latest.pt``: the raw weights). With ``--resume auto`` the same line can be submitted again:
+  once the run has its own ``latest.pt`` it goes on from there and the other checkpoint is not read.
+
+All three are settings of the run: a resumed launch must give them as the run was started.
 """
 from __future__ import annotations
 
@@ -62,6 +76,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     run.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="the released model, relative to the checkout")
     run.add_argument("--resume", help="a latest.pt to continue from, or 'auto': the run's own latest.pt if it "
                                       "exists, else a fresh start")
+    run.add_argument("--init-from", type=Path, default=TrainConfig.init_from,
+                     help="start this NEW run at step 0 with the trained weights of another run's checkpoint "
+                          "(latest.pt: its raw weights; step_XXXXXX.pt: the EMA, if that run kept one). The adapter "
+                          "options (--lora-rank, --lora-targets, --date-freqs, ...) must be that run's; the "
+                          "optimiser, the schedule and the EMA start anew. A resumed run does not read the file "
+                          "again, but the option is one of the run's settings: give it as the run was started")
     run.add_argument("--seed", type=int, default=TrainConfig.seed)
     run.add_argument("--num-workers", type=int, default=TrainConfig.num_workers)
     run.add_argument("--resolution", type=int, default=TrainConfig.resolution)
@@ -109,6 +129,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                            "never for all targets of a view set at once, which is what this rule gives most of "
                            "our samples: see timemachine/mvgen/step.py)")
     loss.add_argument("--cross-date-gap", type=float, default=LossConfig.cross_date_gap)
+    loss.add_argument("--region-weight", type=float, default=LossConfig.region_weight,
+                      help="how many times a latent cell inside the changed region counts in the loss (1: the plain "
+                           "loss). The spire and the roofs are a few percent of a frame, so the plain loss hardly "
+                           "notices a wrong date. Needs changed_regions.npz in the dataset folder "
+                           "(scripts/mvgen/prepare_regions.py); the log then also has the plain loss, and the "
+                           "plain error inside and outside the region")
 
     sampling = p.add_argument_group("view sampling")
     sampling.add_argument("--n-ref", type=int, default=ViewSamplingConfig.n_ref)
@@ -125,6 +151,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     sampling.add_argument("--anchor-period-weights", type=float, nargs="*",
                           help="probability of drawing the targets from each period (default: uniform over anchors)")
     sampling.add_argument("--cross-period-prob", type=float, default=ViewSamplingConfig.cross_period_prob)
+    sampling.add_argument("--balance-cameras", type=float, default=ViewSamplingConfig.balance_cameras,
+                          help="0: off. Otherwise the largest weight an anchor may get when anchors are weighted "
+                               "so that a camera says less about its period: a view whose 15 nearest training "
+                               "views (by position and viewing direction) are mostly of other periods is drawn "
+                               "more often, by one over the share that are of its own. The numbers that help to "
+                               "choose it are printed under the period table at start-up; they are about the "
+                               "anchors. The other targets of a sample are not weighted, so among all targets a "
+                               "camera still says more (timemachine/mvgen/data.py has what was measured: 5 was "
+                               "the cap to use at Notre-Dame)")
     pinned = sampling.add_mutually_exclusive_group()
     pinned.add_argument("--pinned-rows-file", type=Path, help="train on exactly these view sets (JSON, by row)")
     pinned.add_argument("--pinned-keys-file", type=Path, help="train on exactly these view sets (JSON, by file key)")
@@ -186,19 +221,20 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
             min_targets_seen=args.min_targets_seen, top_k=args.top_k, modern_tolerance=args.modern_tolerance,
             old_tolerance=args.old_tolerance, tolerance_boundary=args.tolerance_boundary, period_edges=edges,
             anchor_period_weights=tuple(args.anchor_period_weights) if args.anchor_period_weights else None,
-            cross_period_prob=args.cross_period_prob),
+            cross_period_prob=args.cross_period_prob, balance_cameras=args.balance_cameras),
         loss=LossConfig(
             date_dropout=args.date_dropout, camera_dropout=args.camera_dropout, prior_dropout=args.prior_dropout,
             prior_view_dropout=args.prior_view_dropout, date_jitter=not args.no_date_jitter,
             date_views=args.date_views, class_label=args.class_label, cross_date_pixels=args.cross_date_pixels,
-            cross_date_gap=args.cross_date_gap, precision=args.precision),
+            cross_date_gap=args.cross_date_gap, precision=args.precision, region_weight=args.region_weight),
         finetune=FinetuneConfig(
             date=not args.no_date, date_freqs=args.date_freqs, date_hidden=args.date_hidden, lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha, lora_targets=tuple(args.lora_targets),
             grad_checkpointing=not args.no_grad_checkpointing),
         holdout=HoldoutConfig(fraction=args.holdout_fraction, probe_targets=args.holdout_probe_targets,
                               seed=args.holdout_seed, era_edges=edges),      # held out per period
-        pinned_rows=view_sets(args.dataset, args.pinned_rows_file, args.pinned_keys_file, args.n_ref))
+        pinned_rows=view_sets(args.dataset, args.pinned_rows_file, args.pinned_keys_file, args.n_ref),
+        init_from=None if args.init_from is None else str(args.init_from))
 
 
 def main(argv: list[str] | None = None) -> None:

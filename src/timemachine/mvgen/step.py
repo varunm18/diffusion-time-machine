@@ -46,6 +46,18 @@ velocity target on the target views only. :func:`training_loss` draws what a tra
   The probes and the renderer apply the same rule through the same function
   (:func:`cross_date_drops`), so that a run is evaluated on the inputs it trains on.
 
+Region weight (``LossConfig.region_weight``, 1 by default: off). What a date decides at Notre-Dame, the
+spire and the roofs, is a few percent of a frame, so in the plain loss a wrong date costs almost
+nothing (0.5% of the held-out loss after 4,000 steps, 2.8% inside the changed region for targets
+from before the fire). With a weight ``lambda`` other than 1, every latent cell of a target view
+counts ``w = 1 + (lambda - 1) * m`` times, where ``m`` in [0, 1] is the share of the cell that lies
+where the scene changed (``sample["region"]``, from the dataset folder's regions file:
+``timemachine.mvgen.data``), and the loss is ``sum(w * e) / sum(w)`` over the cells of all targets,
+with ``e`` the squared error averaged over the latent channels (:func:`region_weighted_loss`).
+Nothing else changes: the same random draws, the same forward pass. Such a step also reports the
+plain loss and the plain mean error inside and outside the region, for the log. With ``lambda = 1``
+the step is the one described above, computed by the same code as before the option existed.
+
 Precision. MVGenMaster's gradient is sound under bf16 autocast and in fp32, but not under fp16
 without a gradient scaler (``data/experiments/mvgen/grad_precision.json``), so :class:`LossConfig`
 accepts only ``"bf16"`` and ``"fp32"``. Only the UNet call runs under autocast; the latents, the
@@ -106,8 +118,11 @@ class LossConfig:
     cross_date_pixels: str = "keep"    # one of CROSS_DATE_PIXELS: what cross-date targets lose
     cross_date_gap: float = 1.0        # years between date midpoints beyond which a reference is not "near"
     precision: str = "bf16"            # one of PRECISIONS
+    region_weight: float = 1.0         # loss weight of latent cells inside the changed region (1: the plain loss)
 
     def __post_init__(self):
+        if not self.region_weight > 0:
+            raise ValueError("region_weight must be positive (1: every latent cell counts the same)")
         for name in ("date_dropout", "camera_dropout", "prior_dropout", "prior_view_dropout"):
             if not 0.0 <= getattr(self, name) <= 1.0:
                 raise ValueError(f"{name} must be a probability in [0, 1]")
@@ -349,6 +364,106 @@ def v_prediction_loss(model: MVGen, latents: torch.Tensor, inputs: Inputs, times
     return per_view.mean(), per_view
 
 
+def v_prediction_error_map(model: MVGen, latents: torch.Tensor, inputs: Inputs, timestep: int, noise: torch.Tensor,
+                           year: torch.Tensor | None, valid: torch.Tensor | None, cfg: LossConfig, n_ref: int
+                           ) -> torch.Tensor:
+    """Where in the target views the error of :func:`v_prediction_loss` lies: ``[F - n_ref, h, w]``.
+
+    One value per latent cell of each target view: the squared error between the UNet's output and
+    the velocity target, averaged over the latent channels only. The arguments, the noising and the
+    forward pass are those of :func:`v_prediction_loss`, so the mean of a view's map is that view's
+    entry of ``per_view`` and the mean of the whole map is the loss (up to float rounding: the values
+    are summed in another order; ``tests/test_mvgen_eval.py`` compares the two). It is for scores
+    restricted to a part of the frame (``timemachine.mvgen.evaluation``); training does not call it.
+    """
+    scheduler = model.scheduler
+    if scheduler.config.prediction_type != "v_prediction":
+        raise ValueError(f"the scheduler predicts {scheduler.config.prediction_type!r}, not the velocity")
+    timesteps = torch.tensor([timestep], dtype=torch.long, device=latents.device)
+    noise = noise.to(latents)
+    noisy = scheduler.add_noise(latents, noise, timesteps)
+    noisy = latents * (1 - inputs.latent_masks) + noisy * inputs.latent_masks
+    target = scheduler.get_velocity(latents, noise, timesteps)
+    pred = predict(model, noisy, timesteps, inputs, cfg.class_label, year, valid, cfg.precision)
+    return (pred[0, n_ref:] - target[0, n_ref:].float()).pow(2).mean(dim=1)
+
+
+def v_prediction_loss_and_map(model: MVGen, latents: torch.Tensor, inputs: Inputs, timestep: int, noise: torch.Tensor,
+                              year: torch.Tensor | None, valid: torch.Tensor | None, cfg: LossConfig, n_ref: int
+                              ) -> tuple[torch.Tensor, torch.Tensor]:
+    """The loss of :func:`v_prediction_loss` and the map of :func:`v_prediction_error_map` from ONE forward pass.
+
+    For the callers that need the loss and where it lies: a training step with a region weight, and
+    the date-loss probe on a scene that has changed-region weights. The arguments, the noising and
+    the forward pass are those of the two functions. The loss is computed from the UNet's output
+    with the operations of :func:`v_prediction_loss`, in their order, so it is that function's loss
+    bit for bit and not the mean of the map, which differs from it by rounding
+    (``tests/test_mvgen_signal.py`` compares them).
+
+    Returns:
+        ``(loss, error)``: the mean squared error over the target views, and the squared error of
+        every latent cell of every target, averaged over the latent channels: ``[F - n_ref, h, w]``.
+        Both carry the gradient.
+    """
+    scheduler = model.scheduler
+    if scheduler.config.prediction_type != "v_prediction":
+        raise ValueError(f"the scheduler predicts {scheduler.config.prediction_type!r}, not the velocity")
+    timesteps = torch.tensor([timestep], dtype=torch.long, device=latents.device)
+    noise = noise.to(latents)
+    noisy = scheduler.add_noise(latents, noise, timesteps)
+    noisy = latents * (1 - inputs.latent_masks) + noisy * inputs.latent_masks
+    target = scheduler.get_velocity(latents, noise, timesteps)
+    pred = predict(model, noisy, timesteps, inputs, cfg.class_label, year, valid, cfg.precision)
+    squared = (pred[0, n_ref:] - target[0, n_ref:].float()).pow(2)
+    return squared.flatten(1).mean(1).mean(), squared.mean(dim=1)
+
+
+def target_region(sample: dict, n_ref: int, error: torch.Tensor) -> torch.Tensor:
+    """The changed-region weights of a sample's targets, for the error map ``error``: ``[F - n_ref, h, w]``.
+
+    ``sample["region"]`` (``[F, 1, h, w]``, from ``MVGenScene.make_sample`` when the dataset folder has
+    a regions file) says how much of each latent cell lies where the scene changed, in [0, 1]. The
+    targets' part is returned on the device and in the dtype of ``error``. ``ValueError`` if the
+    sample carries no such weights, or weights of another size than the map.
+    """
+    if "region" not in sample:
+        raise ValueError("the sample carries no changed-region weights ('region'): the dataset folder has no "
+                         "regions file (scripts/mvgen/prepare_regions.py writes it)")
+    region = sample["region"][n_ref:, 0].to(device=error.device, dtype=error.dtype)
+    if region.shape != error.shape:
+        raise ValueError(f"the changed-region weights of the targets are {tuple(region.shape)}, the error map is "
+                         f"{tuple(error.shape)}: the regions file was made for crops of another size")
+    return region
+
+
+def region_means(error: torch.Tensor, region: torch.Tensor) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """The plain mean of an error map inside the changed region and outside it: ``(inside, outside)``.
+
+    ``error`` and ``region`` are ``[T, h, w]`` (:func:`v_prediction_loss_and_map`, :func:`target_region`).
+    A cell counts inside with the share of it that lies in the region and outside with the rest,
+    over the cells of all targets together (as ``timemachine.mvgen.evaluation.area_means`` does).
+    An area that no cell has a part in is None: ``inside`` for targets that do not show the region.
+    """
+    def mean(weight: torch.Tensor) -> torch.Tensor | None:
+        total = weight.sum()
+        return (error * weight).sum() / total if total > 0 else None
+
+    return mean(region), mean(1 - region)
+
+
+def region_weighted_loss(error: torch.Tensor, region: torch.Tensor, weight: float) -> torch.Tensor:
+    """The loss with the changed region counted ``weight`` times: ``sum(w * error) / sum(w)``.
+
+    Every latent cell of every target has the weight ``w = 1 + (weight - 1) * region``: 1 outside the
+    region, ``weight`` inside it, in between for a cell on its border. ``error`` and ``region`` are
+    ``[T, h, w]``. Dividing by ``sum(w)`` keeps the loss a mean, so its size does not depend on how
+    much of the targets the region covers; for targets without any region it is the plain mean of
+    the map. The gradient of a cell's error is ``w / sum(w)`` instead of one over the number of cells.
+    """
+    weights = 1 + (weight - 1) * region
+    return (weights * error).sum() / weights.sum()
+
+
 def training_loss(model: MVGen, sample: dict, cfg: LossConfig, generator: torch.Generator | None = None,
                   period_edges: Sequence[float] = ()) -> tuple[torch.Tensor, dict]:
     """One stochastic loss sample: the VAE posterior draw, timestep, noise, dropout and dates are random.
@@ -358,7 +473,8 @@ def training_loss(model: MVGen, sample: dict, cfg: LossConfig, generator: torch.
 
     Args:
         sample: one view set (section 2.1 of the implementation spec): the keys of :func:`build_inputs` plus
-            ``date`` [F, 2], the views' date intervals, and ``date_mid`` [F].
+            ``date`` [F, 2], the views' date intervals, and ``date_mid`` [F]; with a region weight other
+            than 1 also ``region`` [F, 1, h, w], the views' changed-region weights (:func:`target_region`).
         generator: a CPU generator; everything random is drawn from it, so a seed fixes the step.
         period_edges: the years that separate the scene's periods, for the cross-date rule
             (:func:`cross_date_views`): the run's ``ViewSamplingConfig.period_edges``.
@@ -369,6 +485,13 @@ def training_loss(model: MVGen, sample: dict, cfg: LossConfig, generator: torch.
         lost both priors, at random or as cross-date targets under ``"drop_all"``, or only their warped
         pixels; 0 when all priors were dropped), ``dates_known``, and the size of the date embedding in
         this forward pass, ``date_rms`` and ``date_temb_ratio`` (:func:`date_embedding_size`).
+
+        With ``cfg.region_weight`` other than 1 the loss is the region-weighted one
+        (:func:`region_weighted_loss`; "Region weight" in the module docstring) and ``info`` has three
+        more entries, which are not trained on: ``loss_unweighted``, the plain loss of the same forward
+        pass (what ``loss`` would be with a weight of 1), and ``loss_inside`` and ``loss_outside``, the
+        plain mean error inside and outside the changed region (:func:`region_means`; ``loss_inside``
+        is None when no target of the sample shows the region).
     """
     f, n_ref = _view_counts(sample)
     is_ref = torch.arange(f) < n_ref
@@ -386,10 +509,20 @@ def training_loss(model: MVGen, sample: dict, cfg: LossConfig, generator: torch.
 
     inputs = build_inputs(model, sample, latents, drop_camera=drop_camera, drop_priors=drop_priors,
                           dropped_prior_views=prior_views, dropped_pixel_views=pixel_views)
-    loss, _ = v_prediction_loss(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref)
+    region_info = {}
+    if cfg.region_weight == 1:
+        loss, _ = v_prediction_loss(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref)
+    else:
+        plain, error = v_prediction_loss_and_map(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref)
+        region = target_region(sample, n_ref, error)
+        loss = region_weighted_loss(error, region, cfg.region_weight)
+        inside, outside = region_means(error.detach(), region)
+        region_info = {"loss_unweighted": float(plain.detach()),
+                       "loss_inside": None if inside is None else float(inside),
+                       "loss_outside": None if outside is None else float(outside)}
     info = {"timestep": timestep, "loss": float(loss.detach()), "camera_dropped": drop_camera,
             "priors_dropped": drop_priors,
             "prior_views_dropped": 0 if drop_priors else int(prior_views.sum()),
             "pixel_views_dropped": 0 if drop_priors or pixel_views is None else int(pixel_views.sum()),
-            "dates_known": bool(valid.any()), **date_embedding_size(model)}
+            "dates_known": bool(valid.any()), **date_embedding_size(model), **region_info}
     return loss, info

@@ -67,6 +67,26 @@ def load_view(row, size: int) -> tuple[torch.Tensor, np.ndarray]:
     return undistorted_crop(pixels, K, row.k1, row.k2, left, top, size)
 
 
+def crop_intrinsics(row, size: int) -> np.ndarray:
+    """The intrinsics :func:`load_view` returns for ``row`` at ``size``, without decoding the image.
+
+    For code that draws into a view's crop (masks, projected points) and must land on the same
+    pixels. Only the file's header is read, for the image size :func:`load_view` computes with; the
+    arithmetic is the same (both branches of :func:`load_view` end in the same matrix), and
+    ``tests/test_mvgen_regions.py`` compares the two.
+    """
+    if not (np.isfinite(row.k1) and np.isfinite(row.k2)):
+        raise ValueError(f"{row.file_key}: unsupported lens model (no radial coefficients)")
+    with Image.open(row.image_path) as image:
+        width, height = image.size
+    scale, left, top = resize_and_center_crop_params(width, height, size)
+    new_w, new_h = round(width * scale), round(height * scale)
+    K = intrinsics_matrix(row.fx, row.fy, row.cx, row.cy)
+    K = adjust_intrinsics(K, row.image_width / row.camera_width, row.image_height / row.camera_height)
+    K = adjust_intrinsics(K, new_w / row.image_width, new_h / row.image_height)
+    return adjust_intrinsics(K, 1, 1, left, top)
+
+
 class DatedViewsDataset(Dataset):
     """Random dated samples from the view tables of one or more scenes.
 

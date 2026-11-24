@@ -1220,3 +1220,143 @@ The same checkpoint rendered clean on the nearest *trained* views, which first l
 - **The date learning rate did not matter here.** At 1e-4 the date embedding grew to 0.9–1.1 times the timestep embedding without harming the renders; at 1e-5 it stayed at 0.13 with the same result.
 - **Depth for the whole dataset is done:** 1,205 of 1,314 views have reliable depth (1,019 of the 1,115 usable ones); median disagreement with COLMAP's points 2–3%.
 - The step check varies by up to 0.8% from run to run because it re-estimates depth each time (Depth-Pro is not deterministic on the GPU). Training reads stored depth maps.
+
+**What the 3D priors are worth to the released model** (2026-11-20; `baseline_choices.py --cross-date-pixels`, 11 fixed view sets, fp32, fixed noise; `data/experiments/mvgen/baseline_cross_date/`)
+
+| Loss change against "all priors kept" | Same-period sets (5) | Cross-period sets (4) |
+|---|---|---|
+| Warped pixels dropped for cross-date targets, 3D coordinates kept | +10.7% ± 3.4% | +6.5% ± 1.3% |
+| Both priors dropped for cross-date targets | +10.7% ± 3.4% | +6.6% ± 1.3% |
+| No priors at all (references included) | +20.8% ± 4.8% | +7.0% ± 1.5% |
+
+- **The 3D coordinates alone are worth nothing to the released model.** Keeping them while dropping the warped pixels gives the same loss as dropping both. So option B of the plan (keep coordinates, drop pixels) has no advantage over dropping both at the start of training.
+- **The priors help half as much when the references are from another period** (7% against 21%). The warped pixels then show the wrong state and the wrong light.
+- "Same-period" sets also lose here because the default rule marks a target as cross-date when every reference is more than a year away.
+- Without priors the scene scale matters slightly (factor 1.0 is about 1% better than 0.087); with priors it does not.
+
+**Gate 2 not passed as designed: with two samples the date learns the sky, not the building** (2026-11-20; `data/experiments/mvgen/train/gate2_*`; two fixed samples with the same 3 pre-fire reference photos, one with 5 after-fire targets and one with 5 pre-fire targets)
+
+| Run (800 steps unless noted) | Loss on the two samples | Wrong date costs | Render PSNR, true date vs wrong date |
+|---|---|---|---|
+| Date encoder only (400 steps) | −4.6% | +3.5% | after-fire set 12.3 vs 12.0 dB; pre-fire set 14.0 vs 13.3 dB |
+| Date + LoRA, incl. the layers that read the date | −56% | **+18%** | after-fire set 20.1 vs 19.2 dB; pre-fire set 20.6 vs 20.3 dB |
+
+- **The date is used, and more so the longer it trains:** the loss with a wrong date rises steadily (+0.5% at step 50, +7% at 400, +18% at 800).
+- **But it changes the look, not the structure.** Rendering the after-fire cameras with a 2013 date turns the grey sky blue and leaves the spire missing; rendering the pre-fire cameras with a 2019 date greys the light and leaves the spire standing. Pictures: `gate2_lora32_temb/gate2_set0_summary.jpg`, `gate2_set1_summary.jpg`.
+- **Why:** the two samples have different cameras, so the model can tell them apart, and memorise each building state, without the date. Nothing in a two-sample test forces the state onto the date. What is left for the date is what the cameras do not explain: the photos' light. This is the appearance confound showing up in the smallest possible test.
+- **The date encoder alone has little leverage** on the frozen model (−4.6% loss), and its embedding grew to 3 times the timestep embedding. Adapting the layers that read the date (LoRA on `time_emb_proj`) triples the date's effect at equal steps (wrong-date cost +3.4% vs +1.1% at step 250).
+- **Gate 3 is the real test of state.** Over the whole scene the cameras of the two periods overlap, so only the date (or looks that go with a date, like spring leaves) can say whether the spire stands. `gate3_keep` runs now: 998 training views, 140 held out, date + rank-32 LoRA, 4,000 steps.
+
+**Gate 3, first look (step 1,000 of 4,000): on held-out views the date starts to move the spire** (2026-11-20; `data/experiments/mvgen/train/gate3_keep`; whole scene, 998 training views, 140 held out, date + rank-32 LoRA incl. the layers that read the date, 2 samples per step)
+- **Pictures:** rendering held-out after-fire targets from pre-fire references, the true date fades the spire or removes it; a 2013 date draws it intact. The roof is still there in both. `gate3_keep/step1000_set0_summary.jpg`.
+- **This is the first time a date changes the building, not the look,** and it is on photos the run never trained on.
+- **Whole-image numbers do not show it yet:** PSNR 12.6 dB (true date) vs 12.5 dB (wrong date); a wrong date costs 0.15% in held-out loss. The spire is a few percent of the frame. A score restricted to the spire and roof region is needed to track this.
+- Training and held-out loss fall together (both −3.0% at step 1,000), so the run is not memorising.
+- Second arm running: `gate3_dropall` (both priors dropped for targets from another period than the references). At step 0 this costs the released model 0.4 dB on the after-fire set (12.1 vs 12.5 dB).
+
+**Gate 3 at step 2,000: the model draws both building states, but the date does not choose between them** (2026-11-20; `gate3_keep`, renders of the two gate-2 view sets, whose targets are held out; correction to the entry above)
+- **What the renders show now:** for the after-fire cameras the spire is gone and a dark scaffold-like mass stands in its place, at the true date and at a 2013 date alike, for all 4 noise seeds. For the pre-fire cameras one seed draws the spire and another replaces it by the same dark mass, again at both dates. Pictures: `gate3_keep/step2000_set0_summary.jpg`, `step2000_set1_summary.jpg`, `step2000_seed1_check.jpg`.
+- **Reading:** the adapter has learnt that this scene has two states. Which one it draws follows the cameras and the noise seed. The date effect seen at step 1,000 (spire faded at the true date, intact at 2013) did not grow into control; it was overtaken.
+- **Date guidance at render time does not rescue it:** dropping the date in the unconditional half of guidance (scale 2) gives almost the same renders at both dates (`data/experiments/mvgen/render/gate3_keep_step2000_uncond_unknown`).
+- **Cameras partly give the period away.** A nearest-neighbour vote on camera position and viewing direction predicts before/after the fire for 76% of the 1,038 modern and after-fire views (always guessing "before" gives 61%). After-fire photos were taken from where the public could still stand.
+- **Why the date loses:** it is a perfect cue for the state but a weak one in the loss. The state shows in a few percent of the frame, in about half of the samples (those whose references are from the other period), and a wrong date costs only 0.24% of held-out loss (0.37% on training sets), rising slowly.
+- **Scores:** held-out loss −4.0% and training loss −3.9% at step 2,000 (no memorising). PSNR on the pre-fire set fell from 13.2 to 12.4 dB because of the wrongly removed spires.
+- **Next:** score the changed region directly (in progress), then strengthen the date's signal there: a higher loss weight inside the changed region, or the planned term that makes the true date beat a wrong date. The run continues to 4,000 steps.
+- **Check with 4 noise seeds per date (step 2,000):** the true date does not score higher than the wrong one on either view set, with or without date guidance (after-fire set 12.6 dB true vs 12.8 dB wrong; pre-fire set 11.7 vs 12.0 dB).
+- **PSNR against one real photo falls as the model learns the scene's looks.** On the pre-fire set the released model scores 13.2 dB and the step-2,000 adapter 11.7 dB, although its held-out loss is 4% lower. The released model copies the references' light; the adapter has learnt that a target's light differs from the references' and draws one at random. Without an appearance input, PSNR punishes that. This is a second reason to model appearance: evaluation needs it too.
+
+**Changed-region masks: where the scene differs before and after the fire** (2026-11-20; `timemachine.mvgen.regions`, overlays in `data/mvgen_regions/sheets/`)
+- Built from which dated views observe which COLMAP points; nothing is hand-drawn. A point counts as changed when one period observes it on 3+ days and the other period never does although 3+ of its views should, and nearly all its neighbours are flagged too.
+- **3,822 changed points form one group:** the spire, the three roofs and the scaffold at the crossing (2,610 gone, 1,212 new).
+- Counting observers alone is useless: 23–31% of testable points have no observer on the other side by chance, because after-fire photos cluster on a few days.
+- **Mask size:** median 0.14% of the frame in frontal views; 5–13% in south-west, south, south-east and apse views. The gate views: 6–10% for the pre-fire targets, 8–23% for the after-fire targets.
+- Not handled: trees in front of the building are masked with it; the nave roof is only partly covered in close south-west views; views with a bad COLMAP pose get a misplaced mask (e.g. row 119, a night view).
+
+**Gate 3 at step 4,000 (priors kept): the date begins to flip the state, in some samples** (2026-11-20; `gate3_keep`, picture `gate3_keep/step4000_check.jpg`)
+
+| Step | Held-out loss | Wrong date costs (held-out / training sets) | PSNR after-fire set, true vs wrong date | PSNR pre-fire set, true vs wrong date |
+|---|---|---|---|---|
+| 0 | 0.3721 | 0% / 0% | 12.5 / 12.5 dB | 13.2 / 13.2 dB |
+| 1,000 | −3.0% | +0.15% / +0.19% | 12.6 / 12.5 | 12.9 / 13.1 |
+| 2,000 | −4.0% | +0.24% / +0.37% | 13.0 / 13.1 | 12.4 / 12.6 |
+| 4,000 | −5.0% | +0.49% / +0.67% | 13.3 / 13.2 | 11.9 / 12.1 |
+
+- **Pre-fire cameras, one of two noise seeds:** the true date draws the spire, the 2019 date replaces it by the scaffold. That is the date choosing the state. With the other seed the spire is missing at both dates.
+- **After-fire cameras:** no spire at either date, with both seeds. The cameras decide.
+- **The date's weight grows steadily** (the cost of a wrong date doubled between steps 2,000 and 4,000) but is still small. The run is being continued to 8,000 steps.
+- **Gate 3 is not passed:** on held-out views the true date does not yet beat the wrong one in PSNR on both sets, and the pre-fire set is 1.3 dB below the released model.
+- The second arm (`gate3_dropall`, both priors dropped for cross-period targets) shows no stronger date effect at step 3,000 (+0.2% in loss) and a lower loss gain (−3.6% held-out).
+
+**Scores inside and outside the changed region, gate 3 at step 4,000** (2026-11-20; `scripts/mvgen/eval_dates.py`, 10 held-out view sets: 9 with after-fire targets from pre-fire references, 1 with pre-fire targets; `data/experiments/mvgen/eval_dates/gate3_keep_4000`)
+
+| Targets | Area | Wrong date costs (loss) | PSNR, true − wrong date |
+|---|---|---|---|
+| After the fire (9 sets) | inside the region | +0.66% ± 0.21% | +0.17 ± 0.13 dB |
+| | outside | +0.39% ± 0.06% | +0.08 ± 0.03 dB |
+| Before the fire (1 set) | inside the region | +2.84% | +0.35 dB |
+| | outside | +0.02% | −0.31 dB |
+
+- **The date's effect on the building is real but small,** and it sits where it should: inside the region, and at high noise levels, where structure is decided (+1.1–1.3% at timesteps 700 and 900 against +0.3% at 100–500).
+- **It is four times stronger for pre-fire targets** than for after-fire targets. For after-fire cameras the model draws the burnt state almost whatever the date says.
+- **Outside the region the date changes the look:** for the pre-fire set a 2019 date gives a higher PSNR outside the region than the true date. The date also carries light and season.
+- The standard errors are too small: the 9 after-fire sets share 18 distinct targets.
+- The evaluation and the masks were checked independently (alignment within 0.002 px of the sample's cameras; 97% of the changed points a view observes fall inside its mask, 2.4% of the unchanged ones). Known limits: frontal views have no usable region; only one pre-fire side-view set exists in the hold-out.
+
+**Inside the changed region, over training: after-fire targets gain what pre-fire targets lose** (2026-11-20; same 10 held-out view sets, `data/experiments/mvgen/eval_dates/gate3_keep_{released,1000,2000,4000}`; loss with fixed noise at the true date, PSNR of renders at the true date)
+
+| Checkpoint | After-fire targets, inside: loss / PSNR | Pre-fire targets, inside: loss / PSNR | Wrong date costs, inside (after / pre) | Renders differ between dates, inside / outside |
+|---|---|---|---|---|
+| Released model | 0.463 / 10.2 dB | 0.308 / 13.2 dB | 0% / 0% | 0.012 / 0.011 |
+| Step 1,000 | 0.413 / 10.2 | 0.337 / 12.7 | +0.22% / +0.45% | 0.033 / 0.029 |
+| Step 2,000 | 0.391 / 11.3 | 0.360 / 11.5 | +0.43% / +0.90% | 0.049 / 0.040 |
+| Step 4,000 | 0.379 / 12.1 | 0.371 / 10.5 | +0.66% / +2.84% | 0.059 / 0.041 |
+
+- **The adapter learnt the burnt state:** inside the region, after-fire targets improve by 18% in loss and 2.0 dB (outside the region: 4% and 0.3 dB).
+- **But it applies it to pre-fire targets too:** inside the region they get worse by 21% in loss and 2.7 dB. One state is drawn for this side of the building at any date; the date corrects only a small part of it.
+- **This is the precise sense in which gate 3 fails:** the building's state is learnt but not tied to the date. A date-conditional model would improve the after-fire region without hurting the pre-fire one.
+- The date's effect grows at every checkpoint, inside the region faster than outside, and the renders at two dates differ more inside the region than outside (the released model's floor is 0.012).
+- The second arm (`gate3_dropall`) ended at step 4,000 with a held-out loss gain of −4.3% (priors kept: −5.0%) and a wrong-date cost of +0.33% (priors kept: +0.49%). Dropping the priors for cross-period targets did not help the date.
+- The run with priors kept continues beyond 4,000 steps (at step 4,750: wrong-date cost +0.62% on held-out sets).
+
+**Gate 3 continued to 8,000 steps: the date's weight keeps growing, the pictures barely change** (2026-11-20, read on 2026-11-24; `gate3_keep`, picture `gate3_keep/step8000_check.jpg`)
+
+| Step | Held-out loss | Wrong date costs (held-out) | PSNR after-fire set, true / wrong date | PSNR pre-fire set, true / wrong date |
+|---|---|---|---|---|
+| 4,000 | −5.0% | +0.49% | 13.3 / 13.2 dB | 11.9 / 12.1 dB |
+| 6,000 | −5.8% | +0.94% | 13.5 / 13.2 | 11.7 / 11.8 |
+| 8,000 | −6.2% | +1.18% | 13.5 / 13.3 | 11.3 / 11.4 |
+
+- The cost of a wrong date more than doubled again between steps 4,000 and 8,000, and the true date now wins by 0.26 dB on the after-fire set.
+- The renders look as at step 4,000: after-fire cameras show the burnt state at either date; pre-fire cameras show the date choosing the state with one noise seed and no spire at either date with the other.
+- Plain training is moving in the right direction, slowly.
+
+**Three new training options, to make the date decide the state** (2026-11-20/24; `tests/test_mvgen_signal.py`; all off by default, old runs resume unchanged: checked bit for bit on 10,000 real training draws)
+- **Loss weight inside the changed region** (`--region-weight`, needs `changed_regions.npz` from `scripts/mvgen/prepare_regions.py`): 618 of the 1,115 usable views show the region. A weight of 10 raises the region's share of the loss from 7.9% to 32.7% (after-fire targets 51%, modern 20%), about 4 times, because each sample is divided by its own sum of weights.
+- **Camera-balanced targets** (`--balance-cameras`, the largest weight an anchor may get): anchors whose neighbours in camera space are of mixed periods are drawn more often. It removes only part of the camera's hint: a vote of the 15 nearest cameras predicts the period of drawn targets 74% of the time without it and 63% with a cap of 5 (guessing: 48%), because only the anchor is weighted, not the other four targets.
+- **Start from another run** (`--init-from`): the new objective starts from a trained adapter's raw weights at step 0.
+- The trainer's probe now also prints the cost of a wrong date inside and outside the changed region (when the dataset has the regions file).
+- Known limits: 46 frontal views keep a "region" that is specks on the facade (1.5% of the weight inside regions); the probe's region line sees almost only after-fire targets, so pre-fire targets are scored with `eval_dates.py` and `configs/mvgen_gate3_prefire_heldout.json` (4 more held-out pre-fire view sets).
+- **Runs started 2026-11-24**, all from `gate3_keep` at step 8,000, 2,000 steps each: `gate3_region10` (weight 10), `gate3_region10_bal5` (weight 10, balance 5), and `gate3_keep` continued to 10,000 as the control.
+
+**Correction: at step 8,000 the date does choose the building's state on most held-out view sets** (2026-11-24; `eval_dates.py` on 14 held-out view sets: 9 with after-fire targets from pre-fire references, 5 with pre-fire targets; `data/experiments/mvgen/eval_dates2/gate3_keep_8000`, sheets in its `sheets/` folder)
+
+| Held-out targets | Area | Wrong date costs (loss) | PSNR, true − wrong date | Renders differ between the two dates |
+|---|---|---|---|---|
+| Before the fire (5 sets) | changed region | **+11.7% ± 1.4%** | **+1.49 ± 0.44 dB** | 0.148 |
+| | rest of the frame | +0.6% ± 0.1% | −0.07 ± 0.08 dB | 0.066 |
+| After the fire (9 sets) | changed region | +1.9% ± 0.6% | +0.47 ± 0.19 dB | 0.084 |
+| | rest of the frame | +0.9% ± 0.2% | +0.11 ± 0.07 dB | 0.057 |
+
+- **The earlier reading was too pessimistic.** It rested on the two gate-2 view sets and two noise seeds. Over 14 held-out sets the wrong date costs more inside the region in all 14, and the true date gives the higher PSNR there in 12.
+- **Pictures:** pre-fire cameras rendered at their true dates show spire and roof; at 2019.4 the spire and roof are gone and the scaffold and the white cover over the crossing appear (`sheets/prefire_0.jpg`, `prefire_2.jpg`). After-fire cameras rendered at 2013.4 get the spire and roof back in one set (`sheets/heldout_0.jpg`); in others they stay burnt.
+- **The effect is concentrated where it should be:** inside the changed region and at high noise (after-fire sets, inside: +4.9% at timestep 700 against +0.4% at 100).
+- **It is still uneven:** pre-fire sets +8% to +15% inside the region; after-fire sets 0% to +5%. The two gate-2 sets are among the weakest.
+- **Between steps 4,000 and 8,000 the effect inside the region roughly tripled** on the after-fire sets (+0.66% → +1.9%). For pre-fire targets the step-4,000 figure (+2.8%) is from one set; the same 5 sets are being evaluated at step 4,000.
+- **Open half of the gate:** quality at the true date against the released model on these 14 sets (evaluation queued). On the earlier 10 sets the released model scored 13.2 dB on the one pre-fire set, and this checkpoint scores 11.9 dB on the five.
+- **First sign from the new runs:** 250 steps with region weight 10 and camera balance raise the cost of a wrong date inside the region from +1.8% to +3.3% on the trainer's held-out probe sets; the control is at +1.8% after 500 more plain steps.
+
+**The three new options passed their second independent check** (2026-11-24; sampling, start-from-another-run, resume of old runs; 453 tests pass)
+- No code defect found. The option-off path draws the committed code's samples bit for bit (checked on the samples the running control draws), and all running runs resume from their own checkpoints.
+- **The control is not like-for-like:** continuing `gate3_keep` keeps its optimiser state and its long weight average and draws another seed, while the new runs start fresh from the same weights. A cleaner control, `gate3_init_only` (the region-weight run without the weight), is queued.
+- **Camera balance removes only part of the shortcut:** among the targets the balanced run draws, the camera still separates before from after the fire with AUC 0.71 (0.83 without). After-fire cameras mostly stand where no pre-fire camera stood; no weighting can fix that.
+- Early probes of the new runs are noisy because their weight average is short; they are read at step 2,000 with `eval_dates.py`.

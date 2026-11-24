@@ -12,7 +12,9 @@ the date has a lower loss with the true dates: the relative gaps ``swapped / tru
 reports how much each sample's true-date loss changed since the first evaluation, which is the
 number an overfitting test watches, and how large the date embedding is next to the timestep
 embedding it is added to (``date_temb_ratio``): a gate result is only worth reading while that
-ratio is well below 1.
+ratio is well below 1. Where the dataset folder says where the scene changed (``changed_regions.npz``,
+``timemachine.mvgen.data``), the probe also gives the two gaps inside that region and outside it:
+the whole frame barely registers a change that covers a few percent of it.
 
 **Renders** (:class:`RenderProbe`, slow). A fixed view set is generated with MVGenMaster's sampling
 pipeline (the references' pixels and depth are given, the targets' are not) at several dates and
@@ -61,7 +63,7 @@ from timemachine.data.holdout import era_index
 from timemachine.mvgen.data import MVGenScene, eligible_anchors, sample_rows
 from timemachine.mvgen.step import (
     LossConfig, autocast, build_inputs, cross_date_drops, date_embedding_size, depth_for_priors, encode_images,
-    v_prediction_loss,
+    region_means, target_region, v_prediction_loss, v_prediction_loss_and_map,
 )
 from timemachine.training.loss import shown_dates
 
@@ -72,6 +74,7 @@ PROBE_SAMPLE_SEED = 0           # sampler seed of the probes' view sets, whateve
 PROBE_EPOCH = 1_000_000         # ... drawn in an "epoch" that training never reaches
 DEFAULT_TIMESTEPS = (100, 300, 500, 700, 900)
 DATE_VARIANTS = ("true", "swapped", "unknown")
+REGION_AREAS = ("inside", "outside")    # of the changed region: where the date-loss probe measures besides the frame
 # What a render can be dated with, besides a year: each target's own date, its swapped date, or no date at all.
 RENDER_DATE_WORDS = DATE_VARIANTS
 _HELDOUT_ATTEMPTS = 200         # sampler draws tried per requested held-out view set
@@ -154,9 +157,12 @@ def scene_view_sets(scene: MVGenScene, n: int) -> list[np.ndarray]:
     They come from the views the scene trains on (neither held out nor unusable), and are the same in
     every run with the same sampling settings and hold-out, whatever its training seed. Each has the
     config's ``n_ref`` references, also when training draws that number per sample (``n_ref_choices``).
+    Their anchors are drawn without the camera-balance weights (``ViewSamplingConfig.balance_cameras``),
+    so a run with balanced anchors is measured on the view sets of the same run without them.
     """
     n_ref = scene.config.n_ref
-    return [scene.indices(i, epoch=PROBE_EPOCH, seed=PROBE_SAMPLE_SEED, n_ref=n_ref) for i in range(n)]
+    return [scene.indices(i, epoch=PROBE_EPOCH, seed=PROBE_SAMPLE_SEED, n_ref=n_ref, balanced=False)
+            for i in range(n)]
 
 
 def heldout_view_sets(scene: MVGenScene, n: int) -> list[np.ndarray]:
@@ -277,6 +283,49 @@ def date_loss_summary(losses: dict[str, np.ndarray], baseline: np.ndarray, times
     return summary
 
 
+def region_loss_summary(losses: dict[str, dict[str, np.ndarray]]) -> dict:
+    """What :class:`DateLossProbe` reports about the changed region: per area of ``REGION_AREAS`` a dict, from
+    the area's losses ``[samples, timesteps]`` of each date variant (NaN for a view set without the area).
+
+    * ``sets``: how many view sets have the area (``inside``: at least one target shows the region);
+    * ``loss_true``: the mean true-date loss in the area, over those sets and the timesteps;
+    * ``rel_gap_swapped`` / ``rel_gap_unknown``: the mean of ``loss_variant / loss_true - 1`` over the same
+      (above zero: the true date gives the lower loss in that area);
+    * ``sample_rel_gap_*``: the two gaps per view set (None for a set without the area);
+    * ``rel_gap_*_by_timestep``: the two gaps per timestep (mean over the sets that have the area).
+
+    The numbers of an area that no view set has are None, and its lists hold only None.
+    """
+    summary = {}
+    for area, by_variant in losses.items():
+        true = by_variant["true"]
+        has_area = ~np.isnan(true).any(axis=1)
+        n_sets = int(has_area.sum())
+        of_area: dict = {"sets": n_sets, "loss_true": float(true[has_area].mean()) if n_sets else None}
+        for variant in DATE_VARIANTS[1:]:
+            gap = by_variant[variant] / true - 1                    # NaN in the rows of the sets without the area
+            of_area[f"rel_gap_{variant}"] = float(gap[has_area].mean()) if n_sets else None
+            of_area[f"sample_rel_gap_{variant}"] = [float(value) if has else None
+                                                    for value, has in zip(gap.mean(axis=1), has_area)]
+            of_area[f"rel_gap_{variant}_by_timestep"] = (gap[has_area].mean(axis=0).tolist() if n_sets
+                                                         else [None] * true.shape[1])
+        summary[area] = of_area
+    return summary
+
+
+def region_gap_line(region: dict, samples: int) -> str:
+    """One line for the log on a :func:`region_loss_summary` of ``samples`` view sets: what a wrong and an
+    unknown date cost inside the changed region, and outside it."""
+    def gaps(of_area: dict) -> str:
+        if of_area["sets"] == 0:
+            return "no view set has it"
+        return f"swapped dates {of_area['rel_gap_swapped']:+.2%}, unknown dates {of_area['rel_gap_unknown']:+.2%}"
+
+    inside, outside = region["inside"], region["outside"]
+    return (f"inside the changed region ({inside['sets']} of {samples} view sets show it): {gaps(inside)}; "
+            f"outside: {gaps(outside)}")
+
+
 class DateLossProbe:
     """The targets' loss with true, swapped and unknown dates on fixed view sets, timesteps and noise.
 
@@ -290,6 +339,13 @@ class DateLossProbe:
     The first evaluation's true-date losses are written to ``baseline_path`` and every later
     evaluation, also after a resume, is compared with them. The file also records everything that
     decides those losses (:meth:`identity`), and a baseline measured with anything else is refused.
+
+    On a scene with changed-region weights (``MVGenScene.has_regions``) the three losses are also
+    measured inside and outside the changed region, from the same forward passes
+    (``step.v_prediction_loss_and_map``), and the result has one more entry, ``region``
+    (:func:`region_loss_summary`). Everything else is as on a scene without them: the same losses to
+    the bit, the same files, the same baseline. The probe always measures the plain loss, also for
+    a run that trains with a region weight.
 
     Args:
         scene: where the view sets are loaded from, with its scene-scale rule; they are kept in memory
@@ -311,6 +367,7 @@ class DateLossProbe:
         self.period_edges = tuple(float(edge) for edge in scene.config.period_edges)
         self.rows = [[int(row) for row in rows] for rows in view_sets]
         self.samples = [scene.make_sample(np.asarray(rows), n_ref) for rows in self.rows]
+        self.has_regions = scene.has_regions                    # the samples then carry changed-region weights
         self.swapped = [torch.from_numpy(swapped_years(scene.dates[rows], n_ref, self.period_edges,
                                                        swap_years)).float() for rows in self.rows]
         self.last_losses: dict[str, list[list[float]]] = {}     # the latest evaluation's raw losses, per variant
@@ -359,12 +416,16 @@ class DateLossProbe:
 
         Returns :func:`date_loss_summary` of the losses, plus ``date_rms`` and ``date_temb_ratio``: the
         size of the date embedding in the true-date passes, averaged over them
-        (``step.date_embedding_size``; None for a model without a date conditioner).
+        (``step.date_embedding_size``; None for a model without a date conditioner). On a scene with
+        changed-region weights also ``region``: :func:`region_loss_summary` of the losses inside and
+        outside the changed region.
         """
         cfg, n_ref = self.loss_cfg, self.n_ref
         if max(self.timesteps) >= model.scheduler.config.num_train_timesteps or min(self.timesteps) < 0:
             raise ValueError(f"probe timesteps {self.timesteps} are outside the scheduler's training steps")
         losses = {variant: np.zeros((len(self.samples), len(self.timesteps))) for variant in DATE_VARIANTS}
+        region_losses = {area: {variant: np.full_like(losses[variant], np.nan) for variant in DATE_VARIANTS}
+                         for area in REGION_AREAS}
         sizes = []
         for i, (sample, swapped) in enumerate(zip(self.samples, self.swapped)):
             is_ref = torch.arange(len(swapped)) < n_ref
@@ -379,7 +440,14 @@ class DateLossProbe:
             for j, timestep in enumerate(self.timesteps):
                 noise = torch.randn(latents.shape, generator=generator)
                 for variant, (year, valid) in dates.items():
-                    loss, _ = v_prediction_loss(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref)
+                    if not self.has_regions:
+                        loss, _ = v_prediction_loss(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref)
+                    else:               # the same loss, and where it lies, from the one forward pass
+                        loss, error = v_prediction_loss_and_map(model, latents, inputs, timestep, noise, year, valid,
+                                                                cfg, n_ref)
+                        for area, mean in zip(REGION_AREAS, region_means(error, target_region(sample, n_ref, error))):
+                            if mean is not None:
+                                region_losses[area][variant][i, j] = float(mean)
                     losses[variant][i, j] = float(loss)
                     if variant == "true":
                         sizes.append(date_embedding_size(model))
@@ -388,6 +456,8 @@ class DateLossProbe:
         for name in ("date_rms", "date_temb_ratio"):
             measured = [size[name] for size in sizes if size[name] is not None]
             summary[name] = float(np.mean(measured)) if measured else None
+        if self.has_regions:
+            summary["region"] = region_loss_summary(region_losses)
         return summary
 
 

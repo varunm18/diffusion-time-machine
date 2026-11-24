@@ -88,6 +88,23 @@ class FinetuneConfig:
             raise ValueError("lora_rank > 0 needs lora_targets")
 
 
+def adapter_settings(cfg: FinetuneConfig) -> dict:
+    """What of a :class:`FinetuneConfig` decides which trainable weights a model has and what they compute.
+
+    The date embedding's shape (if attached) and LoRA's rank, scale and targets (if attached); not
+    gradient checkpointing, which changes how the gradient is computed and nothing else. Two runs
+    with equal settings can exchange their trainable weights: this is what a run that starts from
+    another run's checkpoint is checked by (``TrainConfig.init_from``).
+    """
+    settings: dict = {"date": cfg.date, "lora": cfg.lora_rank > 0}
+    if cfg.date:
+        settings.update(date_freqs=cfg.date_freqs, date_hidden=cfg.date_hidden)
+    if cfg.lora_rank > 0:
+        alpha = cfg.lora_rank if cfg.lora_alpha is None else cfg.lora_alpha         # None: alpha = rank
+        settings.update(lora_rank=cfg.lora_rank, lora_alpha=float(alpha), lora_targets=sorted(cfg.lora_targets))
+    return settings
+
+
 @dataclass
 class MVGen:
     """MVGenMaster's parts as training and sampling use them, plus the date conditioner once attached."""

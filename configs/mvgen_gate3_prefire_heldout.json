@@ -1,0 +1,62 @@
+[
+ {
+  "name": "prefire/0",
+  "refs": [
+   "Façade_sud_Cathédrale_Notre-Dame_Paris_11.jpg",
+   "Notre-Dame_de_Paris_(17250753141).jpg",
+   "Notre_Dame_from_the_Seine_01.jpg"
+  ],
+  "targets": [
+   "Notre_Dame_de_Paris_@_Seine_@_Paris_(26115930722).jpg",
+   "Paris_Cathédrale_Notre-Dame_Südliches_Langhaus_05.jpg",
+   "Notre_dame_saa_-_panoramio.jpg",
+   "Notre_Dame_Cathedral,_Paris_-_panoramio.jpg",
+   "Paris_3_June_2016_-_Notre-Dame_de_Paris_13.jpg"
+  ]
+ },
+ {
+  "name": "prefire/1",
+  "refs": [
+   "PA00086250-Notre-Dame-sud.jpg",
+   "Île_de_la_Cité_(30438306655).jpg",
+   "Notre_Dame_from_the_side_(7179056976).jpg"
+  ],
+  "targets": [
+   "Notre_Dame_Cathedral,_Paris_-_panoramio.jpg",
+   "Paris_3_June_2016_-_Notre-Dame_de_Paris_13.jpg",
+   "Notr_Dam.jpg",
+   "Cathédrale_Notre-Dame_de_Paris_2010.jpg",
+   "Paris-Notre-Dame-2.jpg"
+  ]
+ },
+ {
+  "name": "prefire/2",
+  "refs": [
+   "Paris_Cathédrale_Notre-Dame_Südost_4.jpg",
+   "Notre-Dame_et_Quais_(4472165758).jpg",
+   "Notre-Dame_de_Paris,_South_view_20140131_1.jpg"
+  ],
+  "targets": [
+   "Fachada_S._Notre_Dame_08.JPG",
+   "Notre_dame_saa_-_panoramio.jpg",
+   "Paris_Cathédrale_Notre-Dame_Südost_2.jpg",
+   "Notr_Dam.jpg",
+   "Paris_3_June_2016_-_Notre-Dame_de_Paris_13.jpg"
+  ]
+ },
+ {
+  "name": "prefire/3",
+  "refs": [
+   "Notre_Dame_de_Paris_au_printemps.JPG",
+   "Paris_Cathédrale_Notre-Dame_Chor_12.jpg",
+   "Notre-Dame_et_Quais_(4472165758).jpg"
+  ],
+  "targets": [
+   "Paris_Cathédrale_Notre-Dame_Südliches_Langhaus_05.jpg",
+   "Notre_Dame_de_Paris_@_Seine_@_Paris_(26115930722).jpg",
+   "Fachada_S._Notre_Dame_08.JPG",
+   "Cathédrale_Notre-Dame_de_Paris_2010.jpg",
+   "Paris_Cathédrale_Notre-Dame_Südost_2.jpg"
+  ]
+ }
+]

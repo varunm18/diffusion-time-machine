@@ -15,4 +15,7 @@ Modules:
 * :mod:`~timemachine.mvgen.data`     dated view sets of a scene, with depth and co-visibility sampling
 * :mod:`~timemachine.mvgen.trainer`  the training loop
 * :mod:`~timemachine.mvgen.probes`   fixed evaluations: loss with true / wrong / unknown dates, renders
+* :mod:`~timemachine.mvgen.regions`  where the scene changed at a period edge: changed points, masks per view
+* :mod:`~timemachine.mvgen.evaluation`  those evaluations inside and outside the changed region, for a run's
+  checkpoint or the released model (``scripts/mvgen/eval_dates.py``)
 """

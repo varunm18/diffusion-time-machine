@@ -72,9 +72,45 @@ mean square in the logged training steps, and ``date_temb_ratio``, its ratio to 
 embedding (``timemachine.mvgen.step.date_embedding_size``); the date-loss probe reports the same for
 the weights it evaluates. Read a gate's result only while the ratio is well below 1.
 
+**Three options that strengthen the date's signal**, all off by default. Whole-scene training taught
+the model both states of Notre-Dame, but which one it draws followed the cameras and the noise far
+more than the date: the state shows in a few percent of a frame, and a camera alone says for three
+quarters of the views whether they are from before or after the fire.
+
+* ``loss.region_weight`` counts the latent cells inside the changed region that many times in the
+  loss (``timemachine.mvgen.step``, "Region weight"). It needs the dataset folder's
+  ``changed_regions.npz`` (``scripts/mvgen/prepare_regions.py``) and a run refuses to start without
+  it. The training log then also has the plain loss of the same steps (``loss_unweighted``, the one
+  to compare with other runs) and the plain error inside and outside the region. Checkpoints hold a
+  hash of the region weights, and a resumed launch that finds other ones is refused. The probes
+  measure the plain loss whatever the weight.
+* ``sampling.balance_cameras`` draws the anchors of the training samples so that a camera says less
+  about its period (``timemachine.mvgen.data``, "Camera-balanced anchors"). The probes' view sets
+  are drawn without it, so a run with it is measured on the view sets of the same run without it.
+* ``init_from`` starts a NEW run at step 0 from the trained weights of another run's checkpoint, so
+  that a new objective does not have to learn the scene again. The weights are the checkpoint's
+  raw (non-EMA) ones where it holds them, which is in a ``latest.pt``; a ``step_XXXXXX.pt`` holds
+  only the weights its run evaluated, the EMA if it kept one. Which were taken is printed and
+  recorded as ``init_weights`` in ``config.json`` and in every checkpoint. The adapters must be the
+  other run's (``timemachine.mvgen.model.adapter_settings``), which is checked before the model is
+  loaded or anything is written. Everything else starts anew: the optimiser, the schedule with its
+  warm-up, the random state, and the EMA, which starts from the loaded weights. The probes of step
+  0 therefore measure the loaded model, and "since the first evaluation" means since then. A note
+  is printed when the other run had another dataset, scale rule or hold-out
+  (:func:`start_differences`): its training views may be this run's held-out views. Once the run
+  has its own ``latest.pt`` it resumes like any run: ``init_from`` is not read again (the file may
+  be gone), and it is one of the run's settings, so a launch with another one is refused.
+
+With the three at their defaults a run does what it did before they existed, to the bit, and a run
+saved before they existed resumes: its saved configuration lacks them and is read as holding the
+defaults (``ADDED_FIELDS``). A ``changed_regions.npz`` in the dataset folder does not change such a
+run either, except that its date-loss probes then also report the loss gaps inside and outside the
+changed region (one more entry, ``region``, in their log lines, and one more printed line).
+
 A run folder holds::
 
-    config.json                 the TrainConfig, and scale_factor: the scene-scale factor (null: per sample)
+    config.json                 the TrainConfig, and scale_factor: the scene-scale factor (null: per sample);
+                                init_weights for a run that started from another run's weights (init_from)
     log.jsonl                   one line per logged step and per probe evaluation
     pinned.json                 the pinned view sets (pinned runs): rows, file keys, dates, periods
     heldout.json                the views held out of training (runs with a hold-out)
@@ -102,15 +138,17 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from timemachine.data.holdout import HoldoutConfig, era_index, heldout_rows
-from timemachine.mvgen.data import SCALE_RULES, MVGenScene, ViewSamplingConfig, checked_scale, period_names
+from timemachine.mvgen.data import (
+    REGIONS_FILE, SCALE_RULES, MVGenScene, ViewSamplingConfig, checked_scale, period_names,
+)
 from timemachine.mvgen.date import UNCOND_DATES
 from timemachine.mvgen.model import (
-    DEFAULT_MODEL_DIR, FinetuneConfig, MVGen, load_mvgen, load_trainable_state_dict, prepare_for_finetuning,
-    save_checkpoint, trainable_state_dict,
+    DEFAULT_MODEL_DIR, FinetuneConfig, MVGen, adapter_settings, load_mvgen, load_trainable_state_dict,
+    prepare_for_finetuning, save_checkpoint, trainable_state_dict,
 )
 from timemachine.mvgen.probes import (
     DEFAULT_TIMESTEPS, DateLossProbe, RenderProbe, check_view_sets, describe_views, heldout_view_sets,
-    parse_render_date, representative_years, scene_view_sets,
+    parse_render_date, region_gap_line, representative_years, scene_view_sets,
 )
 from timemachine.mvgen.step import LossConfig, training_loss
 
@@ -123,6 +161,17 @@ EMA_WARMUP = 10                 # the EMA's decay at update n is at most (1 + n)
 RESUME_MAY_CHANGE = frozenset({
     "steps", "log_every", "probe_every", "render_every", "save_every", "latest_every", "num_workers",
     "render_rows", "render_dates", "render_seeds", "render_steps", "render_guidance", "render_uncond_dates"})
+# Settings that were added after runs had been saved, each with the value under which the code does exactly what it
+# did before the setting existed. A saved configuration that lacks one of them is read as holding that value, so a
+# run saved by the older code resumes (resume_differences). Every later addition to a config dataclass belongs here.
+ADDED_FIELDS = {"init_from": None, "loss.region_weight": 1.0, "sampling.balance_cameras": 0.0}
+# What a run's config.json holds besides the TrainConfig's fields: the scene-scale factor and, for a run that
+# started from another run's weights (init_from), which weights those were.
+CONFIG_RECORDS = ("scale_factor", "init_weights")
+# The settings (top-level TrainConfig fields) that decide which views a run trains on and at what scale. A run that
+# starts from another run's weights (init_from) is told if they differ from that run's: its held-out views may
+# then be views the weights were trained on. render_rows counts only where the renders' targets are held out.
+START_SHOULD_MATCH = ("dataset", "scale", "holdout", "render_rows")
 
 
 def parse_scale(value: str | float) -> str | float:
@@ -175,8 +224,12 @@ class TrainConfig:
     finetune: FinetuneConfig = FinetuneConfig()
     holdout: HoldoutConfig = HoldoutConfig()        # its era_edges are the strata; use sampling.period_edges
     pinned_rows: tuple[tuple[int, ...], ...] = ()   # train on exactly these view sets (references first), cycled
+    # A checkpoint of another run (latest.pt or step_XXXXXX.pt): the run starts at step 0 with its trained weights.
+    init_from: str | None = None
 
     def __post_init__(self):
+        if self.init_from is not None:
+            object.__setattr__(self, "init_from", str(self.init_from))
         for name in ("pinned_rows", "render_rows"):
             object.__setattr__(self, name, tuple(tuple(int(row) for row in rows) for rows in getattr(self, name)))
             check_view_sets(getattr(self, name), self.sampling.n_ref)
@@ -337,8 +390,14 @@ def resume_differences(saved: dict, current: dict) -> tuple[list[str], list[str]
     ``"name: saved value -> current value"``: the fields that differ and must not, and those that
     differ and may (``RESUME_MAY_CHANGE``). A field that only one of the two has is a conflict:
     the checkpoint was written by another version of the code, under a setting that is not known.
+    The exception are the settings of ``ADDED_FIELDS``: a saved configuration without one was
+    written before the setting existed, when the code did what the setting's recorded default does,
+    so it is compared as holding that default.
     """
     saved, current = flat_config(saved), flat_config(current)
+    for name, default in ADDED_FIELDS.items():
+        if name in current:
+            saved.setdefault(name, default)
     may_change = set(RESUME_MAY_CHANGE)
     if saved.get("holdout.probe_targets") or current.get("holdout.probe_targets"):
         may_change.discard("render_rows")           # the renders' targets are part of the hold-out
@@ -349,6 +408,25 @@ def resume_differences(saved: dict, current: dict) -> tuple[list[str], list[str]
         if before != now:
             (changes if name.split(".")[0] in may_change else conflicts).append(f"{name}: {before!r} -> {now!r}")
     return conflicts, changes
+
+
+def start_differences(source: dict, current: dict) -> list[str]:
+    """In which of the settings of ``START_SHOULD_MATCH`` a run differs from the run whose weights it starts from.
+
+    Both are ``asdict(TrainConfig)``: the checkpoint's and the launch's. Returns
+    ``"name: the other run's value -> this run's"`` per differing setting. The weights can be used all
+    the same, so the trainer only prints them: with another dataset or hold-out, views that this run
+    holds out may be views the weights were trained on, and its held-out probes then do not measure
+    what they say; with another scale rule the cameras are not at the size the adapters learnt.
+    """
+    source, current = flat_config(source), flat_config(current)
+    should_match = set(START_SHOULD_MATCH)
+    if not (source.get("holdout.probe_targets") or current.get("holdout.probe_targets")):
+        should_match.discard("render_rows")
+    missing = "(not recorded)"
+    return [f"{name}: {source.get(name, missing)!r} -> {current.get(name, missing)!r}"
+            for name in sorted(set(source) | set(current))
+            if name.split(".")[0] in should_match and source.get(name, missing) != current.get(name, missing)]
 
 
 def describe_pinned(views: dict, edges: tuple[float, ...]) -> str:
@@ -382,7 +460,9 @@ class Trainer:
     it), ``step`` (optimiser steps done), ``started`` (whether step 0, with its evaluation and its
     ``latest.pt``, is behind the run), ``params`` (the trainable parameters), ``ema``
     (:class:`WeightEMA` or None), ``swap_years`` (one year per period, for swapped dates),
-    ``loss_probes`` (by name) and ``render_probes``.
+    ``loss_probes`` (by name), ``render_probes`` and ``init_weights`` (for a run that started from
+    another run's weights, ``cfg.init_from``: the record ``{"checkpoint", "step", "weights"}`` of
+    where they came from; None for a run of its own start).
     """
 
     def __init__(self, cfg: TrainConfig, model: MVGen | None = None, scene: MVGenScene | None = None,
@@ -390,6 +470,11 @@ class Trainer:
         self.cfg = cfg
         self.run_dir = Path(cfg.run_dir)
         checkpoint = self._checkpoint_to_continue(resume)
+        # init_from only starts a run: a resumed run goes on from its own checkpoint, which says where it started.
+        if checkpoint is None:
+            start_weights, self.init_weights = self._checkpoint_to_start_from()
+        else:
+            start_weights, self.init_weights = None, checkpoint.get("init_weights")
         self.model = model if model is not None else load_mvgen(cfg.model_dir)
         self.scene = scene if scene is not None else MVGenScene(
             cfg.dataset, cfg.sampling, resolution=cfg.resolution, seed=cfg.seed,
@@ -400,6 +485,12 @@ class Trainer:
         self.dataset_fingerprint = self.scene.fingerprint()         # of the folder as this launch found it
         if checkpoint is not None:
             self._check_dataset(checkpoint, resume)
+        if cfg.loss.region_weight != 1 and not self.scene.has_regions:
+            raise ValueError(
+                f"the loss weights the changed region {cfg.loss.region_weight:g} times, but {cfg.dataset} has no "
+                f"changed-region weights for this scene ({REGIONS_FILE}; if the file is there and does not fit, a "
+                "note above says why): run scripts/mvgen/prepare_regions.py on the folder, or train with a region "
+                "weight of 1.")
 
         torch.manual_seed(cfg.seed)                 # the adapters' initial weights depend on the seed alone
         groups = prepare_for_finetuning(self.model, cfg.finetune)
@@ -441,8 +532,14 @@ class Trainer:
               f"precision {cfg.loss.precision}, UNet in {'train' if cfg.finetune.grad_checkpointing else 'eval'}() "
               f"mode (gradient checkpointing {'on' if cfg.finetune.grad_checkpointing else 'off'})\n"
               f"[train] scene scale {cfg.scale!r}: {scale} on camera translations and depth", flush=True)
+        if cfg.loss.region_weight != 1:
+            shown = int(self.scene.regions[self.scene.target_ok].any(axis=(1, 2)).sum())
+            print(f"[train] the loss counts the changed region {cfg.loss.region_weight:g} times: {shown} of the "
+                  f"{int(self.scene.target_ok.sum())} training views show it ({REGIONS_FILE})", flush=True)
         if checkpoint is not None:
             self._load_state(checkpoint, resume)
+        elif start_weights is not None:
+            self._start_from(start_weights)
 
     # ------------------------------------------------------------------ set-up
     def _checkpoint_to_continue(self, resume: str | Path | None) -> dict | None:
@@ -479,6 +576,56 @@ class Trainer:
                       "the saved rate, the learning rate jumps to the new curve", flush=True)
         return checkpoint
 
+    def _checkpoint_to_start_from(self) -> tuple[dict | None, dict | None]:
+        """For a new run with ``init_from``: the trainable weights it starts from, and the record of where they
+        come from (``{"checkpoint", "step", "weights"}``: ``init_weights`` in ``config.json`` and the checkpoints).
+        ``(None, None)`` for a run without ``init_from``.
+
+        The weights are the checkpoint's raw ones where it holds them (the ``latest.pt`` of a run with an
+        EMA), otherwise its ``trainable`` entry: the EMA for a run that keeps one, the raw weights for a
+        run that does not; ``weights`` in the record says which (``"raw"`` or ``"ema"``). Raises
+        ``ValueError`` unless the checkpoint's adapters are this run's
+        (``timemachine.mvgen.model.adapter_settings``). Nothing has been loaded or written when this
+        runs. Settings that should match the other run's and do not (:func:`start_differences`) are
+        printed.
+        """
+        path = self.cfg.init_from
+        if path is None:
+            return None, None
+        if not Path(path).is_file():
+            raise ValueError(f"init_from: there is no checkpoint {path}")
+        source = torch.load(path, map_location="cpu", weights_only=False)
+        theirs = adapter_settings(FinetuneConfig(**source["finetune_config"]))
+        ours = adapter_settings(self.cfg.finetune)
+        differing = [f"{name}: {theirs.get(name)!r} -> {ours.get(name)!r}" for name in sorted(set(theirs) | set(ours))
+                     if theirs.get(name) != ours.get(name)]
+        if differing:
+            raise ValueError(
+                f"{path} cannot start this run: its adapters are not this run's, so its weights do not fit "
+                f"(the checkpoint's setting -> this launch's: {'; '.join(differing)}). Launch with the adapters "
+                "of the checkpoint's run.")
+        cautions = start_differences(source.get("train_config", {}), asdict(self.cfg))
+        if cautions:
+            print(f"[train] note: {path} comes from a run with another dataset, scale or hold-out "
+                  f"({'; '.join(cautions)}): views held out here may be views those weights were trained on",
+                  flush=True)
+        if "raw_trainable" in source:
+            state, kind = source["raw_trainable"], "raw"
+        else:
+            state, kind = source["trainable"], source.get("weights", "not recorded")
+        return state, {"checkpoint": str(path), "step": int(source["step"]), "weights": kind}
+
+    def _start_from(self, state: dict) -> None:
+        """Put the weights of :meth:`_checkpoint_to_start_from` on the model. The run still starts at step 0:
+        the EMA starts from these weights, and the optimiser, the schedule and the random state start anew."""
+        load_trainable_state_dict(self.model, state)
+        if self.ema is not None:
+            self.ema.reset()
+        described = {"raw": "the raw (non-EMA) weights", "ema": "the EMA weights (the file holds no raw ones)"}
+        record = self.init_weights
+        print(f"[train] starting at step 0 from {described.get(record['weights'], 'the weights')} of "
+              f"{record['checkpoint']} (step {record['step']} of its run)", flush=True)
+
     def _check_dataset(self, checkpoint: dict, path: str | Path) -> None:
         """Refuse to resume (``ValueError``) unless the dataset folder is still the one ``checkpoint`` was trained on.
 
@@ -486,8 +633,10 @@ class Trainer:
         ``scene.json``, and the views that are drawn from its view table, depth statistics and
         co-visibility. So the scene's ``scale_factor`` and its ``fingerprint()`` must be those in the
         checkpoint; the error names which of the two differs. A checkpoint without a fingerprint
-        cannot be checked and is refused as well. Runs once the scene is open, before anything is
-        written.
+        cannot be checked and is refused as well. A run that trains with a region weight must also
+        find the changed-region weights it started with (the checkpoint's ``region_fingerprint``;
+        other checkpoints have none and are not asked). Runs once the scene is open, before
+        anything is written.
         """
         if "dataset_fingerprint" not in checkpoint:
             raise ValueError(
@@ -502,6 +651,10 @@ class Trainer:
         if checkpoint["dataset_fingerprint"] != self.dataset_fingerprint:
             differing.append("the dataset fingerprint differs (the view table's rows, usable flags, cameras or dates, "
                              "the views with reliable depth, or the co-visibility)")
+        saved_regions = checkpoint.get("region_fingerprint")        # only in runs that train with a region weight
+        if saved_regions is not None and saved_regions != self.scene.region_fingerprint():
+            differing.append(f"the changed-region weights that the run's loss uses differ ({REGIONS_FILE} was made "
+                             "again, or is gone)")
         if differing:
             raise ValueError(
                 f"{self.cfg.dataset} has changed since {path} was written, and resuming would silently continue the "
@@ -515,6 +668,8 @@ class Trainer:
         for name in ("checkpoints", "probes"):
             (self.run_dir / name).mkdir(parents=True, exist_ok=True)
         config = {**asdict(cfg), "scale_factor": self.scene.scale_factor}
+        if self.init_weights is not None:
+            config["init_weights"] = self.init_weights
         (self.run_dir / "config.json").write_text(json.dumps(config, indent=2))
         if self.pinned:
             described = [describe_views(self.scene, rows, n_ref) for rows in cfg.pinned_rows]
@@ -623,6 +778,9 @@ class Trainer:
                   f"{result['loss_true']:.4f} ({result['change']:+.1%} since the first evaluation); swapped dates "
                   f"{result['rel_gap_swapped']:+.2%}, unknown dates {result['rel_gap_unknown']:+.2%}; {size}",
                   flush=True)
+            if "region" in result:              # a scene with changed-region weights
+                print(f"[probe] step {self.step} {name}, {region_gap_line(result['region'], result['samples'])}",
+                      flush=True)
 
     def run_render_probes(self) -> None:
         """Render the probes' view sets into ``renders/step_XXXXXX`` and log their PSNR (``probe: "render:<name>"``)."""
@@ -646,12 +804,19 @@ class Trainer:
         its dataset folder (``dataset_fingerprint``: ``MVGenScene.fingerprint``) and its swap years.
         With ``tag`` (``"latest.pt"``) it also holds what resuming needs: the raw weights, the
         optimiser, the schedule, the spike guard's history and the training generator's state.
+        Two entries are only there for the runs they concern: ``region_fingerprint``
+        (``MVGenScene.region_fingerprint``) for a run that trains with a region weight, and
+        ``init_weights`` for a run that started from another run's weights.
         """
         path = self.run_dir / "checkpoints" / (tag or f"step_{self.step:06d}.pt")
         extra = {"precision": self.cfg.loss.precision, "train_config": asdict(self.cfg),
                  "scale": self.cfg.scale, "scale_factor": self.scene.scale_factor,
                  "dataset_fingerprint": self.dataset_fingerprint,
                  "swap_years": list(self.swap_years), "weights": "ema" if self.ema is not None else "raw"}
+        if self.cfg.loss.region_weight != 1:
+            extra["region_fingerprint"] = self.scene.region_fingerprint()
+        if self.init_weights is not None:
+            extra["init_weights"] = self.init_weights
         if tag is not None:
             extra.update(optimizer=self.optimizer.state_dict(), lr_scheduler=self.lr_scheduler.state_dict(),
                          grad_norm_history=list(self.grad_norm_history), generator=self.generator.get_state())
@@ -762,6 +927,11 @@ class Trainer:
         ``window`` has one entry per sample, ``norms`` and ``clipped`` one per update that was made, and
         ``rates`` are the learning rates of the latest step. ``date_rms`` and ``date_temb_ratio`` are the
         means over the window's forward passes (the raw weights, not the EMA; None without a date embedding).
+
+        A run with a region weight logs three more numbers beside its (weighted) ``loss``:
+        ``loss_unweighted``, the plain loss of the same steps, which is the one to compare with other
+        runs; and ``loss_inside`` and ``loss_outside``, the plain mean error inside and outside the
+        changed region (the first over the samples whose targets show the region; None if none does).
         """
         def mean_size(name: str) -> float | None:
             measured = [info[name] for info in window if info[name] is not None]
@@ -778,9 +948,16 @@ class Trainer:
                   "date_rms": mean_size("date_rms"), "date_temb_ratio": mean_size("date_temb_ratio"),
                   **rates, "sec_per_step": seconds / steps,
                   "max_mem_gb": torch.cuda.max_memory_allocated() / 2 ** 30 if torch.cuda.is_available() else 0.0}
+        plain = ""
+        if self.cfg.loss.region_weight != 1:
+            record.update({name: mean_size(name) for name in ("loss_unweighted", "loss_inside", "loss_outside")})
+            inside, outside = (("no sample showed it" if value is None else f"{value:.4f}")
+                               for value in (record["loss_inside"], record["loss_outside"]))
+            plain = (f" (unweighted {record['loss_unweighted']:.4f}; inside the changed region {inside}, outside "
+                     f"{outside})")
         self.log(record)
         norm = "none" if not norms else f"{record['grad_norm_median']:.3g} (max {record['grad_norm_max']:.3g})"
         ratio = record["date_temb_ratio"]
         size = "" if ratio is None else f" date embedding {record['date_rms']:.3g} ({ratio:.3f} of temb)"
-        print(f"[train] step {self.step} loss {record['loss']:.4f} gradient norm {norm}{size} "
+        print(f"[train] step {self.step} loss {record['loss']:.4f}{plain} gradient norm {norm}{size} "
               f"{record['sec_per_step']:.2f} s/step, {record['max_mem_gb']:.1f} GB", flush=True)
