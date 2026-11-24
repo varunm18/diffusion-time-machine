@@ -13,6 +13,10 @@ Conventions (matching Stable Virtual Camera / SEVA):
   (:func:`normalize_cameras`, a port of ``seva/eval.py``).
 * Plücker rays are computed relative to the reference camera (frame 0), as in
   ``seva/geometry.py::get_plucker_coordinates`` (:func:`plucker_rays`).
+* Pixel coordinates follow COLMAP: the top-left pixel's centre is at (0.5, 0.5).
+* Lens distortion: COLMAP's radial models (``SIMPLE_RADIAL``: k1; ``RADIAL``: k1, k2)
+  are removed when images are loaded (:func:`undistorted_crop`), so every view the
+  model sees is a pinhole camera, as SEVA assumes.
 """
 from __future__ import annotations
 
@@ -101,12 +105,53 @@ def adjust_intrinsics(K: np.ndarray, scale_x: float, scale_y: float,
     return K
 
 
+def undistorted_crop(image: torch.Tensor, K: np.ndarray, k1: float, k2: float,
+                     left: float, top: float, size: int) -> tuple[torch.Tensor, np.ndarray]:
+    """Crop a ``size`` x ``size`` window at (left, top) while removing radial distortion.
+
+    Args:
+        image: (3, H, W) float image whose (distorted) pixel intrinsics are ``K``.
+        k1, k2: COLMAP radial coefficients, ``x_d = x (1 + k1 r^2 + k2 r^4)`` in normalized coordinates.
+
+    Returns:
+        The pinhole crop (3, size, size) and its intrinsics (``K`` shifted by the crop).
+        For k1 = k2 = 0 this is exactly the plain crop (bilinear samples at pixel centres).
+    """
+    K_out = adjust_intrinsics(K, 1.0, 1.0, left, top)
+    ys, xs = np.meshgrid(np.arange(size) + 0.5, np.arange(size) + 0.5, indexing="ij")
+    pix = np.stack([xs, ys, np.ones_like(xs)], -1).reshape(-1, 3)
+    xn = pix @ np.linalg.inv(K_out).T                               # undistorted normalized coords
+    r2 = xn[:, 0] ** 2 + xn[:, 1] ** 2
+    xn[:, :2] *= (1 + k1 * r2 + k2 * r2 ** 2)[:, None]              # where that ray lands on the lens
+    src = xn @ K.T                                                  # source pixel coords (corner convention)
+    H, W = image.shape[-2:]
+    grid = np.stack([2 * src[:, 0] / W - 1, 2 * src[:, 1] / H - 1], -1).reshape(1, size, size, 2)
+    out = torch.nn.functional.grid_sample(image[None].float(), torch.from_numpy(grid).to(image.dtype),
+                                          mode="bilinear", padding_mode="border", align_corners=False)
+    return out[0], K_out
+
+
 def normalize_intrinsics(K: np.ndarray, width: int, height: int) -> np.ndarray:
     """Resolution-independent intrinsics (SEVA's expected format)."""
     K = K.copy()
     K[0, :] /= width
     K[1, :] /= height
     return K
+
+
+# ----------------------------------------------------------------------------
+# Camera similarity
+# ----------------------------------------------------------------------------
+def camera_features(c2ws: np.ndarray) -> np.ndarray:
+    """(N, 6) per-camera feature: position (in units of the scene's spread) + viewing direction.
+
+    Euclidean distance between features is a cheap "do these cameras see the same
+    thing" proxy, used to pick nearby views for samples and diverse anchors for posing.
+    """
+    centers = c2ws[:, :3, 3]
+    offsets = centers - np.median(centers, 0)
+    spread = np.median(np.linalg.norm(offsets, axis=1)) or 1.0
+    return np.concatenate([offsets / spread, c2ws[:, :3, 2]], axis=1)
 
 
 # ----------------------------------------------------------------------------

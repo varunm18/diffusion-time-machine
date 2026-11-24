@@ -155,9 +155,54 @@ src/timemachine/
                      resolve (combine evidence), medium (image type), pipeline
   analysis/census.py era counts and the go/no-go gate
   data/              view table, image cache, SEVA camera conventions, sampling, torch Dataset
+  posing/            VGGT-Omega registration of unposed (old) photos
+  model/             date embedding, dated SEVA wrapper, LoRA, gradient checkpointing, loading
+  training/          SEVA-consistent conditioning and loss, evaluation probes, training loop
 scripts/             thin command-line entry points, one per step
 tests/               pytest; fixtures are real Commons pages
 docs/                proposal, literature review, findings log, plans
 ```
 
 See `docs/findings.md` for what we have learned about the data so far.
+
+## Date-conditioned SEVA: training
+
+SEVA's training code is not public; ours lives in `src/timemachine/training/`.
+SEVA stays frozen. Trained, all zero-initialized so step 0 is exactly SEVA:
+- the date conditioning: by default a per-view date scale-and-shift in every ResBlock
+  (`--date-injection film`, `src/timemachine/model/date_film.py`); the older option
+  adds a date vector to SEVA's timestep embedding (`--date-injection timestep`);
+- optionally LoRA adapters on its transformer blocks (`--lora-rank`, 0 = none).
+
+Use `--weighting edm`: the plain noise-prediction loss barely counts the
+high-noise levels where colour and era are decided (`docs/findings.md`).
+
+```bash
+bash scripts/setup_seva.sh                       # SEVA into external/ (once)
+uv pip install -e ".[seva,plots]"
+# Single-scene run on one A6000 (~2.3 s/step, 14 GB):
+SCRIPT=scripts/train_dated_seva.py \
+  ARGS="--dataset data/datasets/25512_model0 --run-name nd_overfit --probes configs/probes_notre_dame.json" \
+  sbatch --time=14:00:00 slurm/seva_gpu.sbatch
+python scripts/plot_training.py data/experiments/train/nd_overfit          # curves.png
+# Full-quality probe renders of a checkpoint (omit --checkpoint for plain SEVA):
+SCRIPT=scripts/render_probes.py ARGS="--dataset data/datasets/25512_model0 \
+  --probes configs/probes_notre_dame.json --checkpoint data/experiments/train/nd_overfit/checkpoints/latest.pt" \
+  sbatch slurm/seva_gpu.sbatch
+```
+
+A run folder (`data/experiments/train/<run>/`) has `config.json`, `log.jsonl`,
+`checkpoints/` and `renders/step_*/` (one contact sheet per probe: the same
+target cameras rendered at several years). Training stops by itself if the probe loss rises
+above 3x its starting value (`--abort-loss-ratio`), or its high-noise error above 1.5x
+(`--abort-x0-ratio`). Training autocasts to bf16, and gradient clipping only catches spikes
+(above 10x the recent median, `--grad-clip-factor`), so the per-noise-level weighting acts.
+
+When a run goes wrong:
+
+```bash
+python scripts/inspect_checkpoint.py <run>/checkpoints/step_002500.pt     # CPU: size of date embedding / LoRA updates
+python scripts/ablate_checkpoint.py <run>/checkpoints/step_002500.pt \
+    --render fire --probes configs/probes_notre_dame.json \
+    --date-scales 0.5 0.25                                               # GPU: loss + renders with LoRA / date module off or shrunk
+```

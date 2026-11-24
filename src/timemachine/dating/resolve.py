@@ -27,6 +27,7 @@ from timemachine.dating.interval import (
 )
 
 UPLOAD_SLACK_DAYS = 2      # page date this close to the upload = probably the upload date
+UPLOAD_CEILING_DAYS = 2    # capture dates may end at most this many days after the upload day starts
 SCAN_GAP_YEARS = 5         # EXIF this much later than historical evidence = digitization
 NARROW_MIN_CONFIDENCE = 0.45
 CONFLICT_MIN_CONFIDENCE = 0.5
@@ -93,7 +94,10 @@ def resolve(
 
     # 1. upload bound (+ medium floor)
     upload = _upload_year(upload_time)
-    ceilings = [x for x in (ceiling_year, None if upload is None else upload + 1 / 365) if x is not None]
+    # Nothing can be taken after the end of the upload day, plus one day for time zones (EXIF is
+    # local time, the upload UTC), plus a hair so float rounding at day ends does not clip.
+    upload_end = None if upload is None else upload + UPLOAD_CEILING_DAYS / 365 + 1e-6
+    ceilings = [x for x in (ceiling_year, upload_end) if x is not None]
     for c in candidates:
         interval = c.interval.clip(lo=floor_year, hi=min(ceilings) if ceilings else None)
         if interval is None:

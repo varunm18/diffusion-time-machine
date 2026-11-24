@@ -80,6 +80,24 @@ def test_old_targets_and_input_gap():
     assert np.all(np.abs(DATES[inputs] - DATES[targets[0]]) > 50)
 
 
+def test_neighbors_keep_samples_spatially_coherent():
+    feats = np.linspace(0, 1, len(DATES))[:, None] * np.array([[1.0, 0, 0]])   # cameras on a line
+    cfg = SamplingConfig(n_inputs=2, n_targets=3, max_neighbors=3)
+    rng = np.random.default_rng(0)
+    for _ in range(30):
+        inputs, targets = sample_views(DATES, cfg, rng, camera_feats=feats)
+        dist = np.abs(feats[:, 0] - feats[targets[0], 0])
+        same = np.flatnonzero(np.abs(DATES - DATES[targets[0]]) <= tolerance(cfg, DATES[targets[0]]))
+        others = np.setdiff1d(same, targets[:1])
+        assert dist[targets[1:]].max() <= np.sort(dist[others])[min(2, len(others) - 1)] + 1e-12
+        pool = np.setdiff1d(np.arange(len(DATES)), targets)
+        assert dist[inputs].max() <= np.sort(dist[pool])[2] + 1e-12
+    with pytest.raises(ValueError):
+        sample_views(DATES, cfg, rng)                       # features required
+    with pytest.raises(ValueError):
+        SamplingConfig(n_inputs=3, n_targets=5, max_neighbors=2)
+
+
 def test_no_eligible_anchor():
     assert len(eligible_anchors(np.array([1900.0, 1950.0, 2000.0]), SamplingConfig())) == 0
 
@@ -95,8 +113,8 @@ def views(tmp_path):
         angle = i * 0.3
         q = [np.cos(angle / 2), 0.0, np.sin(angle / 2), 0.0]
         rows.append(dict(
-            model=0, file_key=f"{i}.jpg", image_path=str(path), image_width=80, image_height=60,
-            camera_width=800, camera_height=600, fx=700.0, fy=700.0, cx=400.0, cy=300.0,
+            scene_id=1, model=0, file_key=f"{i}.jpg", image_path=str(path), image_width=80, image_height=60,
+            camera_width=800, camera_height=600, fx=700.0, fy=700.0, cx=400.0, cy=300.0, k1=0.0, k2=0.0,
             qw=q[0], qx=q[1], qy=q[2], qz=q[3], tx=0.1 * i, ty=0.0, tz=3.0,
             date_lo=np.floor(date), date_hi=np.floor(date) + 1, date_mid=date,
             medium="photo", is_monochrome=date < 1970,
@@ -123,10 +141,18 @@ def test_dataset_is_deterministic_per_epoch(views):
     assert not all(np.array_equal(first, ds.indices(i)) for i in range(5))
 
 
-def test_dataset_rejects_mixed_models(views):
-    views.loc[0, "model"] = 1
-    with pytest.raises(ValueError):
-        DatedViewsDataset(views)
+def test_dataset_samples_one_coordinate_frame_at_a_time(views):
+    other = views.assign(scene_id=2, file_key="b" + views["file_key"])
+    ds = DatedViewsDataset(pd.concat([views, other], ignore_index=True), SamplingConfig(n_inputs=3, n_targets=5),
+                           resolution=16)
+    assert ds.n_groups == 2 and np.allclose(ds.group_weights, 0.5)
+    groups = {int(ds.group[ds.indices(i)][0]) for i in range(40)}
+    assert groups == {0, 1}
+    assert all(len(set(ds.group[ds.indices(i)])) == 1 for i in range(40))
+    with pytest.raises(ValueError):                      # one sample cannot mix scenes
+        ds.make_sample(np.array([0, 1, 2, len(views), 3, 4, 5, 6]), 3)
+    ds.hold_out(ds.group_rows[1])                         # a held-out scene is never sampled
+    assert list(ds.sample_groups) == [0] and all(ds.group[ds.indices(i)].max() == 0 for i in range(20))
 
 
 def test_color_stats_flags_toned_prints_not_color_photos():

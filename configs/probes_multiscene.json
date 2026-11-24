@@ -1,0 +1,144 @@
+[
+  {
+    "name": "notre_dame_fire",
+    "target_range": [
+      2019.3,
+      2025.0
+    ],
+    "input_range": [
+      2010.0,
+      2019.28
+    ],
+    "render_years": [
+      1850,
+      1900,
+      1960,
+      2015,
+      2021,
+      null
+    ],
+    "scene_id": 25512
+  },
+  {
+    "name": "notre_dame_old_from_modern",
+    "target_range": [
+      1855.0,
+      1900.0
+    ],
+    "input_range": [
+      2000.0,
+      2019.28
+    ],
+    "render_years": [
+      1880,
+      1930,
+      2015,
+      2021,
+      null
+    ],
+    "scene_id": 25512
+  },
+  {
+    "name": "notre_dame_modern_from_old",
+    "target_range": [
+      2010.0,
+      2019.28
+    ],
+    "input_range": [
+      1855.0,
+      1945.0
+    ],
+    "render_years": [
+      1880,
+      1930,
+      2015,
+      2021,
+      null
+    ],
+    "scene_id": 25512
+  },
+  {
+    "name": "garnier_old_from_modern",
+    "scene_id": 195324,
+    "target_range": [
+      1875.0,
+      1945.0
+    ],
+    "input_range": [
+      2000.0,
+      2025.0
+    ],
+    "render_years": [
+      1880,
+      1930,
+      2015,
+      null
+    ],
+    "n_inputs": 3,
+    "n_targets": 5,
+    "seed": 0
+  },
+  {
+    "name": "garnier_modern_from_old",
+    "scene_id": 195324,
+    "target_range": [
+      2005.0,
+      2025.0
+    ],
+    "input_range": [
+      1875.0,
+      1945.0
+    ],
+    "render_years": [
+      1880,
+      1930,
+      2015,
+      null
+    ],
+    "n_inputs": 3,
+    "n_targets": 5,
+    "seed": 0
+  },
+  {
+    "name": "sphinx_buried",
+    "scene_id": 131955,
+    "target_range": [
+      1850.0,
+      1925.0
+    ],
+    "input_range": [
+      2000.0,
+      2025.0
+    ],
+    "render_years": [
+      1880,
+      1950,
+      2015,
+      null
+    ],
+    "n_inputs": 3,
+    "n_targets": 5,
+    "seed": 0
+  },
+  {
+    "name": "sydney_construction",
+    "scene_id": 1752,
+    "target_range": [
+      1924.0,
+      1932.0
+    ],
+    "input_range": [
+      2000.0,
+      2025.0
+    ],
+    "render_years": [
+      1928,
+      1960,
+      2015,
+      null
+    ],
+    "n_inputs": 3,
+    "n_targets": 5,
+    "seed": 0
+  }
+]

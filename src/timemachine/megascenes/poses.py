@@ -19,7 +19,7 @@ from timemachine.megascenes.s3 import MegaScenesBucket, reconstruction_key
 
 POSE_COLUMNS = [
     "scene_id", "model", "image_id", "path", "subcat", "file_key",
-    "camera_model", "width", "height", "fx", "fy", "cx", "cy",
+    "camera_model", "width", "height", "fx", "fy", "cx", "cy", "k1", "k2",
     "qw", "qx", "qy", "qz", "tx", "ty", "tz",
 ]
 
@@ -44,7 +44,7 @@ def load_model(bucket: MegaScenesBucket, paths: DataPaths, scene_id: int, model:
         fx, fy, cx, cy = cam.focal_and_center()
         rows.append((
             scene_id, model, im.image_id, im.name, im.name.split("/")[1], file_key(im.name),
-            cam.model, cam.width, cam.height, fx, fy, cx, cy, *im.qvec, *im.tvec,
+            cam.model, cam.width, cam.height, fx, fy, cx, cy, *cam.radial_distortion(), *im.qvec, *im.tvec,
         ))
     return pd.DataFrame(rows, columns=POSE_COLUMNS)
 

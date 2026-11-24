@@ -1,0 +1,63 @@
+{
+ "scene_id": 25512,
+ "fire_start": 2019.2849,
+ "after_fire_from": 2019.2877,
+ "fire_note": "The fire began on the evening of 15 April 2019. Photos dated 15 April (fire_start <= date < after_fire_from) show the fire itself or its smoke, a state that lasted hours: they are excluded from training. Photos from 16 April on show the burnt building and count as after the fire. The earlier boundary, 2019.29, put 68 photos from 15-16 April on the pre-fire side.",
+ "misdated": {
+  "Paris_Notre_Dame_(50029952996).jpg": "dated 2020 but shows the intact spire (upload or scan date)",
+  "Notre_dame_pariss_0429.jpg": "dated 2020 but shows the intact spire",
+  "Catedral_de_Notre_Dam.jpg": "dated 2022 but shows the intact spire",
+  "Paris_Notre_Dame_(50029405458).jpg": "suspect: same uploader and date as a confirmed case",
+  "Notre_dameee_3.jpg": "suspect: same uploader and date as a confirmed case",
+  "Notre_dame_22.jpg": "suspect: same uploader and date as a confirmed case",
+  "Facade_of_Notre-Dame_de_Paris)_-_E._Baldus_LCCN94504044.jpg": "dated 1851 but shows the spire (built 1859)",
+  "Paris_Notre_Dame_(50030214947).jpg": "dated 2020 but shows the intact spire (same uploader and date as 50029952996 above: an upload or scan date)",
+  "Paris_Notre_Dame_(50029952666).jpg": "dated 2020 but shows the intact spire (same uploader and date as 50029952996 above: an upload or scan date)",
+  "Paris_Notre_Dame_from_La_Seine,_(50030209502).jpg": "dated 2020 but shows the intact spire (same uploader and date as 50029952996 above: an upload or scan date)",
+  "Paris_Notre_Dame_(50029953821).jpg": "dated 2020 but shows the intact spire (same uploader and date as 50029952996 above: an upload or scan date)",
+  "Garden_Notre_Dame.jpg": "dated 2020 but shows the intact spire",
+  "20190506_Paris_nd.jpg": "dated 6 April 2019 but shows the burnt building: no spire or roof, scaffolded transept (the name reads 6 May 2019)",
+  "Paris_in_the_1880-s,_photo,_detail.jpg": "dated 2017 (its upload date) but is a street scene of the 1880s"
+ },
+ "misdated_note": "Photos whose recorded date contradicts what they show. A copy of a listed photo under another file name (a member of its duplicate group) is excluded as misdated too.",
+ "montages": {
+  "Notre_Dame-before-the-fire-and-after-the-fire-2019.jpg": "before/after montage: the intact and the burnt building side by side",
+  "Before_and_after_the_fire_Notre_Dame.jpg": "before/after montage: the intact building above the burnt one"
+ },
+ "after_fire_min_confidence": 0.95,
+ "after_fire_verified": [
+  "Notre_Dame,_6_days_after_the_fire_of_2019_01.jpg",
+  "Cathédrale_Notre-Dame_façade_sud_Paris_6.jpg",
+  "Notre_Dame,_6_days_after_the_fire_of_2019,_2.jpg",
+  "Paris_Pont_Saint-Michel_Quai_du_Marché-Neuf_20190422.jpg",
+  "Lise_Leroux_va_\"faire_parler\"_les_pierres_de_Notre-Dame_de_Paris.jpg",
+  "Notre_dame_Paris_after_the_fire.jpg"
+ ],
+ "after_fire_note": "A view dated from after_fire_from on with date_confidence below after_fire_min_confidence is excluded as uncertain_date, unless it is in after_fire_verified (checked by eye on a contact sheet: it shows the burnt building or the works after the fire). Upload and scan dates pass for capture dates there: of the 23 such views in the table, 10 are in misdated and 2 in montages, 6 were verified, and 5 could not be confirmed (old film prints, crowds on the open parvis).",
+ "exclude_before": 1859.0,
+ "exclude_before_note": "The spire was built in 1859. The nine views dated before it are not a usable state: three show the spire, so their dates are wrong (one photograph under two names, in misdated, and one more), two pairs are one photograph each, and what is left is too little to learn from. They are excluded as before_spire.",
+ "duplicates": [
+  [
+   "Notre_Dame,_and_St._Michael_bridge,_Paris,_France,_ca._1890-1900.jpg",
+   "Notre_Dame,_and_St._Michael_bridge,_Paris,_France-LCCN2001698531.jpg"
+  ],
+  [
+   "Edouard-Denis_Baldus_Notre_Dame.jpg",
+   "Édouard_Baldus,_Notre_Dame_de_Paris_-_Getty_Museum.jpg"
+  ],
+  [
+   "Édouard_Baldus,_Notre_Dame_(No._26)_-_Getty_Museum.jpg",
+   "Édouard_Baldus_-_Notre-Dame_de_Paris.jpg"
+  ],
+  [
+   "Paris._Notre-Dame_Cathedral,_ca._1865-ca._1895.jpg",
+   "Noord-_en_westgevel_van_de_Cathédrale_Notre-Dame_in_Parijs_PARIS._La_Cathedrale,_Notre-Dame_(titel_op_object),_RP-F-F01092-J.jpg"
+  ],
+  [
+   "Portaal_van_de_Notre_Dame_te_Parijs_No_344_Paris_(Catherale)_(titel_op_object),_RP-F-F16413.jpg",
+   "Portaal_van_de_Notre-Dame_in_Parijs_Paris_(Cathédrale)_(titel_op_object)_(..)_e_Paris_(titel_op_object),_RP-F-F01210-M.jpg"
+  ]
+ ],
+ "duplicates_note": "Pairs that are the same photograph but escape the automatic rule (a frame, another scan, an album page, date intervals that do not overlap), found by eye. They are chained with the automatic pairs; in each group the first row of the table is kept and the later copies are excluded as duplicate.",
+ "source": "data/scene_choice_2026-11-19/megascenes_notre_dame (measured and independently verified, 2026-11-19); extended after the review of 2026-11-19 (data/mvgen_review: contact sheets confirm_spire.jpg, after_lowconf.jpg, views_668_735_470.jpg, crops_130_595_500_395.jpg, view_885.jpg, old_dups_*.jpg, pre1859.jpg)"
+}
