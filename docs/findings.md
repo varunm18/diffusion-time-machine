@@ -1360,3 +1360,23 @@ The same checkpoint rendered clean on the nearest *trained* views, which first l
 - **The control is not like-for-like:** continuing `gate3_keep` keeps its optimiser state and its long weight average and draws another seed, while the new runs start fresh from the same weights. A cleaner control, `gate3_init_only` (the region-weight run without the weight), is queued.
 - **Camera balance removes only part of the shortcut:** among the targets the balanced run draws, the camera still separates before from after the fire with AUC 0.71 (0.83 without). After-fire cameras mostly stand where no pre-fire camera stood; no weighting can fix that.
 - Early probes of the new runs are noisy because their weight average is short; they are read at step 2,000 with `eval_dates.py`.
+
+**Region weight and camera balance both strengthen the date; with both, the true date wins in 13 of 14 held-out view sets** (2026-11-24; `eval_dates.py` on the same 14 held-out view sets; `data/experiments/mvgen/eval_dates2/`; the two new runs train 2,000 steps from `gate3_keep` at step 8,000)
+
+Inside the changed region:
+
+| Model | Pre-fire targets (5 sets): wrong date costs / PSNR at true date / true − wrong | After-fire targets (9 sets): wrong date costs / PSNR at true date / true − wrong |
+|---|---|---|
+| Released model | 0% / 12.2 dB / 0 | 0% / 10.2 dB / 0 |
+| Plain, step 4,000 | +3.7% / 10.9 / +0.8 dB | +0.7% / 12.1 / +0.2 dB |
+| Plain, step 8,000 | +11.7% / 11.7 / +1.5 | +1.9% / 12.7 / +0.5 |
+| Plain, step 10,000 (control) | +15.1% / 12.0 / +1.8 | +2.5% / 12.8 / +0.6 |
+| 8,000 + 2,000 with region weight 10 | +19.5% / 12.4 / +1.9 | +3.5% / 13.2 / +0.8 |
+| 8,000 + 2,000 with weight 10 and camera balance | **+25.0% / 12.5 / +2.1** | **+7.8% / 12.9 / +1.4** |
+
+- **Both options help, and they add up.** The region weight helps both kinds of target; the camera balance triples the date's effect on after-fire targets (+2.5% → +7.8%), which is where the camera shortcut was strongest.
+- **The damage to pre-fire targets is repaired.** Inside the region they are back above the released model (12.5 against 12.2 dB) while after-fire targets stay 2.8 dB above it. At step 4,000 the pre-fire targets were 1.3 dB below.
+- **With both options the true date gives the higher PSNR inside the region in 13 of 14 sets** and the lower loss in all 14. Pre-fire cameras rendered at 2019.4 lose spire and roof in every view of the gate-2 set that failed before (`eval_dates2/gate3_region10_bal5_2000/sheets/mvgen_gate2_1.jpg`).
+- **Weak case left:** after-fire cameras asked for a pre-fire date. In the gate-2 after-fire set the 2013 date brings back roof and sky but not the spire (`sheets/mvgen_gate2_0.jpg`); in other sets it brings back both. Many after-fire cameras stand where no pre-fire camera stood, so there the model has never seen the intact state.
+- **Whole-frame PSNR at the true date:** after-fire targets 12.6–12.8 dB (released 11.7); pre-fire targets 11.8–11.9 dB (released 12.2). The 0.3–0.4 dB shortfall on pre-fire targets is outside the region: the adapter draws its own light. The loss at the true date is below the released model's everywhere.
+- **Caveat:** the plain control kept its optimiser state, weight average and seed; a like-for-like control (`gate3_init_only`) is running.
