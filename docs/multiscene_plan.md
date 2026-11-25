@@ -709,6 +709,15 @@ Human steps on days 2-5 (Thursday to Sunday) will slip. GPU jobs run unattended.
 
 ## 7. Decisions only the owner can make
 
+> **Owner's answers, 2026-11-25:**
+> - Compute: an H200, several A6000s or several H200s may be used for the 100-scene run (so the 400K-sample budget, or data-parallel training, is open).
+> - VLM: use the existing Qwen3-VL-32B (read-only from the wildnvs folder).
+> - Held-out set: fine as proposed (Garnier, Sydney Harbour Bridge, the Sphinx, Kiyomizu-dera, Hoover Dam held out).
+> - City cap: 3 scenes per city.
+> - Storage: besides the repo, our own subfolders of `/fs/nexus-projects/wildnvs` (169 GB free) and `/fs/vulcan-projects/worldtour` (143 GB free) may be used for data.
+> - Kevin's dataset v1: unknown whether it ran.
+> - The look1 training experiments start overnight.
+
 1. **The deletion.** Answered: approved by the owner; 65 GB free.
 2. **Storage.** May this experiment use up to about 21 GB (40 GB case) or 30 GB (65 GB case)? Compact
    layout (512 crop, 256-px depth, points, no 1024-px sources)? May the remaining about 9 GB be freed
