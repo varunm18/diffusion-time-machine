@@ -1422,3 +1422,22 @@ Inside the changed region:
 - **Corrections to earlier entries:** the "13.2 → 11.9 dB" drop on pre-fire targets compared one view set with five; on the same five sets the released model leads by 0.2–0.4 dB, within noise. 88% of the held-out after-fire views share a capture day and photographer with a training view, so the next fresh run should hold out whole days.
 - **Both judges ranked the designs the same way:** fixed colour statistics with recoloured targets first, the learned encoder second (its own numbers do not yet justify learning), no appearance input last (it needs a mask and a change date per scene).
 - **Related work in the team** (branches `aadhitya/date-shortcut-probe`, `aadhitya/appearance-conditioning`, not merged): across four scenes 14 appearance statistics tell pre-1945 from modern photos at AUC 0.89 and toning a modern photo makes it "old"; removing 7 of the 14 dimensions makes the era unreadable while sunlit-versus-overcast survives; a per-block scale-and-shift pathway for SEVA is written but not wired into training.
+
+## look1: an untrained per-view look code (launched 2026-11-25, 01:42)
+*Spec: four arms on Notre-Dame, fresh from the released model, 10,000 steps each, identical except one factor. Code: commit f10f862. Plan of record and evaluation: `data/look1_build/`, `configs/look1_eval_sets.json`.*
+
+| Arm | Look code | Data | Seed |
+|---|---|---|---|
+| A | no | as is | 0 |
+| A2 | no | as is | 1 (seed replicate: the measured null) |
+| B | yes | as is | 0 |
+| D | yes | colour views turned grey (10%) or sepia (5%) at unchanged dates | 0 |
+
+- **Look code:** 24 numbers per view (colour mean and spread, mean colour of sky, building, vegetation, ground, water, and grey/toned/colour), computed outside the changed region, for references and targets; added to each view's timestep embedding beside the date through a zero-initialised MLP. No loss or sampling tricks (no region weight, no camera balance).
+- **Hold-out:** whole capture days and photographers (132 views in 62 units); every scored evaluation target is held out under the arms' settings. Evaluation: a 2×2 of input period × target period, with a colour-blind state read-out; pre-registered pass lines.
+- **Independent reviews (training and evaluation sides): no defect in the running code.** Notes for reading the results:
+  - B and D start from bit-identical weights and draw the same samples as A; GPU arithmetic differs between jobs by about 1e-4, so A will not match B bit for bit.
+  - The standard errors are too small with so few hold-out units (after-fire targets sit in 8 units): a "2 SE" test rejects 8-13% of the time instead of 5%.
+  - The grey-flag check in R1 cannot pass as written (no decoded render is as grey as a real grey photo); it is not part of the gate.
+  - 12 of the 53 scored targets are by photographers who have training photos in the other period.
+- **Early observation (step 250-350, B):** the look embedding grows faster than the date's (look rms 0.097 against date 0.071 at step 350; together 0.91 of the timestep embedding).
