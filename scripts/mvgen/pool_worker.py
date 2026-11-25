@@ -91,10 +91,12 @@ def job_alive(job: str) -> bool:
     return bool(state.strip())
 
 
-def status(pool: Path, release_stale: bool) -> None:
-    counts = {"waiting": 0, "running": 0, "done": 0, "failed": 0, "stale": 0}
+def status(pool: Path, release_stale: bool, quiet: bool = False) -> dict[str, int]:
+    """Count the pool's tasks by state (and print them unless ``quiet``); a STOP line counts as ``stop``."""
+    counts = {"waiting": 0, "running": 0, "done": 0, "failed": 0, "stale": 0, "stop": 0}
     for task in read_pool(pool):
         if task == "STOP":
+            counts["stop"] = 1
             continue
         folder = claim_dir(pool, task)
         if not folder.exists():
@@ -103,7 +105,8 @@ def status(pool: Path, release_stale: bool) -> None:
             counts["done"] += 1
         elif (folder / "failed").exists():
             counts["failed"] += 1
-            print("failed:", task)
+            if not quiet:
+                print("failed:", task)
         else:
             text = (folder / "owner").read_text() if (folder / "owner").exists() else ""
             job = text.split("job=")[1].split()[0] if "job=" in text else "-"
@@ -111,12 +114,25 @@ def status(pool: Path, release_stale: bool) -> None:
                 counts["running"] += 1
             else:
                 counts["stale"] += 1
-                print("stale:", task)
+                if not quiet:
+                    print("stale:", task)
                 if release_stale:
                     for item in folder.iterdir():
                         item.unlink()
                     folder.rmdir()
-    print(counts)
+    if not quiet:
+        print(counts)
+    return counts
+
+
+def wait_drained(pool: Path, poll: float = 60) -> None:
+    """Return once the pool ends with STOP and none of its tasks waits or runs (stale claims are released)."""
+    while True:
+        counts = status(pool, release_stale=True, quiet=True)
+        if counts["stop"] and counts["waiting"] == 0 and counts["running"] == 0:
+            log(f"pool drained: {counts}")
+            return
+        time.sleep(poll)
 
 
 def main() -> None:
@@ -126,10 +142,15 @@ def main() -> None:
     parser.add_argument("--log-dir", type=Path, default=REPO / "data" / "logs" / "pool")
     parser.add_argument("--status", action="store_true", help="count waiting, running, done and failed tasks")
     parser.add_argument("--release-stale", action="store_true", help="with --status: free claims of dead jobs")
+    parser.add_argument("--wait", action="store_true",
+                        help="only wait until the pool has a STOP line and no task waits or runs")
     args = parser.parse_args()
     pool = args.pool.resolve()
     if args.status:
         status(pool, args.release_stale)
+        return
+    if args.wait:
+        wait_drained(pool)
         return
     args.log_dir.mkdir(parents=True, exist_ok=True)
     run(pool, args.idle_min, args.log_dir)
