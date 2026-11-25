@@ -15,6 +15,12 @@ absent). A sample never mixes scenes. :class:`SceneMixture` adds what a mixture 
   so look1's evaluation sets stay held out); every other scene holds out 10% of its views per era at
   random (``HoldoutConfig(by="view")``), because the component rule needs side views. Whole held-out
   scenes are simply not in the mixture.
+* **Old anchors** (``old_anchor_share``; None, the default, is off). Old photographs are rarely
+  co-visible with enough photographs of their own date, so few of them can anchor a target group (1-20%
+  of a scene's anchors) and old targets are rare. With a share ``s``, a scene whose anchors before the
+  first period edge are drawn less often than ``s`` (and that has at least ``MIN_OLD_ANCHORS`` of them)
+  draws them with probability ``s``; its other periods
+  keep their anchors' proportions. A sampling choice, not part of the look1 recipe.
 * **Look codes.** One standardisation for all scenes (:class:`~timemachine.mvgen.look.LookStats` of the
   training views of every scene together), so a code means the same colours in every scene. Arm D's
   sepia conversion needs tone curves of real toned prints; a scene without toned prints of its own
@@ -38,6 +44,7 @@ from timemachine.mvgen.look import LookStats, TrainingLooks, read_class_maps
 
 DEFAULT_EDGES = (1970.0,)
 KNOWN_EDGES = {25512: (1970.0, 2019.2877)}     # scenes built before scene.json named its edges: Notre-Dame (the fire)
+MIN_OLD_ANCHORS = 10        # old_anchor_share leaves a scene with fewer old anchors than this alone
 LOOK1_HOLDOUT = dict(fraction=0.1, by="component", seed=7, max_unit=12, side_share=0.05, unit_periods=(0,))
 
 
@@ -46,6 +53,21 @@ def scene_edges(folder: Path) -> tuple[float, ...]:
     scene = json.loads((Path(folder) / SCENE_FILE).read_text(encoding="utf-8"))
     edges = scene.get("period_edges", KNOWN_EDGES.get(int(scene["scene_id"]), DEFAULT_EDGES))
     return tuple(float(edge) for edge in edges)
+
+
+def old_first_weights(anchor_period: np.ndarray, n_periods: int, share: float,
+                      min_old: int = MIN_OLD_ANCHORS) -> tuple[float, ...] | None:
+    """``anchor_period_weights`` that draw period 0 (before the first edge) with probability ``share``.
+
+    The other periods keep the proportions of their anchors. None (uniform over anchors) when period 0
+    has fewer than ``min_old`` anchors (a handful of anchors drawn that often would be memorised), when
+    no other period has one, or when period 0's anchors are already drawn at least as often.
+    """
+    counts = np.bincount(anchor_period, minlength=n_periods).astype(np.float64)
+    total, rest = counts.sum(), counts[1:].sum()
+    if counts[0] < min_old or rest == 0 or counts[0] / total >= share:
+        return None
+    return (float(share), *(float((1.0 - share) * c / rest) for c in counts[1:]))
 
 
 @dataclass
@@ -70,6 +92,7 @@ class SceneMixture:
     fixed_shares: Mapping[str, float] = field(default_factory=dict)      # folder name -> share of samples
     look: LookSettings | None = None
     holdout_fraction: float = 0.1
+    old_anchor_share: float | None = None
 
     def __post_init__(self):
         self.scenes: list[MVGenScene] = []
@@ -84,6 +107,9 @@ class SceneMixture:
             else:
                 holdout = HoldoutConfig(fraction=self.holdout_fraction, seed=7)
             scene.hold_out(scene.holdout_rows(holdout))
+            if self.old_anchor_share is not None:
+                scene.config = replace(scene.config, anchor_period_weights=old_first_weights(
+                    scene.period[scene.anchors], len(config.period_edges) + 1, self.old_anchor_share))
             if len(scene.anchors) == 0:
                 print(f"[mixture] {folder.name}: no sample can be drawn after the hold-out; left out", flush=True)
                 continue
@@ -155,8 +181,11 @@ class SceneMixture:
         return sample
 
     def summary(self) -> str:
-        lines = [f"{'scene':40s} {'training':>8s} {'held out':>8s} {'anchors':>7s} {'share':>6s}  edges"]
+        lines = [f"{'scene':40s} {'training':>8s} {'held out':>8s} {'anchors':>7s} {'old':>5s} {'share':>6s}  edges"]
         for name, scene, share in zip(self.names, self.scenes, self.shares):
+            old = int((scene.period[scene.anchors] == 0).sum())
             lines.append(f"{name:40s} {int(scene.target_ok.sum()):8d} {int(scene.heldout.sum()):8d} "
-                         f"{len(scene.anchors):7d} {share:6.3f}  {list(scene.config.period_edges)}")
+                         f"{len(scene.anchors):7d} {old:5d} {share:6.3f}  {list(scene.config.period_edges)}"
+                         + ("" if scene.config.anchor_period_weights is None
+                            else f"  anchor period weights {[round(w, 3) for w in scene.config.anchor_period_weights]}"))
         return "\n".join(lines)

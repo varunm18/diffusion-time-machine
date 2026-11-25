@@ -25,6 +25,9 @@ Launch (one node, N GPUs), from MVGenMaster's checkout with its environment:
 
     torchrun --standalone --nproc_per_node N $REPO/scripts/mvgen/train_multi.py --run-dir <folder> \\
         --scenes-file <file with one dataset folder per line> [--look] ...
+
+Test of the data-parallel logic on ONE GPU: with ``DTM_DDP_SAME_GPU=1`` every rank uses ``cuda:0`` and the
+ranks talk through gloo on CPU copies (NCCL refuses two ranks on one device). Slow; only for tests.
 """
 from __future__ import annotations
 
@@ -86,6 +89,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--medium-grey", type=float, default=0.1)
     p.add_argument("--medium-toned", type=float, default=0.05)
     p.add_argument("--notre-dame-share", type=float, default=0.15)
+    p.add_argument("--old-anchor-share", type=float, default=None,
+                   help="draw anchors from before the first period edge at least this often (default: off)")
     p.add_argument("--lora-rank", type=int, default=32)
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--log-every", type=int, default=25)
@@ -97,14 +102,27 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def all_reduce_mean(flat: torch.Tensor, world: int, on_cpu: bool) -> torch.Tensor:
+    """The mean of ``flat`` over the ranks (through a CPU copy in the one-GPU test mode)."""
+    if on_cpu:
+        host = flat.cpu()
+        dist.all_reduce(host)
+        return host.to(flat.device) / world
+    dist.all_reduce(flat)
+    return flat / world
+
+
 def main() -> None:
     args = parse_args()
     assert_exact_matmul()
     world = int(os.environ.get("WORLD_SIZE", 1))
     rank = int(os.environ.get("RANK", 0))
     local = int(os.environ.get("LOCAL_RANK", 0))
+    same_gpu = os.environ.get("DTM_DDP_SAME_GPU") == "1"      # test mode, see the module docstring
+    if same_gpu:
+        local = 0
     if world > 1:
-        dist.init_process_group("nccl", timeout=timedelta(minutes=90))
+        dist.init_process_group("gloo" if same_gpu else "nccl", timeout=timedelta(minutes=90))
     torch.cuda.set_device(local)
     device = f"cuda:{local}"
     lead = rank == 0
@@ -116,7 +134,8 @@ def main() -> None:
     look = LookSettings(grey=args.medium_grey, toned=args.medium_toned) if args.look else None
     mixture = SceneMixture(folders, ViewSamplingConfig(), seed=args.seed,
                            camera_longest_side=model.config.camera_longest_side,
-                           fixed_shares={NOTRE_DAME: args.notre_dame_share}, look=look)
+                           fixed_shares={NOTRE_DAME: args.notre_dame_share}, look=look,
+                           old_anchor_share=args.old_anchor_share)
     say(f"[multi] {len(mixture.scenes)} scenes, {sum(int(s.target_ok.sum()) for s in mixture.scenes)} training views; "
         f"{world} GPU(s)\n{mixture.summary()}")
 
@@ -225,8 +244,7 @@ def main() -> None:
         grads = [p.grad if p.grad is not None else torch.zeros_like(p) for p in params]
         if world > 1:
             flat = torch.cat([g.reshape(-1) for g in grads])
-            dist.all_reduce(flat)
-            flat /= world
+            flat = all_reduce_mean(flat, world, same_gpu)
             offset = 0
             for p, g in zip(params, grads):
                 p.grad = flat[offset:offset + g.numel()].view_as(g)
@@ -248,7 +266,7 @@ def main() -> None:
             ratio = [w["date_temb_ratio"] for w in window if w["date_temb_ratio"] is not None]
             check = float(sum(p.detach().float().sum() for p in params))
             if world > 1:           # the weights must be the same on every rank
-                t = torch.tensor([check], device=device)
+                t = torch.tensor([check], device="cpu" if same_gpu else device)
                 gathered = [torch.zeros_like(t) for _ in range(world)]
                 dist.all_gather(gathered, t)
                 if max(abs(float(g) - check) for g in gathered) > 1e-3 * max(1.0, abs(check)):
