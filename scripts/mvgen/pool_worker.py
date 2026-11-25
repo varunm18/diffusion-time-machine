@@ -11,6 +11,7 @@ every line before it is claimed. A line is claimed by creating ``<pool>.claims/<
 atomic on NFS too), so each line runs once; ``<hash>/done`` or ``<hash>/failed`` records how it ended and
 ``<hash>/owner`` who ran it. A claim without ``done`` or ``failed`` after its worker died (time limit,
 pre-emption) is stale: ``--release-stale`` removes such claims of dead Slurm jobs so the task runs again.
+A file ``<pool>.stop.<Slurm job id>`` makes that job's workers end after their current task (to free a GPU).
 
     python scripts/mvgen/pool_worker.py --pool data/queue/prep/pool.txt
     python scripts/mvgen/pool_worker.py --pool data/queue/prep/pool.txt --status
@@ -51,7 +52,11 @@ def log(message: str) -> None:
 def run(pool: Path, idle_min: float, log_dir: Path) -> None:
     log(f"worker {owner()} on {pool}")
     idle_since = time.time()
+    stop_file = pool.with_name(f"{pool.name}.stop.{os.environ.get('SLURM_JOB_ID', '-')}")
     while True:
+        if stop_file.exists():          # ask the worker of one job to end after its current task
+            log(f"{stop_file.name} found: stopping")
+            return
         tasks = read_pool(pool)
         claimed = None
         for task in tasks:
