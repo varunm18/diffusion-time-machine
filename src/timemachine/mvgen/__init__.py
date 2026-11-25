@@ -17,5 +17,8 @@ Modules:
 * :mod:`~timemachine.mvgen.probes`   fixed evaluations: loss with true / wrong / unknown dates, renders
 * :mod:`~timemachine.mvgen.regions`  where the scene changed at a period edge: changed points, masks per view
 * :mod:`~timemachine.mvgen.evaluation`  those evaluations inside and outside the changed region, for a run's
-  checkpoint or the released model (``scripts/mvgen/eval_dates.py``)
+  checkpoint or the released model (``scripts/mvgen/eval_dates.py``); experiment look1's read-outs
+* :mod:`~timemachine.mvgen.look`     experiment look1's per-view look code: its 24 statistics, files, standardisation
+  and the training draws (the embedding that feeds it to the UNet is in ``date``)
+* :mod:`~timemachine.mvgen.readout`  look1's colour-blind state read-out: is a picture before or after the fire?
 """

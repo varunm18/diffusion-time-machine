@@ -12,9 +12,16 @@
   Both start as exact no-ops, so at step 0 the model's output equals the released model's: bit for
   bit in fp32 and for a date-only run; a bf16 run with LoRA can differ by rounding (see
   ``LoRALinear`` in ``timemachine/model/lora.py``).
-* A checkpoint (:func:`save_checkpoint`) holds only the trainable parameters and the
-  :class:`FinetuneConfig` needed to rebuild the adapters; :func:`load_finetuned` puts them back on
-  a freshly loaded model.
+* With ``FinetuneConfig.look`` (experiment look1) the date conditioner also carries a per-view look
+  code (``timemachine.mvgen.look``; ``date.LookEmbedding``: 0.67M parameters added to ``temb``, or
+  20.7M in per-ResBlock scale-and-shift heads with ``look_injection="film"``), also an exact no-op at
+  step 0. It is created AFTER the LoRA adapters, so that a run with the look starts with the same date
+  embedding and LoRA weights as the same run without it: every adapter draws its initial weights from
+  the global random state, in the order of creation.
+* A checkpoint (:func:`save_checkpoint`) holds only the trainable parameters, the
+  :class:`FinetuneConfig` needed to rebuild the adapters and, for a model with a look, the
+  standardisation of its look inputs (``look.LookStats``, ``MVGen.look_stats``); :func:`load_finetuned`
+  puts them back on a freshly loaded model.
 
 Like all of ``timemachine.mvgen``, this runs in MVGenMaster's environment with its checkout as the
 working directory: the model's config names its files by relative paths.
@@ -36,7 +43,8 @@ from src.modules.schedulers import get_diffusion_scheduler
 from torch import nn
 
 from timemachine.model.lora import add_lora, load_lora_state_dict, lora_parameters, lora_state_dict
-from timemachine.mvgen.date import DateConditioner, DateEmbedding, temb_width
+from timemachine.mvgen.date import LOOK_INJECTIONS, DateConditioner, DateEmbedding, LookEmbedding, temb_width
+from timemachine.mvgen.look import LOOK_DIM, LookStats
 
 DEFAULT_MODEL_DIR = "check_points/pretrained_model"
 
@@ -58,7 +66,9 @@ DEFAULT_LORA_TARGETS = ("attn1.to_q", "attn1.to_k", "attn1.to_v", "attn1.to_out.
 TIME_PROJ_TARGET = "time_emb_proj"
 
 # Keys that ``save_checkpoint`` writes itself.
-_CHECKPOINT_KEYS = ("finetune_config", "step", "trainable")
+_CHECKPOINT_KEYS = ("finetune_config", "step", "trainable", "look_stats")
+# Prefix of the look's entries in the date conditioner's state dict (DateConditioner.attach_look).
+_LOOK_PREFIX = "look."
 
 
 @dataclass(frozen=True)
@@ -73,6 +83,10 @@ class FinetuneConfig:
     # Name suffixes of the nn.Linear layers to adapt. TIME_PROJ_TARGET may be added to the default ones.
     lora_targets: tuple[str, ...] = DEFAULT_LORA_TARGETS
     grad_checkpointing: bool = True
+    # The per-view look code (timemachine.mvgen.look), carried by the date conditioner: off by default.
+    look: bool = False
+    look_hidden: int = 512              # width of the look MLP's hidden layer
+    look_injection: str = "temb"        # one of date.LOOK_INJECTIONS: added to temb, or "film" per ResBlock
 
     def __post_init__(self):
         if isinstance(self.lora_targets, str):
@@ -86,12 +100,19 @@ class FinetuneConfig:
             raise ValueError("lora_alpha must be positive (or None for alpha = rank)")
         if self.lora_rank > 0 and not self.lora_targets:
             raise ValueError("lora_rank > 0 needs lora_targets")
+        if self.look and not self.date:
+            raise ValueError("the look is carried by the date conditioner: look needs date")
+        if self.look_hidden < 1:
+            raise ValueError("look_hidden must be at least 1")
+        if self.look_injection not in LOOK_INJECTIONS:
+            raise ValueError(f"look_injection must be one of {LOOK_INJECTIONS}")
 
 
 def adapter_settings(cfg: FinetuneConfig) -> dict:
     """What of a :class:`FinetuneConfig` decides which trainable weights a model has and what they compute.
 
-    The date embedding's shape (if attached) and LoRA's rank, scale and targets (if attached); not
+    The date embedding's shape (if attached), LoRA's rank, scale and targets (if attached) and the
+    look's shape and injection (if attached; a model without a look has no entry for it); not
     gradient checkpointing, which changes how the gradient is computed and nothing else. Two runs
     with equal settings can exchange their trainable weights: this is what a run that starts from
     another run's checkpoint is checked by (``TrainConfig.init_from``).
@@ -102,6 +123,8 @@ def adapter_settings(cfg: FinetuneConfig) -> dict:
     if cfg.lora_rank > 0:
         alpha = cfg.lora_rank if cfg.lora_alpha is None else cfg.lora_alpha         # None: alpha = rank
         settings.update(lora_rank=cfg.lora_rank, lora_alpha=float(alpha), lora_targets=sorted(cfg.lora_targets))
+    if cfg.look:
+        settings.update(look=True, look_hidden=cfg.look_hidden, look_injection=cfg.look_injection)
     return settings
 
 
@@ -114,20 +137,33 @@ class MVGen:
     config: EasyDict                        # the released config.yaml
     scheduler: DDPMScheduler                # training noise schedule (v-prediction)
     date: DateConditioner | None = None     # attached by prepare_for_finetuning
+    # How raw look codes are standardised for this model's look (set by the trainer, restored by load_finetuned).
+    look_stats: LookStats | None = None
 
     @property
     def device(self) -> torch.device:
         return next(self.unet.parameters()).device
 
-    def dates(self, year: torch.Tensor, valid: torch.Tensor | None = None, uncond: str = "same"
-              ) -> AbstractContextManager[None]:
-        """Context manager: condition the UNet forward passes inside it on these per-view dates.
+    @property
+    def has_look(self) -> bool:
+        """Whether the date conditioner carries a look (``FinetuneConfig.look``)."""
+        return self.date is not None and self.date.look is not None
 
-        See :meth:`DateConditioner.dates`. Does nothing if the model has no date conditioner.
+    def dates(self, year: torch.Tensor, valid: torch.Tensor | None = None, uncond: str = "same",
+              look: torch.Tensor | None = None, look_known: torch.Tensor | None = None
+              ) -> AbstractContextManager[None]:
+        """Context manager: condition the UNet forward passes inside it on these per-view dates (and looks).
+
+        See :meth:`DateConditioner.dates`: ``look`` ``[N, 24]`` STANDARDISED codes (``look_stats``), ``look_known``
+        ``[N]`` bool; with ``uncond="same"`` (and with ``"unknown"``) both guidance halves get the same looks.
+        Does nothing if the model has no date conditioner; a model without a look ignores the looks, so
+        that the same call serves runs with and without one.
         """
         if self.date is None:
             return nullcontext()
-        return self.date.dates(year, valid, uncond)
+        if not self.has_look:
+            return self.date.dates(year, valid, uncond)
+        return self.date.dates(year, valid, uncond, look=look, look_known=look_known)
 
     def date_stats(self) -> dict[str, float] | None:
         """Sizes in the most recent UNet forward pass: ``{"date_rms": ..., "temb_rms": ...}``.
@@ -194,7 +230,8 @@ def load_mvgen(model_dir: str = DEFAULT_MODEL_DIR, device: str = "cuda") -> MVGe
 def prepare_for_finetuning(model: MVGen, cfg: FinetuneConfig) -> dict[str, list[nn.Parameter]]:
     """Freeze the model, attach the date conditioner and/or LoRA, enable gradient checkpointing.
 
-    Returns the trainable parameters in the groups ``"date"`` and ``"lora"`` (empty when not attached).
+    Returns the trainable parameters in the groups ``"date"``, ``"lora"`` and ``"look"`` (empty when not
+    attached).
 
     MVGenMaster's blocks only checkpoint in training mode, so call ``model.unet.train()`` before
     training (its dropout rates are zero: the mode changes nothing else). Checkpointing runs the
@@ -203,13 +240,14 @@ def prepare_for_finetuning(model: MVGen, cfg: FinetuneConfig) -> dict[str, list[
     left, and other forward passes (a probe, a second loss term) may run in between.
 
     The conditioner is attached before LoRA. Nothing depends on that order, also when
-    :data:`TIME_PROJ_TARGET` is among ``cfg.lora_targets``.
+    :data:`TIME_PROJ_TARGET` is among ``cfg.lora_targets``. The look (``cfg.look``) is created after LoRA,
+    so that the date embedding and LoRA draw the same initial weights with and without it.
     """
     if model.date is not None:
         raise ValueError("the model already has a date conditioner: prepare a freshly loaded model")
     model.unet.requires_grad_(False)
     model.vae.requires_grad_(False)
-    groups: dict[str, list[nn.Parameter]] = {"date": [], "lora": []}
+    groups: dict[str, list[nn.Parameter]] = {"date": [], "lora": [], "look": []}
     if cfg.date:
         embedding = DateEmbedding(temb_width(model.unet), cfg.date_freqs, cfg.date_hidden).to(model.device)
         model.date = DateConditioner(model.unet, embedding)
@@ -217,28 +255,47 @@ def prepare_for_finetuning(model: MVGen, cfg: FinetuneConfig) -> dict[str, list[
     if cfg.lora_rank > 0:
         add_lora(model.unet, cfg.lora_targets, cfg.lora_rank, cfg.lora_alpha)
         groups["lora"] = lora_parameters(model.unet)
+    if cfg.look:                                    # after LoRA: see the docstring
+        look = LookEmbedding(model.date.embedding.out_dim, LOOK_DIM, cfg.look_hidden, cfg.look_injection,
+                             model.date.film_channels() if cfg.look_injection == "film" else ())
+        model.date.attach_look(look.to(model.device))
+        groups["look"] = list(look.parameters())
     if cfg.grad_checkpointing:
         model.unet.enable_gradient_checkpointing()
     return groups
 
 
 def trainable_state_dict(model: MVGen) -> dict[str, dict[str, torch.Tensor]]:
-    """CPU copies of everything that trains: ``{"date": ..., "lora": ...}`` (empty dicts when not attached)."""
-    date = {} if model.date is None else {k: v.detach().cpu().clone() for k, v in model.date.state_dict().items()}
-    return {"date": date, "lora": lora_state_dict(model.unet)}
+    """CPU copies of everything that trains: ``{"date": ..., "lora": ...}`` (empty dicts when not attached), and
+    ``"look"`` for a model with a look (a model without one has no such entry, as before the look existed)."""
+    conditioner = ({} if model.date is None else
+                   {k: v.detach().cpu().clone() for k, v in model.date.state_dict().items()})
+    state = {"date": {k: v for k, v in conditioner.items() if not k.startswith(_LOOK_PREFIX)},
+             "lora": lora_state_dict(model.unet)}
+    if model.has_look:
+        state["look"] = {k[len(_LOOK_PREFIX):]: v for k, v in conditioner.items() if k.startswith(_LOOK_PREFIX)}
+    return state
 
 
 def load_trainable_state_dict(model: MVGen, state: dict[str, dict[str, torch.Tensor]]) -> None:
     """Inverse of :func:`trainable_state_dict`; the model must already have the same adapters."""
+    if bool(state.get("look")) != model.has_look:
+        raise ValueError("the state and the model disagree on the look: "
+                         f"the state {'holds' if state.get('look') else 'has no'} look embedding, the model "
+                         f"{'carries' if model.has_look else 'has no'} look")
     if model.date is not None:
-        model.date.load_state_dict(state["date"])
+        look = {f"{_LOOK_PREFIX}{k}": v for k, v in state.get("look", {}).items()}
+        model.date.load_state_dict({**state["date"], **look})
     elif state["date"]:
         raise ValueError("the state holds a date embedding but the model has no date conditioner")
     load_lora_state_dict(model.unet, state["lora"])
 
 
 def save_checkpoint(path: str | Path, model: MVGen, cfg: FinetuneConfig, step: int, extra: dict | None = None) -> None:
-    """Write the trainable parameters, ``cfg`` and ``step`` (plus ``extra`` entries) to ``path``."""
+    """Write the trainable parameters, ``cfg`` and ``step`` (plus ``extra`` entries) to ``path``.
+
+    A model with a look must have its ``look_stats``, which are written too (``look_stats``: a dict).
+    """
     extra = extra or {}
     clash = sorted(set(extra) & set(_CHECKPOINT_KEYS))
     if clash:
@@ -246,6 +303,10 @@ def save_checkpoint(path: str | Path, model: MVGen, cfg: FinetuneConfig, step: i
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"finetune_config": asdict(cfg), "step": step, "trainable": trainable_state_dict(model), **extra}
+    if model.has_look:
+        if model.look_stats is None:
+            raise ValueError("a model with a look needs its look_stats (how its inputs are standardised) to be saved")
+        payload["look_stats"] = model.look_stats.to_dict()
     tmp = path.with_name(path.name + ".tmp")        # write, then rename: a job killed mid-save keeps the old file
     torch.save(payload, tmp)
     tmp.replace(path)
@@ -253,9 +314,14 @@ def save_checkpoint(path: str | Path, model: MVGen, cfg: FinetuneConfig, step: i
 
 def load_finetuned(checkpoint: str | Path, model_dir: str = DEFAULT_MODEL_DIR, device: str = "cuda"
                    ) -> tuple[MVGen, dict]:
-    """The released model with a checkpoint's adapters attached and loaded (eval mode). Also returns the checkpoint."""
+    """The released model with a checkpoint's adapters attached and loaded (eval mode). Also returns the checkpoint.
+
+    For a checkpoint with a look, ``model.look_stats`` is the standardisation it was trained with.
+    """
     ckpt = torch.load(checkpoint, map_location="cpu", weights_only=False)
     model = load_mvgen(model_dir, device)
     prepare_for_finetuning(model, FinetuneConfig(**ckpt["finetune_config"]))
     load_trainable_state_dict(model, ckpt["trainable"])
+    if "look_stats" in ckpt:
+        model.look_stats = LookStats.from_dict(ckpt["look_stats"])
     return model, ckpt

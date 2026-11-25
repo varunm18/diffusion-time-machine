@@ -107,13 +107,41 @@ defaults (``ADDED_FIELDS``). A ``changed_regions.npz`` in the dataset folder doe
 run either, except that its date-loss probes then also report the loss gaps inside and outside the
 changed region (one more entry, ``region``, in their log lines, and one more printed line).
 
+**Experiment look1: a per-view look code and a hold-out of whole days and photographers**, all off by
+default and, like the three above, recorded in ``ADDED_FIELDS``.
+
+* ``finetune.look`` gives every view its look code (``timemachine.mvgen.look``): 24 colour and medium
+  statistics, standardised with the training views' mean and spread (``look.LookStats``, computed
+  when the run is set up and stored in every checkpoint), through a look embedding that the date
+  conditioner adds with the date (``finetune.look_injection``; ``timemachine.mvgen.date``). It needs the
+  dataset folder's ``look_codes.npz`` (``scripts/mvgen/prepare_look.py``); checkpoints hold a hash of the
+  codes and a resumed launch that finds other ones is refused. The look's draws (class fill,
+  unspecified entries ``loss.look_class_unspecified``, the dropout ``loss.look_dropout`` tied to the date's,
+  arm D's medium conversion ``loss.medium_grey`` / ``loss.medium_toned``) come from generators of their own
+  in the data loader (``look.TrainingLooks``), and the look is created after LoRA: the run draws the same
+  view sets, timesteps, noise and dropouts, from the same initial date and LoRA weights, as the run
+  without it. Its learning rate is ``lr_look``. The training log then has ``look_rms``,
+  ``look_temb_ratio`` and ``sum_temb_ratio`` (date and look together, against ``temb``); its date-loss
+  probes give each view its own look in every variant and add two look variants (``rel_gap_look``:
+  a donor's look from another period against one from the target's period, at the true dates); its
+  renders give each target the references' code (``probes.default_looks``).
+* ``holdout.by = "component"`` holds out whole capture days and photographers
+  (``timemachine.data.holdout``), and ``heldout.json`` then records each held-out view's unit. Its
+  checkpoints hold the held-out rows (the units come from the Commons metadata table, outside the
+  dataset folder), and a resumed launch that holds out other rows is refused.
+* ``probe_within`` adds a date variant to the date-loss probes: each target's date moved WITHIN its
+  period (``within_years``, two years per period; by default the 25th and 75th percentiles of the
+  training dates), the null for the swap across the edge (``rel_gap_within``).
+* ``heldout_probe_keys`` names a keys file (``probes.read_keys_file``) of the held-out probe's view sets,
+  in place of those the sampler draws among the held-out views.
+
 A run folder holds::
 
     config.json                 the TrainConfig, and scale_factor: the scene-scale factor (null: per sample);
                                 init_weights for a run that started from another run's weights (init_from)
     log.jsonl                   one line per logged step and per probe evaluation
     pinned.json                 the pinned view sets (pinned runs): rows, file keys, dates, periods
-    heldout.json                the views held out of training (runs with a hold-out)
+    heldout.json                the views held out of training (runs with a hold-out; by component: with units)
     probes.json                 the probes' view sets and the years used for swapped dates
     probes/<name>_baseline.json, <name>_losses.jsonl    date-loss probe: first evaluation, and all raw losses
     renders/step_XXXXXX/<probe>.jpg, .json
@@ -137,18 +165,19 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-from timemachine.data.holdout import HoldoutConfig, era_index, heldout_rows
+from timemachine.data.holdout import HoldoutConfig, era_index
 from timemachine.mvgen.data import (
     REGIONS_FILE, SCALE_RULES, MVGenScene, ViewSamplingConfig, checked_scale, period_names,
 )
+from timemachine.mvgen.look import LOOK_FILE, LookStats, TrainingLooks, read_class_maps
 from timemachine.mvgen.date import UNCOND_DATES
 from timemachine.mvgen.model import (
     DEFAULT_MODEL_DIR, FinetuneConfig, MVGen, adapter_settings, load_mvgen, load_trainable_state_dict,
     prepare_for_finetuning, save_checkpoint, trainable_state_dict,
 )
 from timemachine.mvgen.probes import (
-    DEFAULT_TIMESTEPS, DateLossProbe, RenderProbe, check_view_sets, describe_views, heldout_view_sets,
-    parse_render_date, region_gap_line, representative_years, scene_view_sets,
+    DEFAULT_TIMESTEPS, DateLossProbe, RenderProbe, check_view_sets, default_looks, describe_views, heldout_view_sets,
+    parse_render_date, read_keys_file, region_gap_line, representative_years, scene_view_sets, within_years,
 )
 from timemachine.mvgen.step import LossConfig, training_loss
 
@@ -164,7 +193,13 @@ RESUME_MAY_CHANGE = frozenset({
 # Settings that were added after runs had been saved, each with the value under which the code does exactly what it
 # did before the setting existed. A saved configuration that lacks one of them is read as holding that value, so a
 # run saved by the older code resumes (resume_differences). Every later addition to a config dataclass belongs here.
-ADDED_FIELDS = {"init_from": None, "loss.region_weight": 1.0, "sampling.balance_cameras": 0.0}
+ADDED_FIELDS = {"init_from": None, "loss.region_weight": 1.0, "sampling.balance_cameras": 0.0,
+                # experiment look1 (2026-11-24): the look code, the hold-out by component, the probes' new variants
+                "lr_look": 1e-4, "probe_within": False, "within_years": None, "heldout_probe_keys": None,
+                "finetune.look": False, "finetune.look_hidden": 512, "finetune.look_injection": "temb",
+                "loss.look_dropout": 0.5, "loss.look_class_unspecified": 0.3, "loss.medium_grey": 0.0,
+                "loss.medium_toned": 0.0, "holdout.by": "view", "holdout.max_unit": 12, "holdout.side_share": 0.05,
+                "holdout.unit_periods": [0]}
 # What a run's config.json holds besides the TrainConfig's fields: the scene-scale factor and, for a run that
 # started from another run's weights (init_from), which weights those were.
 CONFIG_RECORDS = ("scale_factor", "init_weights")
@@ -197,6 +232,7 @@ class TrainConfig:
     steps: int = 10_000                             # optimiser steps
     lr_date: float = 1e-4
     lr_lora: float = 1e-4
+    lr_look: float = 1e-4                           # the look embedding (finetune.look)
     warmup_steps: int = 100                         # linear warm-up of both learning rates
     lr_schedule: str = "cosine"                     # after the warm-up, one of LR_SCHEDULES
     lr_min_ratio: float = 0.05                      # "cosine" decays to this share of the learning rate
@@ -213,6 +249,10 @@ class TrainConfig:
     probe_samples: int = 8                          # view sets per date-loss probe (pinned runs: the pinned sets)
     probe_timesteps: tuple[int, ...] = DEFAULT_TIMESTEPS
     swap_years: tuple[float, ...] | None = None     # one year per period for swapped dates (None: from the data)
+    probe_within: bool = False                      # date-loss probes also move dates within their period
+    # two years per period for those moves, ((a, b), ...) (None: the 25th and 75th percentiles of the training dates)
+    within_years: tuple[tuple[float, float], ...] | None = None
+    heldout_probe_keys: str | None = None           # a keys file of the held-out probe's view sets (None: sampled)
     render_rows: tuple[tuple[int, ...], ...] = ()   # view sets to render (pinned runs: default, the pinned sets)
     render_dates: tuple[str | float, ...] = ("true", "swapped")    # years, or words of probes.RENDER_DATE_WORDS
     render_seeds: tuple[int, ...] = (0, 1)
@@ -230,6 +270,14 @@ class TrainConfig:
     def __post_init__(self):
         if self.init_from is not None:
             object.__setattr__(self, "init_from", str(self.init_from))
+        if self.heldout_probe_keys is not None:
+            object.__setattr__(self, "heldout_probe_keys", str(self.heldout_probe_keys))
+        if self.within_years is not None:
+            object.__setattr__(self, "within_years", tuple(tuple(float(year) for year in pair)
+                                                           for pair in self.within_years))
+            if any(len(pair) != 2 for pair in self.within_years) or \
+                    len(self.within_years) != len(self.sampling.period_edges) + 1:
+                raise ValueError("within_years needs two years for each period of sampling.period_edges")
         for name in ("pinned_rows", "render_rows"):
             object.__setattr__(self, name, tuple(tuple(int(row) for row in rows) for rows in getattr(self, name)))
             check_view_sets(getattr(self, name), self.sampling.n_ref)
@@ -241,8 +289,10 @@ class TrainConfig:
             object.__setattr__(self, "swap_years", tuple(float(year) for year in self.swap_years))
         if self.steps < 1 or self.grad_accum < 1 or self.resolution < 1 or self.log_every < 1:
             raise ValueError("steps, grad_accum, resolution and log_every must be at least 1")
-        if self.lr_date <= 0 or self.lr_lora <= 0:
-            raise ValueError("lr_date and lr_lora must be positive")
+        if self.lr_date <= 0 or self.lr_lora <= 0 or self.lr_look <= 0:
+            raise ValueError("lr_date, lr_lora and lr_look must be positive")
+        if (self.loss.medium_grey or self.loss.medium_toned) and not self.finetune.look:
+            raise ValueError("a medium conversion changes the look code it is trained with: it needs finetune.look")
         if self.lr_schedule not in LR_SCHEDULES:
             raise ValueError(f"lr_schedule must be one of {LR_SCHEDULES}")
         if self.warmup_steps < 0 or not 0.0 <= self.lr_min_ratio <= 1.0:
@@ -341,14 +391,18 @@ class NumberedSamples(Dataset):
     the stream depends on nothing but the scene's seed and ``n``: a resumed run asks for the numbers
     that follow, and data-loading processes need no shared state. The sampler also decides the
     sample's number of references (``ViewSamplingConfig.n_ref_choices``).
+
+    With ``looks`` (a run with the look) each sample also gets its look input, drawn from generators of
+    its own that the same numbers seed (``timemachine.mvgen.look.TrainingLooks``).
     """
 
-    def __init__(self, scene: MVGenScene):
-        self.scene = scene
+    def __init__(self, scene: MVGenScene, looks: TrainingLooks | None = None):
+        self.scene, self.looks = scene, looks
 
     def __getitem__(self, number: int) -> dict:
         epoch, index = divmod(number, len(self.scene))
-        return self.scene.make_sample(*self.scene.draw(index, epoch=epoch))
+        sample = self.scene.make_sample(*self.scene.draw(index, epoch=epoch))
+        return sample if self.looks is None else self.looks(sample, epoch, index)
 
 
 def checkpoint_to_resume(run_dir: str | Path, resume: str | None) -> Path | None:
@@ -460,9 +514,10 @@ class Trainer:
     it), ``step`` (optimiser steps done), ``started`` (whether step 0, with its evaluation and its
     ``latest.pt``, is behind the run), ``params`` (the trainable parameters), ``ema``
     (:class:`WeightEMA` or None), ``swap_years`` (one year per period, for swapped dates),
-    ``loss_probes`` (by name), ``render_probes`` and ``init_weights`` (for a run that started from
+    ``loss_probes`` (by name), ``render_probes``, ``init_weights`` (for a run that started from
     another run's weights, ``cfg.init_from``: the record ``{"checkpoint", "step", "weights"}`` of
-    where they came from; None for a run of its own start).
+    where they came from; None for a run of its own start) and ``looks`` (a run with the look: the
+    ``look.TrainingLooks`` that make its samples' look inputs; None otherwise).
     """
 
     def __init__(self, cfg: TrainConfig, model: MVGen | None = None, scene: MVGenScene | None = None,
@@ -491,13 +546,18 @@ class Trainer:
                 f"changed-region weights for this scene ({REGIONS_FILE}; if the file is there and does not fit, a "
                 "note above says why): run scripts/mvgen/prepare_regions.py on the folder, or train with a region "
                 "weight of 1.")
+        if cfg.finetune.look and not self.scene.has_look:
+            raise ValueError(
+                f"the run gives every view its look code, but {cfg.dataset} has no look codes for this scene "
+                f"({LOOK_FILE}; if the file is there and does not fit, a note above says why): run "
+                "scripts/mvgen/prepare_look.py on the folder.")
 
         torch.manual_seed(cfg.seed)                 # the adapters' initial weights depend on the seed alone
         groups = prepare_for_finetuning(self.model, cfg.finetune)
         if cfg.finetune.grad_checkpointing and (changed := mode_dependent_modules(self.model.unet)):
             raise ValueError("gradient checkpointing needs the UNet in train() mode, which would also change "
                              f"{changed[:5]}: set their dropout rates to 0 or train without checkpointing")
-        rates = {"date": cfg.lr_date, "lora": cfg.lr_lora}
+        rates = {"date": cfg.lr_date, "lora": cfg.lr_lora, "look": cfg.lr_look}
         param_groups = [{"params": groups[name], "lr": rate, "name": name} for name, rate in rates.items()
                         if groups[name]]
         if not param_groups:
@@ -516,6 +576,7 @@ class Trainer:
         check_view_sets([*cfg.pinned_rows, *cfg.render_rows], n_ref, len(self.scene.views))
         if cfg.holdout.active:
             self._hold_out_views()
+        self.looks = self._training_looks() if cfg.finetune.look else None
         self.pinned = [self.scene.make_sample(np.asarray(rows), n_ref) for rows in cfg.pinned_rows]
         self.swap_years = cfg.swap_years or self._swap_years_from_data()
         self.loss_probes = self._loss_probes()
@@ -536,7 +597,14 @@ class Trainer:
             shown = int(self.scene.regions[self.scene.target_ok].any(axis=(1, 2)).sum())
             print(f"[train] the loss counts the changed region {cfg.loss.region_weight:g} times: {shown} of the "
                   f"{int(self.scene.target_ok.sum())} training views show it ({REGIONS_FILE})", flush=True)
+        if self.looks is not None:
+            loss = cfg.loss
+            print(f"[train] look code ({cfg.finetune.look_injection}): standardised with the training views' "
+                  f"statistics; unknown with {loss.look_dropout:g} of the date-dropped samples, class entries "
+                  f"unspecified with probability {loss.look_class_unspecified:g}; medium conversion of colour views: "
+                  f"grey {loss.medium_grey:g}, toned {loss.medium_toned:g}", flush=True)
         if checkpoint is not None:
+            self._check_heldout(checkpoint, resume)
             self._load_state(checkpoint, resume)
         elif start_weights is not None:
             self._start_from(start_weights)
@@ -655,11 +723,24 @@ class Trainer:
         if saved_regions is not None and saved_regions != self.scene.region_fingerprint():
             differing.append(f"the changed-region weights that the run's loss uses differ ({REGIONS_FILE} was made "
                              "again, or is gone)")
+        saved_look = checkpoint.get("look_fingerprint")             # only in runs with the look
+        if saved_look is not None and saved_look != self.scene.look_fingerprint():
+            differing.append(f"the look codes that the run is given differ ({LOOK_FILE} was made again, or is gone)")
         if differing:
             raise ValueError(
                 f"{self.cfg.dataset} has changed since {path} was written, and resuming would silently continue the "
                 f"run on other samples or at another scale: {'; '.join(differing)}. Restore the dataset as the run "
                 "found it, or start a new run folder.")
+
+    def _check_heldout(self, checkpoint: dict, path: str | Path) -> None:
+        """Refuse to resume a hold-out by component (``ValueError``) that now holds out other rows than its checkpoint
+        recorded: its units come from the Commons metadata table, which the dataset fingerprint does not cover.
+        Checkpoints of other runs record no rows and are not asked."""
+        saved = checkpoint.get("heldout_rows")
+        if saved is not None and saved != np.flatnonzero(self.scene.heldout).tolist():
+            raise ValueError(f"the hold-out by component of {self.cfg.dataset} is not the one {path} was trained "
+                             "with (the authors or dates behind its units changed): restore them, or start a new run "
+                             "folder.")
 
     def _write_records(self) -> None:
         """Write what this launch runs with into the run folder: the config, the pinned view sets (which are
@@ -683,6 +764,10 @@ class Trainer:
         if cfg.holdout.active:
             heldout = [{"row": int(row), "file_key": self.scene.views.file_key[row],
                         "year": round(float(self.scene.dates[row]), 4)} for row in np.flatnonzero(self.scene.heldout)]
+            if cfg.holdout.by == "component":           # each view's unit: errors are taken over units, not views
+                units = self.scene.holdout_units(cfg.holdout.unit_periods)
+                for entry in heldout:
+                    entry["unit"] = int(units[entry["row"]])
             (self.run_dir / "heldout.json").write_text(json.dumps(heldout, indent=1))
         (self.run_dir / "probes.json").write_text(json.dumps({
             "swap_years": [None if math.isnan(year) else year for year in self.swap_years],
@@ -690,10 +775,37 @@ class Trainer:
             "renders": [probe.describe() for probe in self.render_probes]}, indent=1))
 
     def _hold_out_views(self) -> None:
-        """Take the hold-out away from the sampler: random views per era and, if asked, the renders' targets."""
+        """Take the hold-out away from the sampler: random views per era or whole units (``holdout.by``) and, if
+        asked, the renders' targets (``MVGenScene.holdout_rows``)."""
         cfg = self.cfg
         targets = [row for rows in cfg.render_rows for row in rows[cfg.sampling.n_ref:]]
-        self.scene.hold_out(heldout_rows(self.scene.dates, cfg.holdout, targets if cfg.holdout.probe_targets else []))
+        self.scene.hold_out(self.scene.holdout_rows(cfg.holdout, targets if cfg.holdout.probe_targets else []))
+        if cfg.holdout.by == "component":
+            names, held = period_names(cfg.sampling.period_edges), self.scene.heldout & self.scene.usable
+            side = self.scene.side_views(cfg.holdout.side_share)
+            units = self.scene.holdout_units(cfg.holdout.unit_periods)
+            counts = "; ".join(f"{name}: {int((held & (self.scene.period == p)).sum())} of "
+                               f"{int((self.scene.usable & (self.scene.period == p)).sum())} views "
+                               f"({int((held & side & (self.scene.period == p)).sum())} side views) in "
+                               f"{len(np.unique(units[held & (self.scene.period == p)]))} units"
+                               for p, name in enumerate(names))
+            print(f"[train] held out by day-and-photographer component (seed {cfg.holdout.seed}): {counts}", flush=True)
+
+    def _training_looks(self) -> TrainingLooks:
+        """The look inputs of the training samples (``look.TrainingLooks``), standardised with the statistics of the
+        views that train, which become the model's ``look_stats``."""
+        cfg, look = self.cfg, self.scene.look
+        training = self.scene.target_ok & np.asarray(look["computed"], dtype=bool)
+        self.model.look_stats = LookStats.from_codes(look["codes"][training])
+        converts = cfg.loss.medium_grey + cfg.loss.medium_toned > 0
+        class_maps = (read_class_maps(self.scene.dataset_dir, self.scene.views["file_key"].to_numpy()) if converts
+                      else None)
+        if converts and class_maps is None:
+            raise ValueError(f"a medium conversion computes the code of the converted pixels and needs the class maps "
+                             f"of {cfg.dataset} for this view table (run scripts/mvgen/prepare_look.py)")
+        return TrainingLooks(look, self.scene.target_ok, self.model.look_stats, seed=cfg.seed,
+                             dropout=cfg.loss.look_dropout, unspecified=cfg.loss.look_class_unspecified,
+                             grey=cfg.loss.medium_grey, toned=cfg.loss.medium_toned, class_maps=class_maps)
 
     def _swap_years_from_data(self) -> tuple[float, ...]:
         """One year per period for swapped dates: the median date of what the run trains on in that period."""
@@ -711,23 +823,52 @@ class Trainer:
             view_sets = {"pinned": list(cfg.pinned_rows)}
         else:
             view_sets = {"train": scene_view_sets(self.scene, cfg.probe_samples)}
-            if self.scene.heldout.any():
+            if cfg.heldout_probe_keys is not None:
+                view_sets["heldout"] = self._heldout_probe_sets()
+            elif self.scene.heldout.any():
                 view_sets["heldout"] = heldout_view_sets(self.scene, cfg.probe_samples)
                 if not view_sets["heldout"]:
                     del view_sets["heldout"]
                     print("[train] no date-loss probe on held-out views: too few of them share a date and 3D points",
                           flush=True)
+        options = {}
+        if cfg.probe_within:
+            options["within_years"] = cfg.within_years or within_years(self.scene.dates[self.scene.target_ok],
+                                                                       cfg.sampling.period_edges)
+        if cfg.finetune.look:
+            options.update(look_stats=self.model.look_stats, look_axis=True)
         return {name: DateLossProbe(self.scene, sets, cfg.sampling.n_ref, cfg.loss, self.swap_years,
-                                    self.run_dir / "probes" / f"{name}_baseline.json", cfg.probe_timesteps)
+                                    self.run_dir / "probes" / f"{name}_baseline.json", cfg.probe_timesteps, **options)
                 for name, sets in view_sets.items()}
+
+    def _heldout_probe_sets(self) -> list[tuple[int, ...]]:
+        """The held-out probe's view sets from ``heldout_probe_keys``; a note is printed for targets that train."""
+        cfg = self.cfg
+        sets = list(read_keys_file(cfg.heldout_probe_keys, self.scene.views["file_key"].tolist(), cfg.sampling.n_ref))
+        targets = [row for rows in sets for row in rows[cfg.sampling.n_ref:]]
+        training = [row for row in targets if not self.scene.heldout[row]]
+        references = [row for rows in sets for row in rows[:cfg.sampling.n_ref] if self.scene.heldout[row]]
+        print(f"[train] held-out probe: {len(sets)} view sets from {cfg.heldout_probe_keys}; "
+              f"{len(targets) - len(training)} of their {len(targets)} targets are held out"
+              + (f", {len(references)} references are held out" if references else ""), flush=True)
+        return sets
 
     def _render_probes(self) -> list[RenderProbe]:
         """One render probe per view set of ``render_rows`` (pinned runs: by default, per pinned set)."""
         cfg = self.cfg
         if cfg.render_every == 0:
             return []
-        return [RenderProbe(self.scene, rows, cfg.sampling.n_ref, f"set{i}", cfg.render_dates, cfg.render_seeds,
-                            cfg.loss, self.swap_years, cfg.render_steps, cfg.render_guidance, cfg.render_uncond_dates)
+        n_ref = cfg.sampling.n_ref
+
+        def looks(rows: tuple[int, ...]) -> dict:
+            if not cfg.finetune.look:
+                return {}
+            sample = self.scene.make_sample(np.asarray(rows), n_ref)
+            return {"look": default_looks(sample, n_ref, self.model.look_stats)}
+
+        return [RenderProbe(self.scene, rows, n_ref, f"set{i}", cfg.render_dates, cfg.render_seeds,
+                            cfg.loss, self.swap_years, cfg.render_steps, cfg.render_guidance, cfg.render_uncond_dates,
+                            **looks(rows))
                 for i, rows in enumerate(cfg.render_rows or cfg.pinned_rows)]
 
     # ------------------------------------------------------------------ evaluation
@@ -774,9 +915,16 @@ class Trainer:
                 f.write(json.dumps({"step": self.step, **probe.last_losses}) + "\n")
             ratio = result["date_temb_ratio"]
             size = "no date embedding" if ratio is None else f"date embedding / timestep embedding {ratio:.3f}"
+            if result.get("look_rms") is not None:
+                size += (f", look embedding {result['look_rms']:.3g}"
+                         + ("" if result["look_temb_ratio"] is None else f" ({result['look_temb_ratio']:.3f} of temb)")
+                         + f", date and look together {result['sum_temb_ratio']:.3f} of temb")
+            more = "".join(f", {label} {result[key]:+.2%}" for key, label in (
+                ("rel_gap_within", "within-period dates"), ("rel_gap_look", "other-period look (true dates)"))
+                if key in result)
             print(f"[probe] step {self.step} {name} ({time.time() - started:.0f}s): loss with true dates "
                   f"{result['loss_true']:.4f} ({result['change']:+.1%} since the first evaluation); swapped dates "
-                  f"{result['rel_gap_swapped']:+.2%}, unknown dates {result['rel_gap_unknown']:+.2%}; {size}",
+                  f"{result['rel_gap_swapped']:+.2%}, unknown dates {result['rel_gap_unknown']:+.2%}{more}; {size}",
                   flush=True)
             if "region" in result:              # a scene with changed-region weights
                 print(f"[probe] step {self.step} {name}, {region_gap_line(result['region'], result['samples'])}",
@@ -804,9 +952,10 @@ class Trainer:
         its dataset folder (``dataset_fingerprint``: ``MVGenScene.fingerprint``) and its swap years.
         With ``tag`` (``"latest.pt"``) it also holds what resuming needs: the raw weights, the
         optimiser, the schedule, the spike guard's history and the training generator's state.
-        Two entries are only there for the runs they concern: ``region_fingerprint``
-        (``MVGenScene.region_fingerprint``) for a run that trains with a region weight, and
-        ``init_weights`` for a run that started from another run's weights.
+        Some entries are only there for the runs they concern: ``region_fingerprint``
+        (``MVGenScene.region_fingerprint``) for a run that trains with a region weight, ``init_weights`` for
+        a run that started from another run's weights, ``look_fingerprint`` (``MVGenScene.look_fingerprint``)
+        and ``look_stats`` for a run with the look, and ``heldout_rows`` for a hold-out by component.
         """
         path = self.run_dir / "checkpoints" / (tag or f"step_{self.step:06d}.pt")
         extra = {"precision": self.cfg.loss.precision, "train_config": asdict(self.cfg),
@@ -817,6 +966,10 @@ class Trainer:
             extra["region_fingerprint"] = self.scene.region_fingerprint()
         if self.init_weights is not None:
             extra["init_weights"] = self.init_weights
+        if self.cfg.finetune.look:
+            extra["look_fingerprint"] = self.scene.look_fingerprint()
+        if self.cfg.holdout.by == "component":
+            extra["heldout_rows"] = np.flatnonzero(self.scene.heldout).tolist()
         if tag is not None:
             extra.update(optimizer=self.optimizer.state_dict(), lr_scheduler=self.lr_scheduler.state_dict(),
                          grad_norm_history=list(self.grad_norm_history), generator=self.generator.get_state())
@@ -857,8 +1010,10 @@ class Trainer:
         """The run's training samples from number ``start`` on (see :class:`NumberedSamples`; pinned sets cycle)."""
         numbers = range(start, self.cfg.steps * self.cfg.grad_accum)
         if self.pinned:
+            if self.looks is not None:          # numbered as epoch 0, like the samples of a single long epoch
+                return (self.looks(self.pinned[number % len(self.pinned)], 0, number) for number in numbers)
             return (self.pinned[number % len(self.pinned)] for number in numbers)
-        return iter(DataLoader(NumberedSamples(self.scene), batch_size=None, sampler=numbers,
+        return iter(DataLoader(NumberedSamples(self.scene, self.looks), batch_size=None, sampler=numbers,
                                num_workers=self.cfg.num_workers))
 
     def _due(self, every: int) -> bool:
@@ -932,6 +1087,9 @@ class Trainer:
         ``loss_unweighted``, the plain loss of the same steps, which is the one to compare with other
         runs; and ``loss_inside`` and ``loss_outside``, the plain mean error inside and outside the
         changed region (the first over the samples whose targets show the region; None if none does).
+
+        A run with the look logs ``looks_known`` (the share of samples whose looks were given) and the
+        look's size, ``look_rms``, ``look_temb_ratio`` and ``sum_temb_ratio`` (``step.look_embedding_size``).
         """
         def mean_size(name: str) -> float | None:
             measured = [info[name] for info in window if info[name] is not None]
@@ -948,6 +1106,9 @@ class Trainer:
                   "date_rms": mean_size("date_rms"), "date_temb_ratio": mean_size("date_temb_ratio"),
                   **rates, "sec_per_step": seconds / steps,
                   "max_mem_gb": torch.cuda.max_memory_allocated() / 2 ** 30 if torch.cuda.is_available() else 0.0}
+        if self.cfg.finetune.look:
+            record.update(looks_known=float(np.mean([info["looks_known"] for info in window])),
+                          **{name: mean_size(name) for name in ("look_rms", "look_temb_ratio", "sum_temb_ratio")})
         plain = ""
         if self.cfg.loss.region_weight != 1:
             record.update({name: mean_size(name) for name in ("loss_unweighted", "loss_inside", "loss_outside")})
@@ -959,5 +1120,7 @@ class Trainer:
         norm = "none" if not norms else f"{record['grad_norm_median']:.3g} (max {record['grad_norm_max']:.3g})"
         ratio = record["date_temb_ratio"]
         size = "" if ratio is None else f" date embedding {record['date_rms']:.3g} ({ratio:.3f} of temb)"
+        if self.cfg.finetune.look and record["look_rms"] is not None:
+            size += f", look {record['look_rms']:.3g}, date and look {record['sum_temb_ratio']:.3f} of temb"
         print(f"[train] step {self.step} loss {record['loss']:.4f}{plain} gradient norm {norm}{size} "
               f"{record['sec_per_step']:.2f} s/step, {record['max_mem_gb']:.1f} GB", flush=True)

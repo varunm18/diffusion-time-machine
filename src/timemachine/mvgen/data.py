@@ -90,6 +90,11 @@ west facade, and the weights raise the frontal share of the after-fire targets f
   two ends. A scene opened on a folder with this file hands the weights to its samples (``region``
   below; ``MVGenScene.region_weights``). Nothing else about the scene depends on the file: the views
   that are drawn, the other fields of a sample and the fingerprint are the same with and without it.
+* ``look_codes.npz`` and ``class_maps.npz`` (optional; ``scripts/mvgen/prepare_look.py`` writes them):
+  each view's look code, 24 colour and medium statistics of its 512 crop, and the SegFormer classes it
+  was made from (``timemachine.mvgen.look``, experiment look1). A scene opened on a folder with the
+  look file hands each sample its views' raw codes (``look_raw``, ``look_shown``, ``tone`` below;
+  ``MVGenScene.look``). As for the regions, nothing else about the scene depends on it.
 
 **Sample** (F views, references first):
 
@@ -106,7 +111,18 @@ west facade, and the weights raise the frontal share of the after-fire targets f
 ``file_keys``  list of str           Commons file of each view
 ``region``     float32 [F, 1, s, s]  ONLY for a folder with ``changed_regions.npz``: how much of each
                                      latent cell lies where the scene changed, in [0, 1] (s = S / 8)
+``look_raw``   float32 [F, 24]       ONLY for a folder with ``look_codes.npz``: each view's raw look code
+                                     (NaN for the classes it does not show; ``look.LOOK_FIELDS``)
+``look_shown`` bool [F, 5]           ... which of ``look.LOOK_CLASSES`` each view shows
+``tone``       list of str           ... each view's tone, one of ``look.TONES``
 =============  ====================  ==========================================================
+
+**Hold-out by component** (``HoldoutConfig.by = "component"``, ``timemachine.data.holdout``): whole
+capture days and photographers. :meth:`MVGenScene.holdout_rows` makes either kind of hold-out for the
+scene, with its units (:meth:`MVGenScene.holdout_units`: components of days and Commons authors, the
+authors read from ``data/tables/image_metadata/<scene_id>.parquet``, column ``artist``) and its side
+views (:meth:`MVGenScene.side_views`: the stored changed-region mask covers ``side_share`` of the frame).
+The trainer and the evaluation open the same hold-out with it.
 
 **Scene scale** (:func:`shrink_factor`; the ``scale`` argument of :class:`MVGenScene`). COLMAP's
 unit is arbitrary. MVGenMaster shrinks cameras whose centres span more than
@@ -139,7 +155,8 @@ from torch.utils.data import Dataset
 
 from timemachine.data.cameras import colmap_to_c2w
 from timemachine.data.dataset import load_view
-from timemachine.data.holdout import era_index
+from timemachine.data.holdout import HoldoutConfig, era_index, heldout_rows, holdout_units
+from timemachine.mvgen.look import look_fingerprint, read_look
 
 # A scaled depth map is trusted for warping if it was scaled with at least DEPTH_MIN_POINTS COLMAP
 # points and, after scaling, differs from them by at most DEPTH_MAX_REL_ERROR (median relative error).
@@ -643,7 +660,8 @@ class MVGenScene(Dataset):
     (``[N, 4, 4]``, COLMAP units), ``usable`` and ``depth_ok`` (``[N]`` bool, from the folder),
     ``scale`` (the setting) and ``scale_factor`` (the constant factor of every sample, or None for
     ``scale="sample"``), ``regions`` (float32 ``[N, s, s]``, the changed-region weights of the folder's
-    ``changed_regions.npz``, or None without that file: :meth:`region_weights`), and, set by
+    ``changed_regions.npz``, or None without that file: :meth:`region_weights`), ``look`` (the folder's
+    look codes, ``timemachine.mvgen.look.read_look``, or None without ``look_codes.npz``), and, set by
     :meth:`hold_out`: ``heldout``, ``target_ok``, ``ref_ok`` (``[N]`` bool), ``anchors`` (the rows that
     can anchor a sample of ``config.n_targets`` targets) and ``anchor_weights`` (``[N]``, the views' own
     anchor weights under ``config.balance_cameras``, or None when that is off).
@@ -691,6 +709,13 @@ class MVGenScene(Dataset):
         self.usable = self.views["usable"].to_numpy(dtype=bool)
         self.depth_ok = self._read_depth_ok()
         self.regions = read_region_weights(self.dataset_dir, self.views["file_key"].to_numpy(), resolution)
+        self.look = read_look(self.dataset_dir, self.views["file_key"].to_numpy())
+        if self.look is not None and self.look["config"].get("resolution") != resolution:
+            print(f"[scene] note: the look codes of {self.dataset_dir} were made from crops of side "
+                  f"{self.look['config'].get('resolution')}, and the scene is opened with {resolution}: they are "
+                  "not used", flush=True)
+            self.look = None
+        self._units: dict[tuple[int, ...], np.ndarray] = {}     # holdout_units(), made when first asked for
         self.hold_out(np.array([], dtype=int))
 
     def _constant_scale_factor(self) -> float | None:
@@ -927,6 +952,53 @@ class MVGenScene(Dataset):
             return None
         return hashlib.sha256(np.ascontiguousarray(self.regions).tobytes()).hexdigest()
 
+    @property
+    def has_look(self) -> bool:
+        """Whether the dataset folder has look codes for this scene (``look_codes.npz``)."""
+        return self.look is not None
+
+    def look_fingerprint(self) -> str | None:
+        """A hash of the scene's look codes (``timemachine.mvgen.look.look_fingerprint``), or None without them.
+
+        Not part of :meth:`fingerprint`: a run that trains with the look stores it in its checkpoints and is
+        not resumed on other codes (``timemachine.mvgen.trainer``).
+        """
+        return None if self.look is None else look_fingerprint(self.look)
+
+    def side_views(self, share: float) -> np.ndarray:
+        """``[N]`` bool: the views whose stored changed-region mask covers at least ``share`` of the frame.
+
+        ``ValueError`` for a scene without changed-region weights.
+        """
+        if self.regions is None:
+            raise ValueError(f"{self.dataset_dir} has no changed-region weights ({REGIONS_FILE}), which say which "
+                             "views are side views: run scripts/mvgen/prepare_regions.py on the folder")
+        return self.regions.astype(np.float64).mean(axis=(1, 2)) >= share
+
+    def holdout_units(self, day_only_periods: Sequence[int] = (0,)) -> np.ndarray:
+        """``[N]`` each view's hold-out unit by ``config.period_edges`` (``timemachine.data.holdout.holdout_units``;
+        in ``day_only_periods`` the days and (author, interval) groups). Made once per setting."""
+        key = tuple(int(p) for p in day_only_periods)
+        if key not in self._units:
+            self._units[key] = holdout_units(self.views, self.config.period_edges, day_only_periods=key)
+        return self._units[key]
+
+    def holdout_rows(self, cfg: HoldoutConfig, extra_rows: Sequence[int] = ()) -> np.ndarray:
+        """The rows that ``cfg`` holds out of this scene, with ``extra_rows`` (``holdout.heldout_rows``).
+
+        A hold-out by component uses the scene's units (:meth:`holdout_units`, whose ``cfg.unit_periods`` are
+        held out by days and (author, interval) groups) and side views (:meth:`side_views` at
+        ``cfg.side_share``); its periods are ``cfg.era_edges``, which must then be the scene's
+        ``config.period_edges``.
+        """
+        if cfg.by != "component":
+            return heldout_rows(self.dates, cfg, extra_rows)
+        if tuple(cfg.era_edges) != tuple(self.config.period_edges):
+            raise ValueError(f"a hold-out by component is made per period: its era_edges {cfg.era_edges} must be the "
+                             f"scene's period_edges {self.config.period_edges}")
+        return heldout_rows(self.dates, cfg, extra_rows, units=self.holdout_units(cfg.unit_periods), usable=self.usable,
+                            side=self.side_views(cfg.side_share))
+
     def set_epoch(self, epoch: int) -> None:
         self.epoch = epoch
 
@@ -1029,4 +1101,8 @@ class MVGenScene(Dataset):
         }
         if self.regions is not None:        # only then: a sample of a folder without regions is as it always was
             sample["region"] = self.region_weights(rows)
+        if self.look is not None:           # likewise for the look codes
+            sample["look_raw"] = torch.from_numpy(self.look["codes"][rows].astype(np.float32))
+            sample["look_shown"] = torch.from_numpy(self.look["shown"][rows].astype(bool))
+            sample["tone"] = [str(tone) for tone in self.look["tone"][rows]]
         return sample

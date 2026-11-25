@@ -15,6 +15,15 @@ the precision and the years for swapped dates default to those of its training r
 released model is rendered, which has no date input: every date then gives the same pictures, the
 baseline to compare with.
 
+A checkpoint of a run with a look code (experiment look1, ``timemachine.mvgen.look``) also gives every
+view a look: the references their own codes, the targets the one ``--look`` names: ``references`` (the
+default, as at inference: the references' code, ``look.references_code``), ``own`` (each target's own
+code), ``neutral`` (the population mean of the training views) or ``donor:<row>`` (the code of view
+``<row>`` of the view table, for every target). ``--tone grey|toned|colour`` replaces the targets'
+tone in their codes and keeps the rest. The codes come from the dataset folder's ``look_codes.npz``
+(``scripts/mvgen/prepare_look.py``) and are standardised with the checkpoint's statistics. Without a look
+in the checkpoint both options are refused.
+
 The UNet is given what a training step gives it (``timemachine.mvgen.probes.render_views``): camera
 translations and depth scaled by ``--scale`` (``scene``: one factor for the whole scene, as in the
 authors' training and the default for the released model; ``sample``: MVGenMaster's demo rule; or a
@@ -38,6 +47,7 @@ import pandas as pd
 
 from timemachine.mvgen.data import SCALE_RULES, MVGenScene, ViewSamplingConfig
 from timemachine.mvgen.date import UNCOND_DATES
+from timemachine.mvgen.evaluation import LookInputs, view_looks
 from timemachine.mvgen.model import DEFAULT_MODEL_DIR, assert_exact_matmul, load_finetuned, load_mvgen
 from timemachine.mvgen.probes import (
     RenderProbe, parse_render_date, read_keys_file, read_rows_file, representative_years,
@@ -50,6 +60,18 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_DATASET = REPO / "data/datasets/25512_model0_v2"
 # Options that default to the checkpoint's training run; each sets the LossConfig field of the same name.
 LOSS_OPTIONS = ("date_views", "class_label", "cross_date_pixels", "cross_date_gap", "precision")
+LOOKS = ("references", "own", "neutral")            # --look words; "donor:<row>" besides
+TONES = ("grey", "toned", "colour")                 # as timemachine.mvgen.look.TONES
+
+
+def parse_look(text: str) -> tuple[str, int | None]:
+    """A ``--look`` value: one of ``LOOKS``, as ``(word, None)``, or ``donor:<row>``, as ``("donor", row)``."""
+    if text in LOOKS:
+        return text, None
+    kind, _, row = text.partition(":")
+    if kind == "donor" and row.isdigit():
+        return "donor", int(row)
+    raise argparse.ArgumentTypeError(f"a look is one of {LOOKS} or donor:<row>, not {text!r}")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -82,6 +104,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--cross-date-pixels", choices=CROSS_DATE_PIXELS)
     p.add_argument("--cross-date-gap", type=float)
     p.add_argument("--precision", choices=PRECISIONS)
+    p.add_argument("--look", type=parse_look,
+                   help="for a checkpoint with a look: the targets' look, one of references (default), own, neutral or "
+                        "donor:<row>")
+    p.add_argument("--tone", choices=TONES, help="for a checkpoint with a look: this tone in the targets' codes")
     p.add_argument("--thumb", type=int, default=256, help="side of the contact sheet's pictures, in pixels")
     return p.parse_args(argv)
 
@@ -128,11 +154,30 @@ def main(argv: list[str] | None = None) -> None:
               "these renders use another, so the cameras are not at the size the adapters were trained on",
               flush=True)
 
+    has_look = bool(ckpt.get("finetune_config", {}).get("look", False))
+    if (args.look is not None or args.tone is not None) and not has_look:
+        raise SystemExit("--look and --tone need a checkpoint of a run with a look code")
+    inputs, (kind, donor) = None, args.look or ("references", None)
+    if has_look:
+        from timemachine.mvgen.look import read_look
+
+        look = read_look(dataset, scene.views["file_key"].tolist())
+        if look is None:
+            raise SystemExit(f"{dataset} has no look codes for this view table: run scripts/mvgen/prepare_look.py")
+        inputs = LookInputs(look=look, stats=model.look_stats, tone=args.tone)
+        print(f"targets' look: {kind}{'' if donor is None else f' of row {donor}'}"
+              f"{'' if args.tone is None else f', tone {args.tone}'}", flush=True)
+
     results = []
     for i, rows in enumerate(view_sets):
+        # The targets' codes come from the look file alone (no look of render.py needs the pictures: sample None).
+        donors = None if donor is None else {"donor": [donor] * (len(rows) - n_ref)}
+        _, look, known = view_looks(kind if has_look else "none", rows, n_ref, None, inputs, donors)
         probe = RenderProbe(scene, rows, n_ref, f"set{i}", args.dates, args.seeds, loss_cfg, swap_years, args.steps,
-                            args.guidance, args.uncond_dates)
+                            args.guidance, args.uncond_dates, look=look, look_known=known)
         results.append(probe(model, args.out, thumb=args.thumb))
+        if has_look:        # which look was asked for; the standardised codes per view stay in set<i>.json
+            results[-1]["look"] = {"targets": kind, "donor": donor, "tone": args.tone}
         scores = ", ".join(f"{date} {value:.2f} dB" for date, value in results[-1]["psnr_by_date"].items())
         print(f"   set{i} (targets dated {results[-1]['years'][n_ref:]}): PSNR at date {scores}", flush=True)
     (args.out / "results.json").write_text(json.dumps(results, indent=1))

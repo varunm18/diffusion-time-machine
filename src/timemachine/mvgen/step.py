@@ -46,6 +46,15 @@ velocity target on the target views only. :func:`training_loss` draws what a tra
   The probes and the renderer apply the same rule through the same function
   (:func:`cross_date_drops`), so that a run is evaluated on the inputs it trains on.
 
+Look (experiment look1; ``timemachine.mvgen.look``). For a model whose date conditioner carries a look
+(``MVGen.has_look``), each view is also given its standardised look code. The sample brings it:
+``sample["look"]`` ``[F, 24]`` and ``sample["look_drop"]``, made by ``look.TrainingLooks`` in the data
+loader from generators of its own (class fill, unspecified entries, arm D's medium conversion), so a
+training step draws nothing more from its generator than it did before the look existed. The step only
+ties the look's dropout to the date's: when the sample's dates are all dropped and ``look_drop`` is set
+(``LossConfig.look_dropout``, 0.5), every look is unknown too; the look is never dropped while the date
+is shown. A model without a look ignores the look entries of a sample.
+
 Region weight (``LossConfig.region_weight``, 1 by default: off). What a date decides at Notre-Dame, the
 spire and the roofs, is a few percent of a frame, so in the plain loss a wrong date costs almost
 nothing (0.5% of the held-out loss after 4,000 steps, 2.8% inside the changed region for targets
@@ -119,11 +128,19 @@ class LossConfig:
     cross_date_gap: float = 1.0        # years between date midpoints beyond which a reference is not "near"
     precision: str = "bf16"            # one of PRECISIONS
     region_weight: float = 1.0         # loss weight of latent cells inside the changed region (1: the plain loss)
+    # The look (models with FinetuneConfig.look only; the draws are look.TrainingLooks', in the data loader):
+    look_dropout: float = 0.5          # share of the date-dropped samples whose looks are unknown too
+    look_class_unspecified: float = 0.3  # chance per view and class that its entry is the population mean
+    medium_grey: float = 0.0           # arm D: chance per colour view that it becomes a grey print
+    medium_toned: float = 0.0          # arm D: chance per colour view that it becomes a toned print
 
     def __post_init__(self):
         if not self.region_weight > 0:
             raise ValueError("region_weight must be positive (1: every latent cell counts the same)")
-        for name in ("date_dropout", "camera_dropout", "prior_dropout", "prior_view_dropout"):
+        if self.medium_grey + self.medium_toned > 1:
+            raise ValueError("medium_grey + medium_toned is the chance that a colour view is converted: at most 1")
+        for name in ("date_dropout", "camera_dropout", "prior_dropout", "prior_view_dropout", "look_dropout",
+                     "look_class_unspecified", "medium_grey", "medium_toned"):
             if not 0.0 <= getattr(self, name) <= 1.0:
                 raise ValueError(f"{name} must be a probability in [0, 1]")
         if self.date_views not in DATE_VIEWS:
@@ -225,6 +242,24 @@ def depth_for_priors(depth: torch.Tensor, device: torch.device | str) -> torch.T
     return depth.to(device=device, dtype=torch.float64, copy=True)
 
 
+def look_embedding_size(model: MVGen) -> dict[str, float | None]:
+    """How large the look's part was in the model's most recent UNet forward pass (models with a look).
+
+    ``look_rms`` is the root mean square of what the look adds (``injection="temb"``: its embedding;
+    ``"film"``: its scales and shifts together), ``look_temb_ratio`` its ratio to the ``temb`` it is added
+    to (None for a FiLM look, which is not added to ``temb``), and ``sum_temb_ratio`` the ratio of the SUM
+    of date and look embeddings to ``temb``: what every ResBlock's ``time_emb_proj`` reads on top of the
+    timestep. All None if that pass had no dates.
+    """
+    stats = model.date_stats()
+    if stats is None or "look_rms" not in stats:
+        return {"look_rms": None, "look_temb_ratio": None, "sum_temb_ratio": None}
+    temb = max(float(stats["temb_rms"]), 1e-12)
+    film = model.date.look.injection == "film"
+    return {"look_rms": float(stats["look_rms"]), "look_temb_ratio": None if film else float(stats["look_rms"]) / temb,
+            "sum_temb_ratio": float(stats["sum_rms"]) / temb}
+
+
 def date_embedding_size(model: MVGen) -> dict[str, float | None]:
     """How large the date embedding was in the model's most recent UNet forward pass.
 
@@ -314,13 +349,16 @@ def build_inputs(model: MVGen, sample: dict, latents: torch.Tensor, *, drop_came
 
 
 def predict(model: MVGen, noisy: torch.Tensor, timesteps: torch.Tensor, inputs: Inputs, class_label: int,
-            year: torch.Tensor | None, valid: torch.Tensor | None, precision: str) -> torch.Tensor:
+            year: torch.Tensor | None, valid: torch.Tensor | None, precision: str, *,
+            look: torch.Tensor | None = None, look_known: torch.Tensor | None = None) -> torch.Tensor:
     """The UNet's output for one sample, run with the views' dates and under ``precision``'s autocast.
 
     Args:
         noisy: [1, F, 4, h, w] latents, the references clean.  timesteps: [1] long.
         year, valid: [F] the views' dates (decimal years) and which of them are known. ``year=None`` sets
             no dates at all, which gives the model without date conditioning.
+        look, look_known: [F, 24] standardised look codes and [F] which of them are known, for a model with a
+            look (``MVGen.dates``; ignored without one). None: every look unknown.
 
     Returns:
         [1, F, 4, h, w] float32, whatever the precision of the forward pass.
@@ -330,8 +368,11 @@ def predict(model: MVGen, noisy: torch.Tensor, timesteps: torch.Tensor, inputs: 
     class_labels = torch.full((batch,), class_label, dtype=torch.long, device=device)
     if year is None:
         dates = nullcontext()
-    else:
+    elif look is None and look_known is None:
         dates = model.dates(year.to(device), None if valid is None else valid.to(device))
+    else:
+        dates = model.dates(year.to(device), None if valid is None else valid.to(device), look=look,
+                            look_known=look_known)
     with dates, autocast(precision, device.type):
         pred = model.unet(noisy, timesteps, None, add_inputs=inputs.add_inputs, class_labels=class_labels,
                           coords=inputs.coords, return_dict=False)[0]
@@ -339,13 +380,14 @@ def predict(model: MVGen, noisy: torch.Tensor, timesteps: torch.Tensor, inputs: 
 
 
 def v_prediction_loss(model: MVGen, latents: torch.Tensor, inputs: Inputs, timestep: int, noise: torch.Tensor,
-                      year: torch.Tensor | None, valid: torch.Tensor | None, cfg: LossConfig, n_ref: int
+                      year: torch.Tensor | None, valid: torch.Tensor | None, cfg: LossConfig, n_ref: int, *,
+                      look: torch.Tensor | None = None, look_known: torch.Tensor | None = None
                       ) -> tuple[torch.Tensor, torch.Tensor]:
     """The v-prediction loss of one sample at a given timestep and noise.
 
     The targets are noised and the references put back clean, as in ``train.py``. ``year`` and ``valid``
-    are passed to :func:`predict`; of ``cfg`` only ``class_label`` and ``precision`` are used. The scheduler
-    must be a v-prediction one (``ValueError`` otherwise).
+    (and ``look``, ``look_known``) are passed to :func:`predict`; of ``cfg`` only ``class_label`` and
+    ``precision`` are used. The scheduler must be a v-prediction one (``ValueError`` otherwise).
 
     Returns:
         ``(loss, per_view)``: the mean squared error over the target views (equal to
@@ -359,13 +401,15 @@ def v_prediction_loss(model: MVGen, latents: torch.Tensor, inputs: Inputs, times
     noisy = scheduler.add_noise(latents, noise, timesteps)
     noisy = latents * (1 - inputs.latent_masks) + noisy * inputs.latent_masks
     target = scheduler.get_velocity(latents, noise, timesteps)
-    pred = predict(model, noisy, timesteps, inputs, cfg.class_label, year, valid, cfg.precision)
+    pred = predict(model, noisy, timesteps, inputs, cfg.class_label, year, valid, cfg.precision, look=look,
+                   look_known=look_known)
     per_view = (pred[0, n_ref:] - target[0, n_ref:].float()).pow(2).flatten(1).mean(1)
     return per_view.mean(), per_view
 
 
 def v_prediction_error_map(model: MVGen, latents: torch.Tensor, inputs: Inputs, timestep: int, noise: torch.Tensor,
-                           year: torch.Tensor | None, valid: torch.Tensor | None, cfg: LossConfig, n_ref: int
+                           year: torch.Tensor | None, valid: torch.Tensor | None, cfg: LossConfig, n_ref: int, *,
+                           look: torch.Tensor | None = None, look_known: torch.Tensor | None = None
                            ) -> torch.Tensor:
     """Where in the target views the error of :func:`v_prediction_loss` lies: ``[F - n_ref, h, w]``.
 
@@ -384,12 +428,14 @@ def v_prediction_error_map(model: MVGen, latents: torch.Tensor, inputs: Inputs, 
     noisy = scheduler.add_noise(latents, noise, timesteps)
     noisy = latents * (1 - inputs.latent_masks) + noisy * inputs.latent_masks
     target = scheduler.get_velocity(latents, noise, timesteps)
-    pred = predict(model, noisy, timesteps, inputs, cfg.class_label, year, valid, cfg.precision)
+    pred = predict(model, noisy, timesteps, inputs, cfg.class_label, year, valid, cfg.precision, look=look,
+                   look_known=look_known)
     return (pred[0, n_ref:] - target[0, n_ref:].float()).pow(2).mean(dim=1)
 
 
 def v_prediction_loss_and_map(model: MVGen, latents: torch.Tensor, inputs: Inputs, timestep: int, noise: torch.Tensor,
-                              year: torch.Tensor | None, valid: torch.Tensor | None, cfg: LossConfig, n_ref: int
+                              year: torch.Tensor | None, valid: torch.Tensor | None, cfg: LossConfig, n_ref: int, *,
+                              look: torch.Tensor | None = None, look_known: torch.Tensor | None = None
                               ) -> tuple[torch.Tensor, torch.Tensor]:
     """The loss of :func:`v_prediction_loss` and the map of :func:`v_prediction_error_map` from ONE forward pass.
 
@@ -413,7 +459,8 @@ def v_prediction_loss_and_map(model: MVGen, latents: torch.Tensor, inputs: Input
     noisy = scheduler.add_noise(latents, noise, timesteps)
     noisy = latents * (1 - inputs.latent_masks) + noisy * inputs.latent_masks
     target = scheduler.get_velocity(latents, noise, timesteps)
-    pred = predict(model, noisy, timesteps, inputs, cfg.class_label, year, valid, cfg.precision)
+    pred = predict(model, noisy, timesteps, inputs, cfg.class_label, year, valid, cfg.precision, look=look,
+                   look_known=look_known)
     squared = (pred[0, n_ref:] - target[0, n_ref:].float()).pow(2)
     return squared.flatten(1).mean(1).mean(), squared.mean(dim=1)
 
@@ -474,7 +521,8 @@ def training_loss(model: MVGen, sample: dict, cfg: LossConfig, generator: torch.
     Args:
         sample: one view set (section 2.1 of the implementation spec): the keys of :func:`build_inputs` plus
             ``date`` [F, 2], the views' date intervals, and ``date_mid`` [F]; with a region weight other
-            than 1 also ``region`` [F, 1, h, w], the views' changed-region weights (:func:`target_region`).
+            than 1 also ``region`` [F, 1, h, w], the views' changed-region weights (:func:`target_region`);
+            for a model with a look also ``look`` [F, 24] and ``look_drop`` (``look.TrainingLooks``).
         generator: a CPU generator; everything random is drawn from it, so a seed fixes the step.
         period_edges: the years that separate the scene's periods, for the cross-date rule
             (:func:`cross_date_views`): the run's ``ViewSamplingConfig.period_edges``.
@@ -492,6 +540,9 @@ def training_loss(model: MVGen, sample: dict, cfg: LossConfig, generator: torch.
         pass (what ``loss`` would be with a weight of 1), and ``loss_inside`` and ``loss_outside``, the
         plain mean error inside and outside the changed region (:func:`region_means`; ``loss_inside``
         is None when no target of the sample shows the region).
+
+        For a model with a look ``info`` also has ``looks_known`` and the look's size in this forward pass,
+        ``look_rms``, ``look_temb_ratio`` and ``sum_temb_ratio`` (:func:`look_embedding_size`).
     """
     f, n_ref = _view_counts(sample)
     is_ref = torch.arange(f) < n_ref
@@ -502,18 +553,29 @@ def training_loss(model: MVGen, sample: dict, cfg: LossConfig, generator: torch.
     drop_priors = bool(torch.rand((), generator=generator) < cfg.prior_dropout)
     prior_views = (torch.rand(f, generator=generator) < cfg.prior_view_dropout) & ~is_ref
     year, valid = draw_dates(sample["date"].cpu(), cfg, generator)      # reads date_jitter and date_dropout
+    dates_dropped = not bool(valid.any())
     valid = shown_dates(valid, is_ref, cfg.date_views)
     cross_prior_views, pixel_views = cross_date_drops(sample["date_mid"].cpu(), n_ref, cfg, period_edges)
     if cross_prior_views is not None:
         prior_views = prior_views | cross_prior_views
 
+    looks = {}
+    has_look = bool(getattr(model, "has_look", False))      # a stand-in without the attribute has no look
+    if has_look:                        # tied to the date's dropout; nothing more is drawn (module docstring)
+        if "look" not in sample:
+            raise ValueError("the model has a look, but the sample carries no look input ('look'): the trainer makes "
+                             "it with timemachine.mvgen.look.TrainingLooks")
+        known = not (dates_dropped and bool(sample["look_drop"]))
+        looks = {"look": sample["look"], "look_known": torch.full((f,), known, dtype=torch.bool)}
+
     inputs = build_inputs(model, sample, latents, drop_camera=drop_camera, drop_priors=drop_priors,
                           dropped_prior_views=prior_views, dropped_pixel_views=pixel_views)
     region_info = {}
     if cfg.region_weight == 1:
-        loss, _ = v_prediction_loss(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref)
+        loss, _ = v_prediction_loss(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref, **looks)
     else:
-        plain, error = v_prediction_loss_and_map(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref)
+        plain, error = v_prediction_loss_and_map(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref,
+                                                 **looks)
         region = target_region(sample, n_ref, error)
         loss = region_weighted_loss(error, region, cfg.region_weight)
         inside, outside = region_means(error.detach(), region)
@@ -525,4 +587,6 @@ def training_loss(model: MVGen, sample: dict, cfg: LossConfig, generator: torch.
             "prior_views_dropped": 0 if drop_priors else int(prior_views.sum()),
             "pixel_views_dropped": 0 if drop_priors or pixel_views is None else int(pixel_views.sum()),
             "dates_known": bool(valid.any()), **date_embedding_size(model), **region_info}
+    if has_look:
+        info.update(looks_known=bool(looks["look_known"].any()), **look_embedding_size(model))
     return loss, info

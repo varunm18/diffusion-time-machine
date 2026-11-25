@@ -45,6 +45,21 @@ exactly as before they existed (``timemachine/mvgen/trainer.py`` has the details
   once the run has its own ``latest.pt`` it goes on from there and the other checkpoint is not read.
 
 All three are settings of the run: a resumed launch must give them as the run was started.
+
+Experiment look1 (all off by default; also settings of the run):
+
+* ``--look``: every view, reference and target, is also given its look code (24 colour and medium
+  statistics, ``timemachine/mvgen/look.py``), added to the timestep embedding with the date
+  (``--look-injection temb``) or as a scale and shift after every ResBlock's second GroupNorm
+  (``film``, the fallback). Needs ``look_codes.npz`` in the dataset folder (``scripts/mvgen/prepare_look.py``).
+  ``--look-dropout``, ``--look-class-unspecified`` and ``--lr-look`` set how it trains.
+* ``--medium-grey P --medium-toned Q`` (arm D, with ``--look``): each colour view becomes a grey print
+  with probability P and a toned one with Q, at its unchanged date, with the code of its new pixels.
+* ``--holdout-by component``: hold out whole capture days and photographers (``timemachine/data/holdout.py``):
+  units are added per period until ``--holdout-fraction`` of its views and of its side views are held
+  out, skipping units of more than ``--holdout-max-unit`` views; ``heldout.json`` records each view's unit.
+* ``--probe-within`` (with ``--within-years``): the date-loss probes also move dates within their period.
+* ``--heldout-probe-keys-file``: the held-out probe's view sets, by file key, instead of sampled ones.
 """
 from __future__ import annotations
 
@@ -53,9 +68,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from timemachine.data.holdout import HoldoutConfig
+from timemachine.data.holdout import HOLDOUT_BY, HoldoutConfig
 from timemachine.mvgen.data import SCALE_RULES, ViewSamplingConfig
-from timemachine.mvgen.date import UNCOND_DATES
+from timemachine.mvgen.date import LOOK_INJECTIONS, UNCOND_DATES
 from timemachine.mvgen.model import DEFAULT_LORA_TARGETS, DEFAULT_MODEL_DIR, FinetuneConfig, assert_exact_matmul
 from timemachine.mvgen.probes import parse_render_date, read_keys_file, read_rows_file
 from timemachine.mvgen.step import CROSS_DATE_PIXELS, PRECISIONS, LossConfig
@@ -93,6 +108,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     opt.add_argument("--grad-accum", type=int, default=TrainConfig.grad_accum, help="samples per optimiser step")
     opt.add_argument("--lr-date", type=float, default=TrainConfig.lr_date)
     opt.add_argument("--lr-lora", type=float, default=TrainConfig.lr_lora)
+    opt.add_argument("--lr-look", type=float, default=TrainConfig.lr_look, help="the look embedding (--look)")
     opt.add_argument("--warmup", type=int, default=TrainConfig.warmup_steps)
     opt.add_argument("--lr-schedule", choices=LR_SCHEDULES, default=TrainConfig.lr_schedule)
     opt.add_argument("--lr-min-ratio", type=float, default=TrainConfig.lr_min_ratio)
@@ -111,6 +127,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     adapters.add_argument("--lora-targets", nargs="+", default=list(DEFAULT_LORA_TARGETS))
     adapters.add_argument("--no-grad-checkpointing", action="store_true",
                           help="keep all activations for backward(): faster, much more memory")
+    adapters.add_argument("--look", action="store_true",
+                          help="give every view its look code (needs look_codes.npz: scripts/mvgen/prepare_look.py); "
+                               "the look embedding starts as an exact no-op and is created after LoRA, so the run "
+                               "starts from the date and LoRA weights of the same run without it")
+    adapters.add_argument("--look-hidden", type=int, default=FinetuneConfig.look_hidden,
+                          help="width of the look MLP's hidden layer")
+    adapters.add_argument("--look-injection", choices=LOOK_INJECTIONS, default=FinetuneConfig.look_injection,
+                          help="temb: the look embedding is added to the timestep embedding with the date; film: a "
+                               "scale and shift per ResBlock after its second GroupNorm (the fallback if the look does "
+                               "not steer through temb)")
 
     loss = p.add_argument_group("loss")
     loss.add_argument("--date-dropout", type=float, default=LossConfig.date_dropout)
@@ -135,6 +161,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                            "notices a wrong date. Needs changed_regions.npz in the dataset folder "
                            "(scripts/mvgen/prepare_regions.py); the log then also has the plain loss, and the "
                            "plain error inside and outside the region")
+    loss.add_argument("--look-dropout", type=float, default=LossConfig.look_dropout,
+                      help="with --look: the share of the samples whose dates are dropped (--date-dropout) whose looks "
+                           "are unknown too; the look is never dropped while the date is shown")
+    loss.add_argument("--look-class-unspecified", type=float, default=LossConfig.look_class_unspecified,
+                      help="with --look: the chance per view and class that its class entry is replaced by the "
+                           "population mean (an unshown class is first filled from a random training view)")
+    loss.add_argument("--medium-grey", type=float, default=LossConfig.medium_grey,
+                      help="with --look (arm D): the chance per colour view, reference or target, that it becomes a "
+                           "grey print (its luminance) at its unchanged date, with the code of the grey pixels")
+    loss.add_argument("--medium-toned", type=float, default=LossConfig.medium_toned,
+                      help="with --look (arm D): the chance per colour view that it becomes a toned print (its "
+                           "luminance through the tone curve of a real toned print of the dataset)")
 
     sampling = p.add_argument_group("view sampling")
     sampling.add_argument("--n-ref", type=int, default=ViewSamplingConfig.n_ref)
@@ -167,6 +205,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                           help="share of each period's views held out of training")
     sampling.add_argument("--holdout-probe-targets", action="store_true", help="also hold out the renders' targets")
     sampling.add_argument("--holdout-seed", type=int, default=HoldoutConfig.seed)
+    sampling.add_argument("--holdout-by", choices=HOLDOUT_BY, default=HoldoutConfig.by,
+                          help="view: random views per period; component: whole capture days and photographers "
+                               "(units linked by day or Commons author), added per period until --holdout-fraction "
+                               "of its views and of its side views are held out")
+    sampling.add_argument("--holdout-max-unit", type=int, default=HoldoutConfig.max_unit,
+                          help="component: units of more views than this are never held out")
+    sampling.add_argument("--holdout-side-share", type=float, default=HoldoutConfig.side_share,
+                          help="component: a side view's stored changed-region mask covers this share of the frame")
+    sampling.add_argument("--holdout-unit-periods", type=int, nargs="*", default=list(HoldoutConfig.unit_periods),
+                          help="component: the periods (0 = the oldest) held out by a share of their units instead")
 
     probes = p.add_argument_group("logs, probes and checkpoints (intervals in optimiser steps; 0: off)")
     probes.add_argument("--log-every", type=int, default=TrainConfig.log_every)
@@ -175,6 +223,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     probes.add_argument("--probe-timesteps", type=int, nargs="+", default=list(TrainConfig.probe_timesteps))
     probes.add_argument("--swap-years", type=float, nargs="*",
                         help="one year per period for swapped dates (default: the median date trained on in each)")
+    probes.add_argument("--probe-within", action="store_true",
+                        help="date-loss probes also move each target's date within its period (the null of the swap)")
+    probes.add_argument("--within-years", type=float, nargs="*",
+                        help="two years per period, in order, for --probe-within: a target goes to the one farther "
+                             "from its date (default: the 25th and 75th percentiles of the training dates)")
+    probes.add_argument("--heldout-probe-keys-file", type=Path,
+                        help="the held-out date-loss probe's view sets (JSON, by file key) instead of sets sampled "
+                             "among the held-out views")
     probes.add_argument("--render-every", type=int, default=TrainConfig.render_every)
     rendered = probes.add_mutually_exclusive_group()
     rendered.add_argument("--render-rows-file", type=Path, help="view sets to render (JSON, by row)")
@@ -204,6 +260,8 @@ def view_sets(dataset: Path, rows_file: Path | None, keys_file: Path | None, n_r
 def build_config(args: argparse.Namespace) -> TrainConfig:
     """The run's configuration from the parsed command line."""
     edges = tuple(args.period_edges)
+    if args.within_years and len(args.within_years) % 2:
+        raise ValueError("--within-years takes two years per period")
     return TrainConfig(
         dataset=str(args.dataset), run_dir=str(args.runs_root / args.run_name), model_dir=args.model_dir,
         resolution=args.resolution, scale=args.scale, steps=args.steps, lr_date=args.lr_date, lr_lora=args.lr_lora,
@@ -213,6 +271,9 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         render_every=args.render_every, save_every=args.save_every, latest_every=args.latest_every,
         probe_samples=args.probe_samples, probe_timesteps=tuple(args.probe_timesteps),
         swap_years=tuple(args.swap_years) if args.swap_years else None,
+        lr_look=args.lr_look, probe_within=args.probe_within,
+        within_years=(tuple(zip(args.within_years[::2], args.within_years[1::2])) if args.within_years else None),
+        heldout_probe_keys=None if args.heldout_probe_keys_file is None else str(args.heldout_probe_keys_file),
         render_rows=view_sets(args.dataset, args.render_rows_file, args.render_keys_file, args.n_ref),
         render_dates=tuple(args.render_dates), render_seeds=tuple(args.render_seeds), render_steps=args.render_steps,
         render_guidance=args.render_guidance, render_uncond_dates=args.render_uncond_dates,
@@ -226,13 +287,18 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
             date_dropout=args.date_dropout, camera_dropout=args.camera_dropout, prior_dropout=args.prior_dropout,
             prior_view_dropout=args.prior_view_dropout, date_jitter=not args.no_date_jitter,
             date_views=args.date_views, class_label=args.class_label, cross_date_pixels=args.cross_date_pixels,
-            cross_date_gap=args.cross_date_gap, precision=args.precision, region_weight=args.region_weight),
+            cross_date_gap=args.cross_date_gap, precision=args.precision, region_weight=args.region_weight,
+            look_dropout=args.look_dropout, look_class_unspecified=args.look_class_unspecified,
+            medium_grey=args.medium_grey, medium_toned=args.medium_toned),
         finetune=FinetuneConfig(
             date=not args.no_date, date_freqs=args.date_freqs, date_hidden=args.date_hidden, lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha, lora_targets=tuple(args.lora_targets),
-            grad_checkpointing=not args.no_grad_checkpointing),
+            grad_checkpointing=not args.no_grad_checkpointing, look=args.look, look_hidden=args.look_hidden,
+            look_injection=args.look_injection),
         holdout=HoldoutConfig(fraction=args.holdout_fraction, probe_targets=args.holdout_probe_targets,
-                              seed=args.holdout_seed, era_edges=edges),      # held out per period
+                              seed=args.holdout_seed, era_edges=edges,      # held out per period
+                              by=args.holdout_by, max_unit=args.holdout_max_unit, side_share=args.holdout_side_share,
+                              unit_periods=tuple(args.holdout_unit_periods)),
         pinned_rows=view_sets(args.dataset, args.pinned_rows_file, args.pinned_keys_file, args.n_ref),
         init_from=None if args.init_from is None else str(args.init_from))
 

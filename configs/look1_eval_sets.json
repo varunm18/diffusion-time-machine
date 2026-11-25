@@ -1,0 +1,5116 @@
+{
+ "description": "experiment look1: evaluation sets, a 2x2 of reference period x target period on views held out by connected components of day and photographer (scripts/mvgen/make_eval_sets.py)",
+ "made_on": "2026-11-24",
+ "dataset": "/fs/nexus-scratch/ltahboub/diffusion-time-machine/data/datasets/25512_model0_v2",
+ "n_views": 1314,
+ "period_edges": [
+  1970.0,
+  2019.2877
+ ],
+ "periods": [
+  "old",
+  "modern",
+  "after"
+ ],
+ "holdout": {
+  "rule": "component",
+  "seed": 7,
+  "config": {
+   "fraction": 0.1,
+   "probe_targets": false,
+   "scenes": [],
+   "seed": 7,
+   "era_edges": [
+    1970.0,
+    2019.2877
+   ],
+   "by": "component",
+   "max_unit": 12,
+   "side_share": 0.05,
+   "unit_periods": [
+    0
+   ]
+  },
+  "rows": [
+   0,
+   9,
+   10,
+   43,
+   44,
+   76,
+   96,
+   100,
+   115,
+   126,
+   129,
+   142,
+   167,
+   171,
+   177,
+   182,
+   185,
+   199,
+   209,
+   264,
+   265,
+   266,
+   268,
+   269,
+   272,
+   291,
+   296,
+   300,
+   302,
+   310,
+   320,
+   321,
+   323,
+   351,
+   352,
+   373,
+   377,
+   380,
+   394,
+   402,
+   407,
+   408,
+   437,
+   449,
+   460,
+   499,
+   503,
+   512,
+   513,
+   529,
+   533,
+   539,
+   540,
+   541,
+   544,
+   566,
+   576,
+   588,
+   608,
+   617,
+   622,
+   627,
+   640,
+   642,
+   647,
+   656,
+   657,
+   676,
+   680,
+   685,
+   692,
+   705,
+   710,
+   727,
+   729,
+   742,
+   758,
+   765,
+   776,
+   781,
+   790,
+   794,
+   802,
+   808,
+   814,
+   824,
+   825,
+   838,
+   842,
+   843,
+   853,
+   869,
+   893,
+   899,
+   900,
+   910,
+   918,
+   919,
+   920,
+   921,
+   929,
+   932,
+   934,
+   938,
+   940,
+   946,
+   948,
+   951,
+   952,
+   953,
+   964,
+   976,
+   994,
+   1049,
+   1054,
+   1055,
+   1056,
+   1058,
+   1071,
+   1072,
+   1104,
+   1105,
+   1106,
+   1236,
+   1270,
+   1272,
+   1278,
+   1280,
+   1288,
+   1292,
+   1309,
+   1310
+  ],
+  "file_keys": [
+   "Partie_sud-est_de_la_cath\u00e9drale_Notre-Dame_de_Paris_le_6_ao\u00fbt_2014_03.jpg",
+   "Notre-Dame_(6226961600).jpg",
+   "Notre-Dame_(6226959040)_(2).jpg",
+   "Notre-Dame_seen_from_a_boat_on_the_river_on_the_east.jpg",
+   "Paris_-_inondations_-_juin_2016_-_009.jpg",
+   "Vue_sur_la_Cath\u00e9drale_Notre-Dame_de_Paris,_depuis_le_Quai_de_la_Tournelle.jpg",
+   "N85_9254_Notre_Dame_(48565615126).jpg",
+   "\u00cele_de_la_Cit\u00e9_(30438306655).jpg",
+   "2019-05-01_09-32-39_nd-paris.jpg",
+   "2019-05-01_09-35-08_nd-paris.jpg",
+   "Fachada_S._Notre_Dame_07.JPG",
+   "Fachada_S._Notre_Dame_08.JPG",
+   "Notre_Dame,_as_seen_from_the_Pont_de_l'Archeveche,_Paris_1976.jpg",
+   "Notre-Dame_de_Paris,_South_view_20140131_1.jpg",
+   "Notre-Dame-depuis-IMA.jpg",
+   "Notre_Dame_de_Paris_en_travaux,_Square_Ren\u00e9_Viviani,_30_juillet_2020.jpg",
+   "Paris_-_inondations_-_juin_2016_-_131.jpg",
+   "Portail_du_Jugement_Dernier_of_Notre-Dame_de_Paris_(34827710283).jpg",
+   "Statuettes_N-D_2.JPG",
+   "Cath\u00e9drale_Notre-Dame_-_Portail_central_de_la_fa\u00e7ade_ouest_-_Paris_04_-_M\u00e9diath\u00e8que_de_l'architecture_et_du_patrimoine_-_APMH00014075.jpg",
+   "P0106_Paris_Notre_Dame_Viewed_from_Pont_au_Double_Left_side_of_Seine_River_(5642141535).jpg",
+   "Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_Paris_04_-_M\u00e9diath\u00e8que_de_l'architecture_et_du_patrimoine_-_APMH00014074.jpg",
+   "P0105_Paris_Notre_Dame_Viewed_from_Quai_Montebello_Left_Seine_River_Side_(5642143493).jpg",
+   "Cath\u00e9drale_Notre-Dame_-_Ensemble_sud-ouest_-_Paris_04_-_M\u00e9diath\u00e8que_de_l'architecture_et_du_patrimoine_-_APMH00014035.jpg",
+   "Paris_September_2016_IMGL0424_(29536400730).jpg",
+   "Notre_Dame,_Paris._(48408911451).jpg",
+   "Notre_Dame_de_Paris,_5_November_2009.jpg",
+   "2019-05-01_09-31-25_nd-paris.jpg",
+   "Notre_dame_saa_-_panoramio.jpg",
+   "Notre_Dame,_Paris._(48402883397).jpg",
+   "Notre-Dame_et_Quais_(4472165758).jpg",
+   "Notre_Dame_de_Paris_from_left_bank.JPG",
+   "Notre_Dame_(49636552177).jpg",
+   "Cath\u00e9drale_Notre-Dame_en_cours_de_reconstruction_le_30_octobre_2023_02.jpg",
+   "Cath\u00e9drale_Notre-Dame_en_cours_de_reconstruction_le_30_octobre_2023_01.jpg",
+   "2-Notre_Dame.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_PA00086250_-_002.jpg",
+   "Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest,_partie_inf\u00e9rieure_-_Paris_04_-_M\u00e9diath\u00e8que_de_l'architecture_et_du_patrimoine_-_APMH00014052.jpg",
+   "Notre-Dame_850th_Anniversary_Gate.jpg",
+   "Notre-Dame_and_Petit-Pont_seen_from_the_banks_of_the_Seine_river.jpg",
+   "Cath\u00e9drale_Notre-Dame_de_Paris_in_Paris.jpg",
+   "La_cath\u00e9drale_Notre-Dame_de_Paris_(2).JPG",
+   "Paris_-_Notre-Dame_2.JPG",
+   "Parijs_Boekenstalletjes_langs_de_Seine_met_gezicht_op_de_westgevel_van_de_kathe,_Bestanddeelnr_255-8663.jpg",
+   "Notre-Dame_et_Quais_(4471371833).jpg",
+   "Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest,_pentures_de_porte_-_Paris_04_-_M\u00e9diath\u00e8que_de_l'architecture_et_du_patrimoine_-_APMH00014084.jpg",
+   "U_shaped_queue_for_entering_into_the_cathedral_Notre-Dame_de_Paris.jpg",
+   "The_view_from_a_hotel_window,_Paris_November_2012.jpg",
+   "Notre_Dame_desde_el_SE._03.JPG",
+   "Notre_Dame_de_Paname_(48433093287).jpg",
+   "Cath\u00e9drale_Notre-Dame_de_Paris_-_panoramio_(4).jpg",
+   "ND_de_Paris_9_mai_2019.jpg",
+   "ND_de_Paris_9_May_2019.jpg",
+   "Notre-Dame_couchant.jpg",
+   "Tympanum_of_the_Portail_Sainte_Anne,_Notre-Dame_de_Paris,_23_July_2014.jpg",
+   "West_facade_of_Notre-Dame_de_Paris,_8_October_2011_02.jpg",
+   "Paris-Notre-Dame-1.jpg",
+   "Lise_Leroux_va_\"faire_parler\"_les_pierres_de_Notre-Dame_de_Paris.jpg",
+   "Notre-Dame_de_Paris,_May_2019,_rebuilding_after_the_fire.jpg",
+   "Cath\u00e9drale_Notre-Dame_de_Paris_(2019).jpg",
+   "2019-05-01_10-54-00_nd-paris.jpg",
+   "3-Notre_Dame.jpg",
+   "Notre_Dame_fachada_01.JPG",
+   "Notre-Dame_de_Paris_in_2020_(49523281708).jpg",
+   "7-Notre_Dame.jpg",
+   "Notre-Dame_sans_sa_fl\u00e8che4.jpg",
+   "Notre_dame_paris_august_2019.jpg",
+   "Paris_-_Notre_Dame_-_IMG_6118_(52315148601).jpg",
+   "Austerlitz-Notre_Dame-Arsenal_(13343882344).jpg",
+   "1-Notre_Dame.jpg",
+   "Notre-Dame_sans_sa_fl\u00e8che2.jpg",
+   "Paris-Notre-Dame-2.jpg",
+   "ND_de_Paris_9_mai.jpg",
+   "View_of_Notre_Dame_and_Seine_from_Pont_Saint-Michel.jpg",
+   "Watching_the_missing_thing..._(40840210183).jpg",
+   "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(3).jpg",
+   "Notre_Dame,_Paris_11_May_2019.jpg",
+   "Building_site_of_Notre-Dame_de_Paris_-_2019-08-23.jpg",
+   "Cath\u00e9drale_de_Paris_apr\u00e8s_l'incendie_(ao\u00fbt_2019).JPG",
+   "Paris_September_2016_IMGL0420_(29536425740).jpg",
+   "Paris_75005_Quai_Saint-Michel_towards_Notre-Dame_Bouquinistes_1967.jpg",
+   "Our_Dame.jpg",
+   "Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_sud_de_la_fa\u00e7ade_ouest_(portail_Sainte-Anne)_-_Paris_04_-_M\u00e9diath\u00e8que_de_l'architecture_et_du_patrimoine_-_APMH00014078.jpg",
+   "Construction_Work_on_the_Side_of_Notre-Dame.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_PA00086250_-_003.jpg",
+   "Paris_August_2016_IMG_1403_(28593571080).jpg",
+   "Notre-dame-west-front-d.png",
+   "Paris_Notre-Dame_-_panoramio.jpg",
+   "2019-05-01_10-51-35_nd-paris.jpg",
+   "Towers_of_Notre-Dame_de_Paris,_19_February_2007.jpg",
+   "Parijs_Westgevel_van_de_kathedraal_Notre_Dame_met_op_de_voorgrond_een_personena,_Bestanddeelnr_255-8662.jpg",
+   "S03_06_01_003_image_885.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_PA00086250_-_005.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_PA00086250_-_006.jpg",
+   "Tower_of_Notre-Dame_de_Paris_(37064214791).jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_7.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_4.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_3.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_PA00086250_-_Rosace_ouest_(2).JPG",
+   "Vue_d'ensemble_de_la_cath\u00e9drale_c\u00f4t\u00e9_sud,_sur_les_bords_de_Seine,_le_soir,_deux_jours_apr\u00e8s_l'incendie_ayant_d\u00e9truit_la_toiture_de_l'\u00e9difice_-_Notre_Dame_fire_aftermath.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_PA00086250_-_Rosace_ouest_(1).JPG",
+   "Paris_September_2016_IMGL0423_(29829013895).jpg",
+   "Notre-Dame,_Paris,_2009-3.jpg",
+   "Statuettes_N-D_1.JPG",
+   "Notre_Dame_de_Paris_-_Tower_detail_July_1974.jpg",
+   "Notre-Dame_in_2019.jpg",
+   "Notre-Dame_overlooking_the_River_Seine.jpg",
+   "Notredam_2021.jpg",
+   "Panorama_at_the_Cath\u00e9drale_Notre-Dame_2.jpg",
+   "Panorama_at_the_Cath\u00e9drale_Notre-Dame.jpg",
+   "Notre_dame_-_panoramio_-_Arwin_Meijer.jpg",
+   "Statue_de_Charlemagne_devant_Notre_Dame.JPG",
+   "2021-05-29_11-52-01_cath-ND-Paris.jpg",
+   "Ecclesia_et_synagoga.jpg",
+   "Paris_Notre-Dame_Die_Kathedrale_von_S\u00fcdosten,_November_2019.jpg",
+   "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(1).jpg",
+   "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(2).jpg",
+   "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(4).jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_5.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_6.jpg",
+   "Notre-Dame_sans_sa_fl\u00e8che.jpg",
+   "Notre-Dame_sans_sa_fl\u00e8che1.jpg",
+   "Notre-Dame_sans_sa_fl\u00e8che3.jpg",
+   "Toegangsportaal_van_de_Notre-Dame,_Parijs_Portail_de_Notre_Dame_(titel_op_object),_RP-F-1996-57.jpg",
+   "Paris_-_Cath\u00e9drale_Notre-Dame_-_Portail_de_la_Vierge_-_PA00086250_-_019.jpg",
+   "Notre_Dame_aan_de_Seine_-_panoramio.jpg",
+   "2019-05-01_09-42-43_nd-paris.jpg",
+   "South_facade_of_Notre-Dame_de_Paris_(33112155496).jpg",
+   "Parvis_Notre-Dame_ferm\u00e9_par_la_police_\u00e0_Paris_le_14_ao\u00fbt_2016_-_01.jpg",
+   "Magnificent_Notre_Dame.jpg",
+   "Fachada_-_panoramio_-_anibal_amaro.jpg",
+   "Fachada_Notre_Dame_-_panoramio.jpg"
+  ],
+  "units": [
+   0,
+   303,
+   303,
+   157,
+   162,
+   256,
+   380,
+   2,
+   342,
+   342,
+   34,
+   34,
+   58,
+   61,
+   63,
+   342,
+   162,
+   69,
+   74,
+   492,
+   100,
+   492,
+   100,
+   492,
+   101,
+   348,
+   108,
+   342,
+   111,
+   348,
+   121,
+   122,
+   349,
+   350,
+   350,
+   352,
+   162,
+   492,
+   146,
+   157,
+   353,
+   148,
+   160,
+   503,
+   121,
+   492,
+   157,
+   182,
+   34,
+   342,
+   188,
+   357,
+   357,
+   357,
+   192,
+   197,
+   202,
+   358,
+   342,
+   362,
+   342,
+   352,
+   34,
+   363,
+   352,
+   357,
+   364,
+   365,
+   121,
+   352,
+   357,
+   202,
+   357,
+   342,
+   342,
+   368,
+   370,
+   371,
+   380,
+   101,
+   463,
+   267,
+   492,
+   373,
+   162,
+   276,
+   277,
+   280,
+   342,
+   283,
+   503,
+   506,
+   162,
+   162,
+   305,
+   350,
+   350,
+   350,
+   310,
+   350,
+   310,
+   101,
+   108,
+   74,
+   315,
+   373,
+   373,
+   379,
+   373,
+   373,
+   324,
+   162,
+   342,
+   11,
+   337,
+   368,
+   368,
+   368,
+   350,
+   350,
+   357,
+   357,
+   357,
+   482,
+   162,
+   324,
+   342,
+   2,
+   0,
+   340,
+   41,
+   41
+  ],
+  "unit_source": "timemachine.data.holdout.holdout_units: author from the artist column of data/tables/image_metadata/<scene id>.parquet; day: date_hi - date_lo <= 0.0031",
+  "shares": {
+   "old": {
+    "usable": 77,
+    "held_out": 11,
+    "share": 0.14285714285714285,
+    "side_views_held_out": 0
+   },
+   "modern": {
+    "usable": 630,
+    "held_out": 63,
+    "share": 0.1,
+    "side_views_held_out": 25
+   },
+   "after": {
+    "usable": 408,
+    "held_out": 58,
+    "share": 0.14215686274509803,
+    "side_views_held_out": 27
+   }
+  },
+  "critique_check": {
+   "seed": 4,
+   "held_out": {
+    "old": 5,
+    "modern": 65,
+    "after": 54
+   },
+   "side_after": 28,
+   "cells": {
+    "modern->modern": {
+     "sets": 7,
+     "units": 18
+    },
+    "after->modern": {
+     "sets": 4,
+     "units": 10
+    },
+    "modern->after": {
+     "sets": 5,
+     "units": 6
+    },
+    "after->after": {
+     "sets": 6,
+     "units": 8
+    }
+   }
+  }
+ },
+ "settings": {
+  "sampling": {
+   "n_ref": 3,
+   "n_targets": 5,
+   "n_ref_choices": null,
+   "min_shared": 30,
+   "min_targets_seen": 3,
+   "top_k": 24,
+   "modern_tolerance": 1.0,
+   "old_tolerance": 5.0,
+   "tolerance_boundary": 1990.0,
+   "period_edges": [
+    1970.0,
+    2019.2877
+   ],
+   "anchor_period_weights": null,
+   "cross_period_prob": 0.5,
+   "balance_cameras": 0.0
+  },
+  "min_scored": 3,
+  "target_tolerance": {
+   "modern": 5.0,
+   "after": 1.0
+  },
+  "reference_rule": "training views of the reference period with reliable depth, each sharing 30 points with every scored target, together seeing every target",
+  "donor_labels": [
+   "tone_checked",
+   "season",
+   "sky_class"
+  ],
+  "donor_label_source": "/fs/nexus-scratch/ltahboub/diffusion-time-machine/data/appearance_study/confounds/features.parquet"
+ },
+ "within_years": {
+  "modern": [
+   2013.4,
+   2016.5
+  ],
+  "after": [
+   2019.45,
+   2021.5
+  ]
+ },
+ "cells": {
+  "modern->modern": {
+   "reference_period": "modern",
+   "target_period": "modern",
+   "sets": [
+    {
+     "name": "mod-mod/0",
+     "n_ref": 3,
+     "rows": [
+      104,
+      568,
+      1285,
+      0,
+      100,
+      1280,
+      606,
+      337
+     ],
+     "file_keys": [
+      "October_2011_in_Paris_DSC_0285_(6285259640).jpg",
+      "South_facade_of_Notre-Dame_de_Paris_(39796121274).jpg",
+      "Cathedral_Notre_Dame_de_Paris_(27700148733).jpg",
+      "Partie_sud-est_de_la_cath\u00e9drale_Notre-Dame_de_Paris_le_6_ao\u00fbt_2014_03.jpg",
+      "\u00cele_de_la_Cit\u00e9_(30438306655).jpg",
+      "South_facade_of_Notre-Dame_de_Paris_(33112155496).jpg",
+      "Cath\u00e9drale_Notre-Dame_de_Paris_-_35.jpg",
+      "Paris_Cath\u00e9drale_Notre-Dame_S\u00fcdliches_Langhaus_05.jpg"
+     ],
+     "anchor": 0,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      0,
+      2,
+      2,
+      51,
+      139
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       1154,
+       206,
+       776,
+       501,
+       845
+      ],
+      "same": [
+       121,
+       775,
+       628,
+       360,
+       304
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_-_Notre_Dame_-_20190610_-_004.jpg",
+       "Paris_-_Notre_Dame_-_20190824_-_008.jpg",
+       "Cath\u00e9drale_de_Paris_apr\u00e8s_l'incendie_(ao\u00fbt_2019).JPG",
+       "Notre_Dame_restoration_long_view_Feb_29_2020.jpg",
+       "Incendie_de_Notre-Dame-de-Paris,_23_mai_2019_6.jpg"
+      ],
+      "same_file_keys": [
+       "Pont_au_double._Paris_(9377270867).jpg",
+       "TheChurchofNotreDame.jpg",
+       "Notre_Dame_18_2012-07-01.jpg",
+       "Cath\u00e9drale_Notre-Dame_de_Paris_503.jpg",
+       "Notre-Dame_de_Paris_(18720902013).jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/1",
+     "n_ref": 3,
+     "rows": [
+      552,
+      337,
+      230,
+      76,
+      268,
+      142,
+      306,
+      150
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris_(17250753141).jpg",
+      "Paris_Cath\u00e9drale_Notre-Dame_S\u00fcdliches_Langhaus_05.jpg",
+      "PA00086250-Notre-Dame-sud.jpg",
+      "Vue_sur_la_Cath\u00e9drale_Notre-Dame_de_Paris,_depuis_le_Quai_de_la_Tournelle.jpg",
+      "P0105_Paris_Notre_Dame_Viewed_from_Quai_Montebello_Left_Seine_River_Side_(5642143493).jpg",
+      "Fachada_S._Notre_Dame_08.JPG",
+      "Notre-Dame_de_Paris_(15051822147).jpg",
+      "Notre_Dame_(15237615225).jpg"
+     ],
+     "anchor": 76,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      256,
+      100,
+      34,
+      39,
+      39
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       1211,
+       55,
+       419,
+       1203,
+       1143
+      ],
+      "same": [
+       985,
+       724,
+       1048,
+       1257,
+       788
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_-_Notre_Dame_-_202101016_-_004.jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(17).jpg",
+       "Paris_-_Notre_Dame_-_20190824_-_005.jpg",
+       "Paris_-_Notre_Dame_-_20210404_-_035.jpg",
+       "Notre-Dame_-_2019-05-31_-_South_transept_and_nave.jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris_visite_de_septembre_2015_04.jpg",
+       "Notre_Dame_de_Paris,_8_March_2015_001.jpg",
+       "Cathedral_Notre_Dame_de_Paris_(27701960184).jpg",
+       "Cath\u00e9drale_de_Notre-Dame_(1).jpg",
+       "Notre-Dame_at_sunset_(24125797757).jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/2",
+     "n_ref": 3,
+     "rows": [
+      166,
+      313,
+      121,
+      129,
+      265,
+      185,
+      896,
+      140
+     ],
+     "file_keys": [
+      "0_Notre-Dame_de_Paris_(6).JPG",
+      "\u6811\u4e1b\u4e2d\u82e5\u9690\u82e5\u73b0\u7684\u5df4\u9ece\u5723\u6bcd\u9662_-_panoramio_(2).jpg",
+      "Pont_au_double._Paris_(9377270867).jpg",
+      "Fachada_S._Notre_Dame_07.JPG",
+      "P0106_Paris_Notre_Dame_Viewed_from_Pont_au_Double_Left_side_of_Seine_River_(5642141535).jpg",
+      "Paris_-_inondations_-_juin_2016_-_131.jpg",
+      "Side_View_of_Notre-Dame.jpg",
+      "Fachada_sur_torre_y_aguja_de_Notre_Dame_de_Par\u00eds.jpg"
+     ],
+     "anchor": 129,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      34,
+      100,
+      162,
+      300,
+      47
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       1001,
+       192,
+       946,
+       704,
+       291
+      ],
+      "same": [
+       119,
+       618,
+       329,
+       551,
+       381
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre-Dame_de_Paris_(48682718353).jpg",
+       "\u00cele_de_la_Cit\u00e9_from_the_east_(33862403008).jpg",
+       "Notre-Dame_in_2019.jpg",
+       "Notre-Dame_de_Paris_-_juillet_2021.jpg",
+       "Notre_Dame,_Paris._(48408911451).jpg"
+      ],
+      "same_file_keys": [
+       "Paris_1005.jpg",
+       "Cath\u00e9drale_Notre_Dame_de_Paris_-_panoramio_-_Infernal_Quack_(Shif\u2026.jpg",
+       "Notre_Dame,_Paris,_France_-_panoramio_(6).jpg",
+       "060806-France-Paris-Notre_Dame.jpg",
+       "Cath\u00e9drale_Notre-Dame_de_Paris_(Ank_Kumar,Infosys_)_06.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/3",
+     "n_ref": 3,
+     "rows": [
+      751,
+      87,
+      88,
+      171,
+      296,
+      320,
+      153,
+      1036
+     ],
+     "file_keys": [
+      "4Y1A5880_(22767872473).jpg",
+      "Notr_Dam.jpg",
+      "ND_de_Paris_Chevet_18_05_2017_b.jpg",
+      "Notre-Dame_de_Paris,_South_view_20140131_1.jpg",
+      "Notre_Dame_de_Paris,_5_November_2009.jpg",
+      "Notre-Dame_et_Quais_(4472165758).jpg",
+      "Notre_Dame_de_Paris_(33234806304).png",
+      "Notre-Dame_flood_2016_2.jpg"
+     ],
+     "anchor": 171,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      61,
+      108,
+      121,
+      49,
+      47
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       1172,
+       27,
+       349,
+       1106,
+       459
+      ],
+      "same": [
+       47,
+       756,
+       1308,
+       912,
+       125
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_-_Notre_Dame_-_20200118_-_001.jpg",
+       "Tourists_on_a_boat_in_Paris_(49570487977).jpg",
+       "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_6.jpg",
+       "Notre-Dame_sans_sa_fl\u00e8che3.jpg",
+       "Paris_-_Notre_Dame_-_20190610_-_008.jpg"
+      ],
+      "same_file_keys": [
+       "Rose_du_transept_Sud_Notre-Dame_de_Paris_170208_01.jpg",
+       "Notre-Dame_de_Paris,_4_October_2017.jpg",
+       "Cath\u00e9drale_Notre_Dame_-_panoramio_-_arthursmello.jpg",
+       "Notre_Dame_\u5df4\u9ece\u8056\u6bcd\u9662_-_panoramio.jpg",
+       "Catedral_de_Notre_Dame_(16883850496).jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/4",
+     "n_ref": 3,
+     "rows": [
+      1035,
+      303,
+      747,
+      199,
+      814,
+      899,
+      982,
+      473
+     ],
+     "file_keys": [
+      "Tympan_Portail_Jugement_Dernier_Cath\u00e9drale_Notre-Dame_Paris_2.jpg",
+      "Notre-Dame_(Paris).jpg",
+      "Notre-Dame_de_Paris,_2019-02-16,_main_portal.jpg",
+      "Portail_du_Jugement_Dernier_of_Notre-Dame_de_Paris_(34827710283).jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_PA00086250_-_003.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_PA00086250_-_006.jpg",
+      "Paris,_Notre_Dame_--_2014_--_1447.jpg",
+      "West_facade_of_Notre-Dame,_Paris_September_2013_001.jpg"
+     ],
+     "anchor": 199,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      69,
+      162,
+      162,
+      216,
+      172
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       310,
+       647,
+       665,
+       1157,
+       697
+      ],
+      "same": [
+       123,
+       935,
+       1036,
+       1249,
+       9
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame,_Paris._(48402883397).jpg",
+       "7-Notre_Dame.jpg",
+       "Notre-Dame_de_Paris_(48683232872).jpg",
+       "Paris_-_Notre_Dame_-_20190824_-_001.jpg",
+       "Notre-Dame_de_Paris_en_travaux_2.jpg"
+      ],
+      "same_file_keys": [
+       "Photographie_de_Notre_Dame_de_Paris_en_2012.jpg",
+       "Catedral_de_Notre_Dame_(14624404185).jpg",
+       "Notre-Dame_flood_2016_2.jpg",
+       "West_portals_of_Notre-Dame_de_Paris,_June_2007.jpg",
+       "Notre-Dame_(6226961600).jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/5",
+     "n_ref": 3,
+     "rows": [
+      717,
+      511,
+      572,
+      377,
+      824,
+      513,
+      589,
+      579
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris_(37236157251).jpg",
+      "Notre_Dame,_rear.JPG",
+      "VUE_EST_N_D_PARIS_2006.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_PA00086250_-_002.jpg",
+      "Paris_August_2016_IMG_1403_(28593571080).jpg",
+      "Notre_Dame_desde_el_SE._03.JPG",
+      "Cathedrale_Notre-Dame_de_Paris_chevet.jpg",
+      "DSCN2880_ND_Paris-Chevet_1.JPG"
+     ],
+     "anchor": 377,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      162,
+      276,
+      34,
+      39,
+      204
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       642,
+       1157,
+       459,
+       404,
+       1003
+      ],
+      "same": [
+       158,
+       1290,
+       857,
+       24,
+       25
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre-Dame_de_Paris_in_2020_(49523281708).jpg",
+       "Paris_-_Notre_Dame_-_20190824_-_001.jpg",
+       "Paris_-_Notre_Dame_-_20190610_-_008.jpg",
+       "Paris_-_Notre_Dame_-_20210404_-_009.jpg",
+       "Paris_747A5683_(49095753733).jpg"
+      ],
+      "same_file_keys": [
+       "Cath\u00e9drale_Notre-Dame_de_Paris_-_34.jpg",
+       "Notre_Dame_de_Paris_Cathedral_(9812113195).jpg",
+       "Paris,_Notre_Dame_--_2014_--_1437.jpg",
+       "Notre_dame_de_Paris_fleurie,_17_avril_2014.jpg",
+       "Vue_depuis_pont_Archev\u00each\u00e9_Cath\u00e9drale_Notre-Dame_Paris_3.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/6",
+     "n_ref": 3,
+     "rows": [
+      262,
+      859,
+      386,
+      544,
+      566,
+      781,
+      980,
+      414
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris,_2019-02-16,_exterior_day_05.jpg",
+      "Cath\u00e9drale_Notre-Dame_de_Paris,_2012_(4).JPG",
+      "Notre-Dame_de_Paris,_2019-02-16,_west_facade_02.jpg",
+      "Tympanum_of_the_Portail_Sainte_Anne,_Notre-Dame_de_Paris,_23_July_2014.jpg",
+      "West_facade_of_Notre-Dame_de_Paris,_8_October_2011_02.jpg",
+      "Paris_September_2016_IMGL0420_(29536425740).jpg",
+      "La_cath\u00e9drale_Notre-Dame_et_le_sapin_de_No\u00ebl_(Paris)_(2).jpg",
+      "Notre_Dame,_Paris_19_December_2009_001.jpg"
+     ],
+     "anchor": 544,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      192,
+      197,
+      101,
+      240,
+      150
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       1158,
+       810,
+       27,
+       1055,
+       1197
+      ],
+      "same": [
+       773,
+       979,
+       80,
+       70,
+       597
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_-_Notre_Dame_-_20190824_-_002.jpg",
+       "Pr\u00e9fecture_de_police,_Notre-Dame-de-Paris,_quai_Saint-Michel,_Paris_5e.jpg",
+       "Tourists_on_a_boat_in_Paris_(49570487977).jpg",
+       "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(1).jpg",
+       "Paris_-_Notre_Dame_-_20200118_-_012.jpg"
+      ],
+      "same_file_keys": [
+       "Paris_1004.jpg",
+       "Notre_Dame_de_Paris_and_blue_sky.jpg",
+       "Paris-Notre_Dame-150-Suedtransept-2017-gje.jpg",
+       "Notre-Dame_de_Paris_depuis_l'\u00eele_Saint-Louis.jpg",
+       "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_1.jpg"
+      ]
+     }
+    }
+   ],
+   "strict_sets": [
+    {
+     "name": "mod-mod/strict0",
+     "n_ref": 3,
+     "rows": [
+      332,
+      751,
+      243,
+      76,
+      320,
+      100,
+      171,
+      268
+     ],
+     "file_keys": [
+      "Paris_Cath\u00e9drale_Notre-Dame_S\u00fcdliches_Langhaus_10.jpg",
+      "4Y1A5880_(22767872473).jpg",
+      "Notre_Dame_sides.jpg",
+      "Vue_sur_la_Cath\u00e9drale_Notre-Dame_de_Paris,_depuis_le_Quai_de_la_Tournelle.jpg",
+      "Notre-Dame_et_Quais_(4472165758).jpg",
+      "\u00cele_de_la_Cit\u00e9_(30438306655).jpg",
+      "Notre-Dame_de_Paris,_South_view_20140131_1.jpg",
+      "P0105_Paris_Notre_Dame_Viewed_from_Quai_Montebello_Left_Seine_River_Side_(5642143493).jpg"
+     ],
+     "anchor": 76,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      256,
+      121,
+      2,
+      61,
+      100
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       1216,
+       1104,
+       822,
+       1193,
+       94
+      ],
+      "same": [
+       448,
+       1313,
+       596,
+       32,
+       193
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_-_Notre_Dame_-_202101016_-_009.jpg",
+       "Notre-Dame_sans_sa_fl\u00e8che.jpg",
+       "Notre-Dame_de_Paris_(48682719583).jpg",
+       "Paris_-_Notre_Dame_-_20200118_-_008.jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(15).jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame-Paris-eastside.jpg",
+       "Sunday_Morning_at_Notre_Dame_(3559719165).jpg",
+       "Notre_Dame_de_Paris_Cathedral_(9812144756).jpg",
+       "Paris,_janeiro_de_2010_-_panoramio_-_Kell_Kell_(4).jpg",
+       "2017._Torre_de_Notre-Dame_de_Par\u00eds-1.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/strict1",
+     "n_ref": 3,
+     "rows": [
+      831,
+      414,
+      303,
+      199,
+      899,
+      640,
+      893,
+      814
+     ],
+     "file_keys": [
+      "Notre_Dame_de_Paris_(20126255143).jpg",
+      "Notre_Dame,_Paris_19_December_2009_001.jpg",
+      "Notre-Dame_(Paris).jpg",
+      "Portail_du_Jugement_Dernier_of_Notre-Dame_de_Paris_(34827710283).jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_PA00086250_-_006.jpg",
+      "Notre_Dame_fachada_01.JPG",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_PA00086250_-_005.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_Fa\u00e7ade_ouest_-_PA00086250_-_003.jpg"
+     ],
+     "anchor": 199,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      69,
+      162,
+      34,
+      162,
+      162
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       310,
+       1157,
+       1149,
+       685,
+       948
+      ],
+      "same": [
+       123,
+       938,
+       771,
+       916,
+       991
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame,_Paris._(48402883397).jpg",
+       "Paris_-_Notre_Dame_-_20190824_-_001.jpg",
+       "Paris_-_Notre_Dame_-_20190601_-_011.jpg",
+       "1-Notre_Dame.jpg",
+       "Notre-Dame_overlooking_the_River_Seine.jpg"
+      ],
+      "same_file_keys": [
+       "Photographie_de_Notre_Dame_de_Paris_en_2012.jpg",
+       "Statuettes_N-D_1.JPG",
+       "France_IDF_75_Notre_Dame_01.jpg",
+       "Notre_Dame_Pary\u017c_2013_(15).JPG",
+       "Entrada_de_NotreDame_de_Par\u00eds.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/strict2",
+     "n_ref": 3,
+     "rows": [
+      133,
+      1285,
+      568,
+      321,
+      0,
+      142,
+      1280,
+      129
+     ],
+     "file_keys": [
+      "Notter_Dame_-_panoramio.jpg",
+      "Cathedral_Notre_Dame_de_Paris_(27700148733).jpg",
+      "South_facade_of_Notre-Dame_de_Paris_(39796121274).jpg",
+      "Notre_Dame_de_Paris_from_left_bank.JPG",
+      "Partie_sud-est_de_la_cath\u00e9drale_Notre-Dame_de_Paris_le_6_ao\u00fbt_2014_03.jpg",
+      "Fachada_S._Notre_Dame_08.JPG",
+      "South_facade_of_Notre-Dame_de_Paris_(33112155496).jpg",
+      "Fachada_S._Notre_Dame_07.JPG"
+     ],
+     "anchor": 321,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      122,
+      0,
+      34,
+      2,
+      34
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       1174,
+       1154,
+       441,
+       1149,
+       922
+      ],
+      "same": [
+       876,
+       230,
+       769,
+       1044,
+       575
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_-_Notre_Dame_-_20200118_-_007.jpg",
+       "Paris_-_Notre_Dame_-_20190610_-_004.jpg",
+       "Paris_-_Notre_Dame_-_20190824_-_007.jpg",
+       "Paris_-_Notre_Dame_-_20190601_-_011.jpg",
+       "Cath\u00e9drale_Notre_-_Dame_de_Paris.jpg"
+      ],
+      "same_file_keys": [
+       "Garden_@_Notre-Dame_de_Paris_(25312411115).jpg",
+       "PA00086250-Notre-Dame-sud.jpg",
+       "Back_of_Notre_Dame_de_Paris.jpg",
+       "West_facade_of_Notre-Dame_de_Paris,_2_June_2006_002.jpg",
+       "Notre_Dame_160_2012-07-01.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-mod/strict3",
+     "n_ref": 3,
+     "rows": [
+      78,
+      686,
+      711,
+      377,
+      533,
+      680,
+      513,
+      824
+     ],
+     "file_keys": [
+      "Notre_Dame_from_\u00cele_Saint-Louis_(4540687172).jpg",
+      "Apse_of_Notre-Dame_de_Paris,_November_2004_001.jpg",
+      "Cath\u00e9drale_Notre-Dame_3.JPG",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_PA00086250_-_002.jpg",
+      "Cath\u00e9drale_Notre-Dame_de_Paris_-_panoramio_(4).jpg",
+      "Austerlitz-Notre_Dame-Arsenal_(13343882344).jpg",
+      "Notre_Dame_desde_el_SE._03.JPG",
+      "Paris_August_2016_IMG_1403_(28593571080).jpg"
+     ],
+     "anchor": 377,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      162,
+      188,
+      121,
+      34,
+      276
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       549,
+       697,
+       1193,
+       291,
+       1155
+      ],
+      "same": [
+       456,
+       10,
+       386,
+       981,
+       411
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_Cathedral_Renovation_Feb_29,2020.jpg",
+       "Notre-Dame_de_Paris_en_travaux_2.jpg",
+       "Paris_-_Notre_Dame_-_20200118_-_008.jpg",
+       "Notre_Dame,_Paris._(48408911451).jpg",
+       "Paris_-_Notre_Dame_-_20190610_-_006.jpg"
+      ],
+      "same_file_keys": [
+       "Notre_dame_retro_-_panoramio.jpg",
+       "Notre-Dame_(6226959040)_(2).jpg",
+       "Notre-Dame_de_Paris,_2019-02-16,_west_facade_02.jpg",
+       "Notre_Dame,_Paris_6.jpg",
+       "Gtrhtrsjhs_notre_hfudhafu_dame.jpg"
+      ]
+     }
+    }
+   ],
+   "counts": {
+    "sets": 7,
+    "scored_targets": 21,
+    "units": 14
+   },
+   "strict_counts": {
+    "sets": 4,
+    "scored_targets": 20,
+    "units": 12
+   }
+  },
+  "after->modern": {
+   "reference_period": "after",
+   "target_period": "modern",
+   "sets": [
+    {
+     "name": "aft-mod/0",
+     "n_ref": 3,
+     "rows": [
+      285,
+      297,
+      1113,
+      0,
+      321,
+      1280,
+      150,
+      136
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_06.jpg",
+      "Notre_Dame,_6_days_after_the_fire_of_2019_01.jpg",
+      "Notre-Dame-8_(47741289471).jpg",
+      "Partie_sud-est_de_la_cath\u00e9drale_Notre-Dame_de_Paris_le_6_ao\u00fbt_2014_03.jpg",
+      "Notre_Dame_de_Paris_from_left_bank.JPG",
+      "South_facade_of_Notre-Dame_de_Paris_(33112155496).jpg",
+      "Notre_Dame_(15237615225).jpg",
+      "Notre_Dame_Cathedral,_Paris_-_panoramio.jpg"
+     ],
+     "anchor": 0,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      0,
+      122,
+      2,
+      39,
+      45
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       946,
+       1185,
+       922,
+       796,
+       657
+      ],
+      "same": [
+       452,
+       568,
+       129,
+       153,
+       252
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre-Dame_in_2019.jpg",
+       "7_f\u00e9vrier_2020_-_Vue_d'ensemble.jpg",
+       "Cath\u00e9drale_Notre_-_Dame_de_Paris.jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(9).jpg",
+       "Notre_dame_paris_august_2019.jpg"
+      ],
+      "same_file_keys": [
+       "Notre_Dame004..jpg",
+       "South_facade_of_Notre-Dame_de_Paris_(39796121274).jpg",
+       "Fachada_S._Notre_Dame_07.JPG",
+       "Notre_Dame_de_Paris_(33234806304).png",
+       "Notre_Dame_@_Seine_@_Paris_(27424421844).jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-mod/1",
+     "n_ref": 3,
+     "rows": [
+      285,
+      945,
+      279,
+      76,
+      100,
+      268,
+      142,
+      136
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_06.jpg",
+      "Notre-Dame_de_Paris_from_Quai_de_Montebello,_Paris.jpg",
+      "Notre-Dame_de_Paris,_12_mai_2019_(20).jpg",
+      "Vue_sur_la_Cath\u00e9drale_Notre-Dame_de_Paris,_depuis_le_Quai_de_la_Tournelle.jpg",
+      "\u00cele_de_la_Cit\u00e9_(30438306655).jpg",
+      "P0105_Paris_Notre_Dame_Viewed_from_Quai_Montebello_Left_Seine_River_Side_(5642143493).jpg",
+      "Fachada_S._Notre_Dame_08.JPG",
+      "Notre_Dame_Cathedral,_Paris_-_panoramio.jpg"
+     ],
+     "anchor": 76,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      false
+     ],
+     "units": [
+      256,
+      2,
+      100,
+      34,
+      45
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       1213,
+       1292,
+       918,
+       1001,
+       26
+      ],
+      "same": [
+       93,
+       949,
+       133,
+       593,
+       868
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_-_Notre_Dame_-_202101016_-_007.jpg",
+       "Magnificent_Notre_Dame.jpg",
+       "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_4.jpg",
+       "Notre-Dame_de_Paris_(48682718353).jpg",
+       "Travaux_de_consolidation_Notre-Dame_de_Paris_apr\u00e8s_l'incendie.jpg"
+      ],
+      "same_file_keys": [
+       "Ile_de_la_Cite_from_Pont_de_la_Tournelle.jpg",
+       "Notre_Dame_145_2012-07-01.jpg",
+       "Notter_Dame_-_panoramio.jpg",
+       "Notre_Dame_de_Paris_Cathedral_(9812132696).jpg",
+       "Petit_Pont_and_Notre_Dame_Cathedral,_Paris_July_2014.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-mod/2",
+     "n_ref": 3,
+     "rows": [
+      405,
+      1159,
+      459,
+      129,
+      265,
+      185,
+      325,
+      226
+     ],
+     "file_keys": [
+      "Paris_-_Notre_Dame_-_20200118_-_004.jpg",
+      "Paris_-_Notre_Dame_-_20190824_-_003.jpg",
+      "Paris_-_Notre_Dame_-_20190610_-_008.jpg",
+      "Fachada_S._Notre_Dame_07.JPG",
+      "P0106_Paris_Notre_Dame_Viewed_from_Pont_au_Double_Left_side_of_Seine_River_(5642141535).jpg",
+      "Paris_-_inondations_-_juin_2016_-_131.jpg",
+      "Paris_Cath\u00e9drale_Notre-Dame_S\u00fcdliches_Langhaus_01.jpg",
+      "Notre_dame._Paris.JPG"
+     ],
+     "anchor": 129,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      34,
+      100,
+      162,
+      139,
+      78
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       182,
+       1111,
+       946,
+       284,
+       300
+      ],
+      "same": [
+       51,
+       462,
+       785,
+       912,
+       791
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_de_Paris_en_travaux,_Square_Ren\u00e9_Viviani,_30_juillet_2020.jpg",
+       "Notre-Dame-4_(47741289821).jpg",
+       "Notre-Dame_in_2019.jpg",
+       "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_09.jpg",
+       "2019-05-01_09-31-25_nd-paris.jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris,_vue_depuis_le_pont_de_la_Tournelle,_Paris_2009.jpg",
+       "Carlomagno_al_pie_de_Notre_Dame.jpg",
+       "RNoterdomn_(16).JPG",
+       "Notre_Dame_\u5df4\u9ece\u8056\u6bcd\u9662_-_panoramio.jpg",
+       "Notre_Dame_from_afar.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-mod/3",
+     "n_ref": 3,
+     "rows": [
+      1092,
+      1100,
+      911,
+      171,
+      296,
+      320,
+      174,
+      328
+     ],
+     "file_keys": [
+      "Paris_4e_Cath\u00e9drale_Notre-Dame_093.jpg",
+      "Notre-Dame_de_Paris_(33792163108).jpg",
+      "Notre-Dame_de_Paris_(33807853248).jpg",
+      "Notre-Dame_de_Paris,_South_view_20140131_1.jpg",
+      "Notre_Dame_de_Paris,_5_November_2009.jpg",
+      "Notre-Dame_et_Quais_(4472165758).jpg",
+      "Notre-Dame_de_Paris_East_side_2015-07-27.jpg",
+      "Fa\u00e7ade_sud_Cath\u00e9drale_Notre-Dame_Paris_11.jpg"
+     ],
+     "anchor": 171,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      61,
+      108,
+      121,
+      62,
+      1
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       1185,
+       945,
+       919,
+       849,
+       810
+      ],
+      "same": [
+       321,
+       688,
+       469,
+       797,
+       738
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "7_f\u00e9vrier_2020_-_Vue_d'ensemble.jpg",
+       "Notre-Dame_de_Paris_from_Quai_de_Montebello,_Paris.jpg",
+       "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_3.jpg",
+       "Paris_4e_-_Rue_du_Clo\u00eetre_Notre-Dame_-_Travaux_de_consolidation_de_la_cath\u00e9drale_apr\u00e8s_l'incendie_02.jpg",
+       "Pr\u00e9fecture_de_police,_Notre-Dame-de-Paris,_quai_Saint-Michel,_Paris_5e.jpg"
+      ],
+      "same_file_keys": [
+       "Notre_Dame_de_Paris_from_left_bank.JPG",
+       "Paris_Notre-Dame_South_Tower_20161109.jpg",
+       "Paris_December_2018-18.jpg",
+       "Notre_Dame_Cathedral_-_panoramio_(4).jpg",
+       "ND_Fl\u00e8che_with_apostles.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-mod/4",
+     "n_ref": 3,
+     "rows": [
+      298,
+      1122,
+      1120,
+      377,
+      513,
+      533,
+      78,
+      579
+     ],
+     "file_keys": [
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_est_Paris_13.jpg",
+      "Notre-Dame_-_2019-05-16_-_Apse_from_the_east.jpg",
+      "Notre-Dame_-_2019-05-16_-_Apse_from_the_east_01.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_PA00086250_-_002.jpg",
+      "Notre_Dame_desde_el_SE._03.JPG",
+      "Cath\u00e9drale_Notre-Dame_de_Paris_-_panoramio_(4).jpg",
+      "Notre_Dame_from_\u00cele_Saint-Louis_(4540687172).jpg",
+      "DSCN2880_ND_Paris-Chevet_1.JPG"
+     ],
+     "anchor": 377,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      162,
+      34,
+      188,
+      261,
+      204
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       501,
+       291,
+       344,
+       506,
+       1003
+      ],
+      "same": [
+       633,
+       209,
+       752,
+       97,
+       303
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_restoration_long_view_Feb_29_2020.jpg",
+       "Notre_Dame,_Paris._(48408911451).jpg",
+       "Notre-Dame_de_Paris_west_fa\u00e7ade_-_3.jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(21).jpg",
+       "Paris_747A5683_(49095753733).jpg"
+      ],
+      "same_file_keys": [
+       "Cath\u00e9drale_Notre_Dame_de_Paris_(22265579748).jpg",
+       "Statuettes_N-D_2.JPG",
+       "Paris_75004_Square_Jean_XXIII_-_Notre-Dame_20170930.jpg",
+       "Notre-dame-jurii-1.jpg",
+       "Notre-Dame_(Paris).jpg"
+      ]
+     }
+    }
+   ],
+   "strict_sets": [
+    {
+     "name": "aft-mod/strict0",
+     "n_ref": 3,
+     "rows": [
+      1066,
+      1092,
+      1068,
+      76,
+      100,
+      171,
+      142,
+      320
+     ],
+     "file_keys": [
+      "Aftermath_of_the_Notre-Dame_fire_4,_April_16_2019.jpg",
+      "Paris_4e_Cath\u00e9drale_Notre-Dame_093.jpg",
+      "Incendie_de_Notre-Dame,_jour_d'apr\u00e8s_2.jpg",
+      "Vue_sur_la_Cath\u00e9drale_Notre-Dame_de_Paris,_depuis_le_Quai_de_la_Tournelle.jpg",
+      "\u00cele_de_la_Cit\u00e9_(30438306655).jpg",
+      "Notre-Dame_de_Paris,_South_view_20140131_1.jpg",
+      "Fachada_S._Notre_Dame_08.JPG",
+      "Notre-Dame_et_Quais_(4472165758).jpg"
+     ],
+     "anchor": 76,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      256,
+      2,
+      61,
+      34,
+      121
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       442,
+       734,
+       1185,
+       607,
+       506
+      ],
+      "same": [
+       752,
+       872,
+       580,
+       799,
+       313
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre-Dame_de_Paris_west_fa\u00e7ade_-_2.jpg",
+       "Notre_dame_Paris_after_the_fire.jpg",
+       "7_f\u00e9vrier_2020_-_Vue_d'ensemble.jpg",
+       "Travaux_de_restauration_pignon_nord_Notre-Dame-de-Paris_1.jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(21).jpg"
+      ],
+      "same_file_keys": [
+       "Paris_75004_Square_Jean_XXIII_-_Notre-Dame_20170930.jpg",
+       "West_facade_of_Notre-Dame_de_Paris,_24_June_2014_002.jpg",
+       "0_Notre-Dame_de_Paris_(3).JPG",
+       "Notre_Dame_131_2012-07-01.jpg",
+       "\u6811\u4e1b\u4e2d\u82e5\u9690\u82e5\u73b0\u7684\u5df4\u9ece\u5723\u6bcd\u9662_-_panoramio_(2).jpg"
+      ]
+     }
+    }
+   ],
+   "counts": {
+    "sets": 5,
+    "scored_targets": 16,
+    "units": 11
+   },
+   "strict_counts": {
+    "sets": 1,
+    "scored_targets": 5,
+    "units": 5
+   }
+  },
+  "modern->after": {
+   "reference_period": "modern",
+   "target_period": "after",
+   "sets": [
+    {
+     "name": "mod-aft/0",
+     "n_ref": 3,
+     "rows": [
+      169,
+      88,
+      25,
+      115,
+      529,
+      1106,
+      1167,
+      357
+     ],
+     "file_keys": [
+      "Notre_Dame_de_Paris_au_printemps.JPG",
+      "ND_de_Paris_Chevet_18_05_2017_b.jpg",
+      "Vue_depuis_pont_Archev\u00each\u00e9_Cath\u00e9drale_Notre-Dame_Paris_3.jpg",
+      "2019-05-01_09-32-39_nd-paris.jpg",
+      "Notre_Dame_de_Paname_(48433093287).jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che3.jpg",
+      "Paris_-_Notre_Dame_-_20190824_-_016.jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_31.jpg"
+     ],
+     "anchor": 115,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      342,
+      342,
+      357,
+      344,
+      344
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       255,
+       641,
+       987,
+       769,
+       320
+      ],
+      "same": [
+       17,
+       627,
+       66,
+       821,
+       244
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_(75004)_Cath\u00e9drale_Notre-Dame_-_Ext\u00e9rieur_-_Fa\u00e7ade_occidentale_02.jpg",
+       "Notre_Dame_4_2012-07-01.jpg",
+       "Tympanum_of_the_Portail_de_la_Vierge,_Notre-Dame_de_Paris,_16_May_2015.jpg",
+       "Back_of_Notre_Dame_de_Paris.jpg",
+       "Notre-Dame_et_Quais_(4472165758).jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris,_12_mai_2019_(7).jpg",
+       "3-Notre_Dame.jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(15).jpg",
+       "NDDP_Parvis_07-23.jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(2).jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-aft/1",
+     "n_ref": 3,
+     "rows": [
+      60,
+      88,
+      25,
+      291,
+      776,
+      96,
+      69,
+      38
+     ],
+     "file_keys": [
+      "Notre-Dame_depuis_la_Seine.jpg",
+      "ND_de_Paris_Chevet_18_05_2017_b.jpg",
+      "Vue_depuis_pont_Archev\u00each\u00e9_Cath\u00e9drale_Notre-Dame_Paris_3.jpg",
+      "Notre_Dame,_Paris._(48408911451).jpg",
+      "Cath\u00e9drale_de_Paris_apr\u00e8s_l'incendie_(ao\u00fbt_2019).JPG",
+      "N85_9254_Notre_Dame_(48565615126).jpg",
+      "Notre-Dame_de_Paris_in_2019_after_15_April_fire_(33862403148).jpg",
+      "Notre-Dame_de_Paris,_27_August_2019.jpg"
+     ],
+     "anchor": 291,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      348,
+      380,
+      380,
+      341,
+      369
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       140,
+       674,
+       29,
+       462,
+       74
+      ],
+      "same": [
+       459,
+       922,
+       946,
+       1205,
+       704
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Fachada_sur_torre_y_aguja_de_Notre_Dame_de_Par\u00eds.jpg",
+       "Cathedral_Notre_Dame_de_Paris_(28214450822).jpg",
+       "Tour_boat_and_Notre-Dame_de_Paris,_28_August_2016.jpg",
+       "Carlomagno_al_pie_de_Notre_Dame.jpg",
+       "Notre_Dame,_Paris,_France_-_panoramio_(59).jpg"
+      ],
+      "same_file_keys": [
+       "Paris_-_Notre_Dame_-_20190610_-_008.jpg",
+       "Cath\u00e9drale_Notre_-_Dame_de_Paris.jpg",
+       "Notre-Dame_in_2019.jpg",
+       "Paris_-_Notre_Dame_-_20210404_-_038.jpg",
+       "Notre-Dame_de_Paris_-_juillet_2021.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-aft/2",
+     "n_ref": 3,
+     "rows": [
+      85,
+      143,
+      83,
+      310,
+      918,
+      758,
+      1085,
+      1278
+     ],
+     "file_keys": [
+      "Paris_3_June_2016_-_Notre-Dame_de_Paris_13.jpg",
+      "Notre_Dame_de_Paris_@_Seine_@_Paris_(26115930722).jpg",
+      "Paris_Notre-Dame_South_View_03.JPG",
+      "Notre_Dame,_Paris._(48402883397).jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_4.jpg",
+      "Notre_Dame,_Paris_11_May_2019.jpg",
+      "Notre-Dame_de_Paris_(32726920657).jpg",
+      "2019-05-01_09-42-43_nd-paris.jpg"
+     ],
+     "anchor": 310,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      true
+     ],
+     "units": [
+      348,
+      350,
+      370,
+      356,
+      342
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       123,
+       895,
+       990,
+       238,
+       699
+      ],
+      "same": [
+       1073,
+       923,
+       234,
+       1095,
+       109
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Photographie_de_Notre_Dame_de_Paris_en_2012.jpg",
+       "Notre-Dame_de_Paris_(3385479328).jpg",
+       "Statue_of_Carolus_Magnus,_Notre-Dame_de_Paris,_13_April_2015.jpg",
+       "Notre_Dame_chevet.jpg",
+       "Fa\u00e7ade_vue_d'en_bas.JPG"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris_(33807852718).jpg",
+       "Notre-Dame_de_Paris_(47632439272).jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(18).jpg",
+       "Paris_4e_Cath\u00e9drale_Notre-Dame_096.jpg",
+       "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_est_Paris_3.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-aft/3",
+     "n_ref": 3,
+     "rows": [
+      208,
+      316,
+      606,
+      608,
+      910,
+      1072,
+      16,
+      102
+     ],
+     "file_keys": [
+      "Cath\u00e9drale_Notre-Dame_de_Paris_-_Paris_-_France_-_M\u00e9rim\u00e9e_PA00086250_(4).jpg",
+      "Notre-Dame_de_Paris_-_panoramio_(2).jpg",
+      "Cath\u00e9drale_Notre-Dame_de_Paris_-_35.jpg",
+      "Notre-Dame_de_Paris,_May_2019,_rebuilding_after_the_fire.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_7.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_6.jpg",
+      "Notre-Dame_de_Paris,_12_mai_2019_(6).jpg",
+      "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_10.jpg"
+     ],
+     "anchor": 608,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      342,
+      350,
+      350,
+      341,
+      351
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       912,
+       365,
+       664,
+       705,
+       870
+      ],
+      "same": [
+       1114,
+       1089,
+       1215,
+       1171,
+       494
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_\u5df4\u9ece\u8056\u6bcd\u9662_-_panoramio.jpg",
+       "Notre_dame_-_panoramio_(1).jpg",
+       "Notre_Dame_Cathedral,_Paris.jpg",
+       "Paris-Notre-Dame-2.jpg",
+       "West_facade_of_Notre-Dame_de_Paris_(33562099013).jpg"
+      ],
+      "same_file_keys": [
+       "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_13.jpg",
+       "Paris_4e_Cath\u00e9drale_Notre-Dame_088.jpg",
+       "Paris_-_Notre_Dame_-_20210404_-_020.jpg",
+       "Paris_-_Notre_Dame_-_20210404_-_004.jpg",
+       "Notre-Dame_-_2019-05-10_-_Apse_from_the_south-east_02.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-aft/4",
+     "n_ref": 3,
+     "rows": [
+      316,
+      226,
+      128,
+      692,
+      657,
+      1105,
+      1138,
+      1102
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris_-_panoramio_(2).jpg",
+      "Notre_dame._Paris.JPG",
+      "Paris_Cath\u00e9drale_Notre-Dame_S\u00fcdliches_Langhaus_02.jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che2.jpg",
+      "Notre_dame_paris_august_2019.jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che1.jpg",
+      "Notre-Dame_-_2019-05-16_-_Nave_from_the_south.jpg",
+      "Notre-Dame_de_Paris_(46945565724).jpg"
+     ],
+     "anchor": 692,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      357,
+      364,
+      357,
+      344,
+      356
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       791,
+       958,
+       22,
+       150,
+       265
+      ],
+      "same": [
+       845,
+       26,
+       17,
+       279,
+       1112
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_from_afar.jpg",
+       "La_sombra_del_Sena.jpg",
+       "Vue_Jardin_Jean-XXIII_2.JPG",
+       "Notre_Dame_(15237615225).jpg",
+       "P0106_Paris_Notre_Dame_Viewed_from_Pont_au_Double_Left_side_of_Seine_River_(5642141535).jpg"
+      ],
+      "same_file_keys": [
+       "Incendie_de_Notre-Dame-de-Paris,_23_mai_2019_6.jpg",
+       "Travaux_de_consolidation_Notre-Dame_de_Paris_apr\u00e8s_l'incendie.jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(7).jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(20).jpg",
+       "Notre-Dame-7_(47741290041).jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-aft/5",
+     "n_ref": 3,
+     "rows": [
+      746,
+      379,
+      696,
+      742,
+      1056,
+      994,
+      560,
+      374
+     ],
+     "file_keys": [
+      "Notre_Dame_173_2012-07-01.jpg",
+      "West_facade_of_Notre-Dame_de_Paris,_13_October_2015.jpg",
+      "Cath\u00e9drale_Notre-Dame_de_Paris_-_26.jpg",
+      "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(3).jpg",
+      "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(2).jpg",
+      "2021-05-29_11-52-01_cath-ND-Paris.jpg",
+      "Fa\u00e7ade_Ouest_Cath\u00e9drale_Notre_Dame_-_Paris_IV_(FR75)_-_2021-06-05_-_1.jpg",
+      "Cath\u00e9drale_Notre_Dame_-_Paris_IV_(FR75)_-_2022-05-27_-_3.jpg"
+     ],
+     "anchor": 742,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      368,
+      368,
+      342,
+      344,
+      344
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       86,
+       57,
+       353,
+       771,
+       574
+      ],
+      "same": [
+       549,
+       642,
+       280,
+       627,
+       1276
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris,_Cath\u00e9drale_Notre-Dame_de_Paris_\u00cele_de_la_Cit\u00e9_(2).jpg",
+       "Notre-Dame_de_Paris_depuis_le_pont_de_la_Tournelle.jpg",
+       "Notre_Dame_de_Paris_-_panoramio_(5).jpg",
+       "France_IDF_75_Notre_Dame_01.jpg",
+       "Exterior_of_Notre-Dame_de_Paris,_Paris_4th_006.JPG"
+      ],
+      "same_file_keys": [
+       "Notre_Dame_Cathedral_Renovation_Feb_29,2020.jpg",
+       "Notre-Dame_de_Paris_in_2020_(49523281708).jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(1).jpg",
+       "3-Notre_Dame.jpg",
+       "\u00cele_de_la_Cit\u00e9_from_the_east_(46822872125).jpg"
+      ]
+     }
+    }
+   ],
+   "strict_sets": [
+    {
+     "name": "mod-aft/strict0",
+     "n_ref": 3,
+     "rows": [
+      101,
+      88,
+      25,
+      291,
+      946,
+      96,
+      1106,
+      776
+     ],
+     "file_keys": [
+      "Dame_de_paris.jpg",
+      "ND_de_Paris_Chevet_18_05_2017_b.jpg",
+      "Vue_depuis_pont_Archev\u00each\u00e9_Cath\u00e9drale_Notre-Dame_Paris_3.jpg",
+      "Notre_Dame,_Paris._(48408911451).jpg",
+      "Notre-Dame_in_2019.jpg",
+      "N85_9254_Notre_Dame_(48565615126).jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che3.jpg",
+      "Cath\u00e9drale_de_Paris_apr\u00e8s_l'incendie_(ao\u00fbt_2019).JPG"
+     ],
+     "anchor": 291,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      348,
+      373,
+      380,
+      357,
+      380
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       513,
+       472,
+       185,
+       912,
+       746
+      ],
+      "same": [
+       665,
+       1169,
+       75,
+       924,
+       694
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_desde_el_SE._03.JPG",
+       "Notre-Dame_Fontaine_square_Jean_XXIII.jpg",
+       "Paris_-_inondations_-_juin_2016_-_131.jpg",
+       "Notre_Dame_\u5df4\u9ece\u8056\u6bcd\u9662_-_panoramio.jpg",
+       "Notre_Dame_173_2012-07-01.jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris_(48683232872).jpg",
+       "Paris_-_Notre_Dame_-_20190610_-_003.jpg",
+       "Notre-Dame_de_Paris_(48683234032).jpg",
+       "Notre-Dame_de_Paris_(47632441422).jpg",
+       "Panneau_Histoire_de_Paris,_quai_de_Montebello,_Paris_5e.jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-aft/strict1",
+     "n_ref": 3,
+     "rows": [
+      130,
+      143,
+      275,
+      310,
+      1054,
+      918,
+      758,
+      921
+     ],
+     "file_keys": [
+      "Notre_Dame_(15051047358).jpg",
+      "Notre_Dame_de_Paris_@_Seine_@_Paris_(26115930722).jpg",
+      "Notre-Dame_de_Paris,_fa\u00e7ade_sud_(46876319594).jpg",
+      "Notre_Dame,_Paris._(48402883397).jpg",
+      "Paris_Notre-Dame_Die_Kathedrale_von_S\u00fcdosten,_November_2019.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_4.jpg",
+      "Notre_Dame,_Paris_11_May_2019.jpg",
+      "Vue_d'ensemble_de_la_cath\u00e9drale_c\u00f4t\u00e9_sud,_sur_les_bords_de_Seine,_le_soir,_deux_jours_apr\u00e8s_l'incendie_ayant_d\u00e9truit_la_toiture_de_l'\u00e9difice_-_Notre_Dame_fire_aftermath.jpg"
+     ],
+     "anchor": 310,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      348,
+      337,
+      350,
+      370,
+      350
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       123,
+       898,
+       169,
+       258,
+       819
+      ],
+      "same": [
+       1073,
+       1217,
+       1141,
+       1108,
+       89
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Photographie_de_Notre_Dame_de_Paris_en_2012.jpg",
+       "Paris_Notre-Dame_cathedral_exterior,_west_facade_02.jpg",
+       "Notre_Dame_de_Paris_au_printemps.JPG",
+       "Garden_in_the_sun.jpg",
+       "Paris_-_ND_de_Paris_1.jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris_(33807852718).jpg",
+       "Paris_-_Notre_Dame_-_202101016_-_013.jpg",
+       "Incendie_de_Notre-Dame-de-Paris,_23_mai_2019_4.jpg",
+       "Paris_4e_Cath\u00e9drale_Notre-Dame_102.jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(11).jpg"
+      ]
+     }
+    },
+    {
+     "name": "mod-aft/strict2",
+     "n_ref": 3,
+     "rows": [
+      99,
+      381,
+      140,
+      692,
+      729,
+      765,
+      1072,
+      657
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris_z_boku.JPG",
+      "Cath\u00e9drale_Notre-Dame_de_Paris_(Ank_Kumar,Infosys_)_06.jpg",
+      "Fachada_sur_torre_y_aguja_de_Notre_Dame_de_Par\u00eds.jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che2.jpg",
+      "Watching_the_missing_thing..._(40840210183).jpg",
+      "Building_site_of_Notre-Dame_de_Paris_-_2019-08-23.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_6.jpg",
+      "Notre_dame_paris_august_2019.jpg"
+     ],
+     "anchor": 692,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      357,
+      342,
+      371,
+      350,
+      364
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       59,
+       88,
+       319,
+       312,
+       136
+      ],
+      "same": [
+       565,
+       65,
+       1150,
+       1089,
+       26
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre-Dame_Sul_1.jpg",
+       "ND_de_Paris_Chevet_18_05_2017_b.jpg",
+       "Notre_Dame_from_the_Seine_01.jpg",
+       "Notre_dame_-_panoramio_(2).jpg",
+       "Notre_Dame_Cathedral,_Paris_-_panoramio.jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_-_2019-05-10_-_Apse_from_the_south_03.jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(18).jpg",
+       "Paris_-_Notre_Dame_-_20190824_-_013.jpg",
+       "Paris_4e_Cath\u00e9drale_Notre-Dame_088.jpg",
+       "Travaux_de_consolidation_Notre-Dame_de_Paris_apr\u00e8s_l'incendie.jpg"
+      ]
+     }
+    }
+   ],
+   "counts": {
+    "sets": 6,
+    "scored_targets": 19,
+    "units": 8
+   },
+   "strict_counts": {
+    "sets": 3,
+    "scored_targets": 15,
+    "units": 10
+   }
+  },
+  "after->after": {
+   "reference_period": "after",
+   "target_period": "after",
+   "sets": [
+    {
+     "name": "aft-aft/0",
+     "n_ref": 3,
+     "rows": [
+      826,
+      357,
+      1140,
+      115,
+      300,
+      1106,
+      1142,
+      137
+     ],
+     "file_keys": [
+      "Notre-Dame_-_2019-05-16_-_View_from_the_south-east.jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_31.jpg",
+      "Paris_-_Notre_Dame_-_20190610_-_002.jpg",
+      "2019-05-01_09-32-39_nd-paris.jpg",
+      "2019-05-01_09-31-25_nd-paris.jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che3.jpg",
+      "Paris_-_Notre_Dame_-_20190610_-_005.jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_32.jpg"
+     ],
+     "anchor": 115,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      342,
+      342,
+      357,
+      344,
+      344
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       517,
+       37,
+       469,
+       452,
+       569
+      ],
+      "same": [
+       919,
+       17,
+       279,
+       75,
+       930
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_with_back_garden_(3353596403).jpg",
+       "Paris_Cath\u00e9drale_Notre-Dame_S\u00fcdost_2.jpg",
+       "Paris_December_2018-18.jpg",
+       "Notre_Dame004..jpg",
+       "Notre-Dame_de_Paris_from_the_southeast_1,_March_5,_2011.jpg"
+      ],
+      "same_file_keys": [
+       "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_3.jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(7).jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(20).jpg",
+       "Notre-Dame_de_Paris_(48683234032).jpg",
+       "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_12.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-aft/1",
+     "n_ref": 3,
+     "rows": [
+      109,
+      69,
+      113,
+      291,
+      96,
+      776,
+      65,
+      38
+     ],
+     "file_keys": [
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_est_Paris_3.jpg",
+      "Notre-Dame_de_Paris_in_2019_after_15_April_fire_(33862403148).jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_est_Paris_5.jpg",
+      "Notre_Dame,_Paris._(48408911451).jpg",
+      "N85_9254_Notre_Dame_(48565615126).jpg",
+      "Cath\u00e9drale_de_Paris_apr\u00e8s_l'incendie_(ao\u00fbt_2019).JPG",
+      "Notre-Dame_de_Paris,_12_mai_2019_(18).jpg",
+      "Notre-Dame_de_Paris,_27_August_2019.jpg"
+     ],
+     "anchor": 291,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      348,
+      380,
+      380,
+      341,
+      369
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       1263,
+       44,
+       775,
+       589,
+       346
+      ],
+      "same": [
+       647,
+       808,
+       821,
+       622,
+       373
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_Notre-Dame_cathedral_Portail_du_Jugement_Dernier_2007-06-02.jpg",
+       "Paris_-_inondations_-_juin_2016_-_009.jpg",
+       "TheChurchofNotreDame.jpg",
+       "Cathedrale_Notre-Dame_de_Paris_chevet.jpg",
+       "Notre_Dame_de_Paris_Cathedral_(9811971573).jpg"
+      ],
+      "same_file_keys": [
+       "7-Notre_Dame.jpg",
+       "Construction_Work_on_the_Side_of_Notre-Dame.jpg",
+       "NDDP_Parvis_07-23.jpg",
+       "2019-05-01_10-54-00_nd-paris.jpg",
+       "2-Notre_Dame.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-aft/2",
+     "n_ref": 3,
+     "rows": [
+      297,
+      945,
+      430,
+      310,
+      918,
+      1278,
+      147,
+      1075
+     ],
+     "file_keys": [
+      "Notre_Dame,_6_days_after_the_fire_of_2019_01.jpg",
+      "Notre-Dame_de_Paris_from_Quai_de_Montebello,_Paris.jpg",
+      "Notre-Dame_-_2019-05-31_-_South_transept_and_apse_from_the_south_02.jpg",
+      "Notre_Dame,_Paris._(48402883397).jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_4.jpg",
+      "2019-05-01_09-42-43_nd-paris.jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_29.jpg",
+      "Notre-Dame_de_Paris_(33807852948).jpg"
+     ],
+     "anchor": 310,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      348,
+      350,
+      342,
+      344,
+      341
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       199,
+       988,
+       612,
+       586,
+       258
+      ],
+      "same": [
+       1066,
+       1102,
+       323,
+       102,
+       1086
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Portail_du_Jugement_Dernier_of_Notre-Dame_de_Paris_(34827710283).jpg",
+       "Quai_de_Montebello,_Paris_13_April_2015.jpg",
+       "\u00cele_de_la_Cit\u00e9_from_the_east_(15051842047).jpg",
+       "Notre.dame.jpg",
+       "Garden_in_the_sun.jpg"
+      ],
+      "same_file_keys": [
+       "Aftermath_of_the_Notre-Dame_fire_4,_April_16_2019.jpg",
+       "Notre-Dame_de_Paris_(46945565724).jpg",
+       "Notre_Dame_(49636552177).jpg",
+       "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_10.jpg",
+       "Notre-Dame_de_Paris_(32726923607).jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-aft/3",
+     "n_ref": 3,
+     "rows": [
+      659,
+      114,
+      18,
+      608,
+      1072,
+      910,
+      349,
+      285
+     ],
+     "file_keys": [
+      "Notre_Dame_-_2019-04-21_-_South_transept_02.jpg",
+      "Notre-Dame_-_2019-05-31_-_South_tower_and_nave_from_the_south_01.jpg",
+      "Notre-Dame_de_Paris,_12_mai_2019_(5).jpg",
+      "Notre-Dame_de_Paris,_May_2019,_rebuilding_after_the_fire.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_6.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_7.jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_6.jpg",
+      "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_06.jpg"
+     ],
+     "anchor": 608,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      342,
+      350,
+      350,
+      344,
+      351
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       486,
+       1289,
+       257,
+       1308,
+       260
+      ],
+      "same": [
+       539,
+       1111,
+       1085,
+       540,
+       656
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_de_Paris_(36121398141).jpg",
+       "Cath\u00e9drale_Notre-Dame_(exterior).002_-_Paris.jpg",
+       "Paris_-_ND_de_Paris.jpg",
+       "Cath\u00e9drale_Notre_Dame_-_panoramio_-_arthursmello.jpg",
+       "Paris_75005_Quai_de_Montebello_Bouquinistes_19790531.jpg"
+      ],
+      "same_file_keys": [
+       "ND_de_Paris_9_mai_2019.jpg",
+       "Notre-Dame-4_(47741289821).jpg",
+       "Notre-Dame_de_Paris_(32726920657).jpg",
+       "ND_de_Paris_9_May_2019.jpg",
+       "Notre-Dame_sans_sa_fl\u00e8che4.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-aft/4",
+     "n_ref": 3,
+     "rows": [
+      1173,
+      708,
+      1165,
+      692,
+      729,
+      1105,
+      1119,
+      1086
+     ],
+     "file_keys": [
+      "Paris_-_Notre_Dame_-_20190610_-_009.jpg",
+      "Notre_Dame_-_2019-04-21_-_South_transept_03.jpg",
+      "Paris_-_Notre_Dame_-_20190601_-_012.jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che2.jpg",
+      "Watching_the_missing_thing..._(40840210183).jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che1.jpg",
+      "Notre-Dame_-_2019-05-16_-_South_facade.jpg",
+      "Notre-Dame_de_Paris_(32726923607).jpg"
+     ],
+     "anchor": 692,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      357,
+      342,
+      357,
+      344,
+      356
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       59,
+       618,
+       150,
+       829,
+       886
+      ],
+      "same": [
+       17,
+       1141,
+       1066,
+       508,
+       918
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre-Dame_Sul_1.jpg",
+       "Cath\u00e9drale_Notre_Dame_de_Paris_-_panoramio_-_Infernal_Quack_(Shif\u2026.jpg",
+       "Notre_Dame_(15237615225).jpg",
+       "Paris_Cath\u00e9drale_Notre-Dame_Chor_02.jpg",
+       "Les_deux_tours_de_Notre_Dame_de_Paris_entre-coup\u00e9es_d'une_grue.jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris,_12_mai_2019_(7).jpg",
+       "Incendie_de_Notre-Dame-de-Paris,_23_mai_2019_4.jpg",
+       "Aftermath_of_the_Notre-Dame_fire_4,_April_16_2019.jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(20).jpg",
+       "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_4.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-aft/5",
+     "n_ref": 3,
+     "rows": [
+      789,
+      1208,
+      555,
+      742,
+      1056,
+      994,
+      374,
+      560
+     ],
+     "file_keys": [
+      "Catedral_de_Notre_Dame,_Par\u00eds,_Francia,_2022-10-29,_DD_129.jpg",
+      "Paris_-_Notre_Dame_-_202101016_-_001.jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_ouest_Paris_1.jpg",
+      "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(3).jpg",
+      "Paris,_Kathedrale_Notre-Dame_am_22._Februar_2022_(2).jpg",
+      "2021-05-29_11-52-01_cath-ND-Paris.jpg",
+      "Cath\u00e9drale_Notre_Dame_-_Paris_IV_(FR75)_-_2022-05-27_-_3.jpg",
+      "Fa\u00e7ade_Ouest_Cath\u00e9drale_Notre_Dame_-_Paris_IV_(FR75)_-_2021-06-05_-_1.jpg"
+     ],
+     "anchor": 742,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      368,
+      368,
+      342,
+      344,
+      344
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       377,
+       360,
+       221,
+       1279,
+       319
+      ],
+      "same": [
+       833,
+       642,
+       280,
+       1103,
+       765
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Paris_-_Cath\u00e9drale_Notre-Dame_-_PA00086250_-_002.jpg",
+       "Cath\u00e9drale_Notre-Dame_de_Paris_503.jpg",
+       "Paris_Pont_de_Sully_south_part_towards_Notre-Dame_20150521.jpg",
+       "Nd_paris_sud.jpg",
+       "Notre_Dame_from_the_Seine_01.jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame-de-Paris_en_janvier_2023.JPG",
+       "Notre-Dame_de_Paris_in_2020_(49523281708).jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(1).jpg",
+       "Notre-Dame_de_Paris_(47669674501).jpg",
+       "Building_site_of_Notre-Dame_de_Paris_-_2019-08-23.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-aft/6",
+     "n_ref": 3,
+     "rows": [
+      1085,
+      1100,
+      1136,
+      758,
+      1071,
+      921,
+      106,
+      148
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris_(32726920657).jpg",
+      "Notre-Dame_de_Paris_(33792163108).jpg",
+      "Paris_-_Notre_Dame_-_20190601_-_004.jpg",
+      "Notre_Dame,_Paris_11_May_2019.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_5.jpg",
+      "Vue_d'ensemble_de_la_cath\u00e9drale_c\u00f4t\u00e9_sud,_sur_les_bords_de_Seine,_le_soir,_deux_jours_apr\u00e8s_l'incendie_ayant_d\u00e9truit_la_toiture_de_l'\u00e9difice_-_Notre_Dame_fire_aftermath.jpg",
+      "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_04.jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_28.jpg"
+     ],
+     "anchor": 758,
+     "scored": [
+      true,
+      true,
+      true,
+      false,
+      false
+     ],
+     "units": [
+      370,
+      350,
+      350,
+      351,
+      344
+     ],
+     "strict": false,
+     "donors": {
+      "other": [
+       238,
+       524,
+       715,
+       612,
+       1313
+      ],
+      "same": [
+       801,
+       1046,
+       800,
+       539,
+       323
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_chevet.jpg",
+       "Portail_du_Jugement_Dernier_of_Notre-Dame_de_Paris_(47600460091).jpg",
+       "Paris_Cath\u00e9drale_Notre-Dame_Fassade_4.jpg",
+       "\u00cele_de_la_Cit\u00e9_from_the_east_(15051842047).jpg",
+       "Sunday_Morning_at_Notre_Dame_(3559719165).jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris,_19_avril_2019_(23).jpg",
+       "Notre-Dame_de_Paris,_12_mai_2019_(21).jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(22).jpg",
+       "ND_de_Paris_9_mai_2019.jpg",
+       "Notre_Dame_(49636552177).jpg"
+      ]
+     }
+    }
+   ],
+   "strict_sets": [
+    {
+     "name": "aft-aft/strict0",
+     "n_ref": 3,
+     "rows": [
+      267,
+      298,
+      64,
+      291,
+      776,
+      919,
+      96,
+      1106
+     ],
+     "file_keys": [
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_est_Paris_7.jpg",
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_est_Paris_13.jpg",
+      "Notre-Dame_de_Paris,_12_mai_2019_(19).jpg",
+      "Notre_Dame,_Paris._(48408911451).jpg",
+      "Cath\u00e9drale_de_Paris_apr\u00e8s_l'incendie_(ao\u00fbt_2019).JPG",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_3.jpg",
+      "N85_9254_Notre_Dame_(48565615126).jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che3.jpg"
+     ],
+     "anchor": 291,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      348,
+      380,
+      350,
+      380,
+      357
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       1259,
+       863,
+       702,
+       141,
+       128
+      ],
+      "same": [
+       665,
+       478,
+       105,
+       373,
+       106
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_de_Paris_Cathedral_(9811901265).jpg",
+       "Notre_Dame_Paris.jpg",
+       "Notre_Dame,_Paris,_France_-_panoramio_(4).jpg",
+       "Notre_Dame_de_Paris_Cathedral_(9811972123).jpg",
+       "Paris_Cath\u00e9drale_Notre-Dame_S\u00fcdliches_Langhaus_02.jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris_(48683232872).jpg",
+       "West_facade_of_Notre-Dame_de_Paris_(48513448076).jpg",
+       "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_07.jpg",
+       "2-Notre_Dame.jpg",
+       "Notre-Dame_de_Paris_-_Apr\u00e8s_l'incendie_04.jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-aft/strict1",
+     "n_ref": 3,
+     "rows": [
+      1085,
+      1136,
+      1100,
+      310,
+      921,
+      918,
+      1278,
+      758
+     ],
+     "file_keys": [
+      "Notre-Dame_de_Paris_(32726920657).jpg",
+      "Paris_-_Notre_Dame_-_20190601_-_004.jpg",
+      "Notre-Dame_de_Paris_(33792163108).jpg",
+      "Notre_Dame,_Paris._(48402883397).jpg",
+      "Vue_d'ensemble_de_la_cath\u00e9drale_c\u00f4t\u00e9_sud,_sur_les_bords_de_Seine,_le_soir,_deux_jours_apr\u00e8s_l'incendie_ayant_d\u00e9truit_la_toiture_de_l'\u00e9difice_-_Notre_Dame_fire_aftermath.jpg",
+      "Paris_-_Cath\u00e9drale_Notre-Dame_-_17_avril_2019_-_4.jpg",
+      "2019-05-01_09-42-43_nd-paris.jpg",
+      "Notre_Dame,_Paris_11_May_2019.jpg"
+     ],
+     "anchor": 310,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      348,
+      350,
+      350,
+      342,
+      370
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       684,
+       759,
+       432,
+       788,
+       108
+      ],
+      "same": [
+       1073,
+       1078,
+       56,
+       1062,
+       1117
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre_Dame_de_Paris.png",
+       "Paris_Cath\u00e9drale_Notre-Dame_Fassade_5.jpg",
+       "3924ParigiNotreDame.JPG",
+       "Notre-Dame_at_sunset_(24125797757).jpg",
+       "Notre-Dame_2009_(105101).jpg"
+      ],
+      "same_file_keys": [
+       "Notre-Dame_de_Paris_(33807852718).jpg",
+       "Notre-Dame_de_Paris_(47632441032).jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(5).jpg",
+       "Incendie_de_Notre-Dame,_jour_d'apr\u00e8s,_quai_de_Montebello.jpg",
+       "Notre-Dame_de_Paris_un_mois_apr\u00e8s_l'incendie_(46945167295).jpg"
+      ]
+     }
+    },
+    {
+     "name": "aft-aft/strict2",
+     "n_ref": 3,
+     "rows": [
+      349,
+      114,
+      294,
+      692,
+      1105,
+      608,
+      729,
+      765
+     ],
+     "file_keys": [
+      "Cath\u00e9drale_Notre-Dame_fa\u00e7ade_sud_Paris_6.jpg",
+      "Notre-Dame_-_2019-05-31_-_South_tower_and_nave_from_the_south_01.jpg",
+      "Notre-Dame_-_2019-05-31_-_South_tower_and_nave_from_the_south_02.jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che2.jpg",
+      "Notre-Dame_sans_sa_fl\u00e8che1.jpg",
+      "Notre-Dame_de_Paris,_May_2019,_rebuilding_after_the_fire.jpg",
+      "Watching_the_missing_thing..._(40840210183).jpg",
+      "Building_site_of_Notre-Dame_de_Paris_-_2019-08-23.jpg"
+     ],
+     "anchor": 692,
+     "scored": [
+      true,
+      true,
+      true,
+      true,
+      true
+     ],
+     "units": [
+      357,
+      357,
+      342,
+      342,
+      371
+     ],
+     "strict": true,
+     "donors": {
+      "other": [
+       60,
+       569,
+       788,
+       316,
+       447
+      ],
+      "same": [
+       1050,
+       1067,
+       1062,
+       801,
+       1001
+      ],
+      "other_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "same_match": [
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ],
+       [
+        "tone_checked",
+        "season",
+        "sky_class"
+       ]
+      ],
+      "other_file_keys": [
+       "Notre-Dame_depuis_la_Seine.jpg",
+       "Notre-Dame_de_Paris_from_the_southeast_1,_March_5,_2011.jpg",
+       "Notre-Dame_at_sunset_(24125797757).jpg",
+       "Notre-Dame_de_Paris_-_panoramio_(2).jpg",
+       "Notre_Dame_141_2012-07-01.jpg"
+      ],
+      "same_file_keys": [
+       "Les_t\u00e9l\u00e9visions_du_monde_devant_Notre-Dame_de_Paris,_au_lendemain_de_l'incendie_du_15_avril_2019.jpg",
+       "Aftermath_of_the_Notre-Dame_fire,_April_16_2019.jpg",
+       "Incendie_de_Notre-Dame,_jour_d'apr\u00e8s,_quai_de_Montebello.jpg",
+       "Notre-Dame_de_Paris,_19_avril_2019_(23).jpg",
+       "Notre-Dame_de_Paris_(48682718353).jpg"
+      ]
+     }
+    }
+   ],
+   "counts": {
+    "sets": 7,
+    "scored_targets": 21,
+    "units": 7
+   },
+   "strict_counts": {
+    "sets": 3,
+    "scored_targets": 15,
+    "units": 7
+   }
+  }
+ },
+ "yardsticks": {
+  "look_gap": {
+   "measures": [
+    "brightness",
+    "contrast",
+    "saturation",
+    "warmth",
+    "sky_blueness",
+    "ground_green_share"
+   ],
+   "sd": [
+    0.08156148041388665,
+    0.0511935047107862,
+    0.12129714872107035,
+    0.09889300105901122,
+    0.18414101132146693,
+    0.13089014554433354
+   ],
+   "gap": [
+    0.16067368427059778,
+    -0.293184388013577,
+    -0.1451965239408865,
+    -0.2759377941041063,
+    0.21206593753568537,
+    0.37894293805330237
+   ],
+   "unit": [
+    0.254823716939477,
+    -0.46498177869888446,
+    -0.23027739785312884,
+    -0.4376291902242497,
+    0.33633031248656786,
+    0.6009923057473513
+   ],
+   "length": 0.6305287678884273,
+   "views": {
+    "modern": 254,
+    "after": 283
+   },
+   "rule": "training views of the hold-out, modern and after the fire, stored mask >= 2% of the frame; measures outside the stored mask"
+  },
+  "chroma": {
+   "grey": {
+    "mean": 1.0609891158653801e-05,
+    "se": 4.704123619820264e-07,
+    "photos": 36,
+    "units": 25
+   },
+   "toned": {
+    "mean": 11.920621591159732,
+    "se": 1.4987521930361405,
+    "photos": 43,
+    "units": 32
+   },
+   "colour": {
+    "mean": 13.37447361648164,
+    "se": 0.812278402523836,
+    "photos": 528,
+    "units": 171
+   }
+  }
+ }
+}

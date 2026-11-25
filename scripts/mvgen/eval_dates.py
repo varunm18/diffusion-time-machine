@@ -79,6 +79,31 @@ then not written to):
 
     cd external/MVGenMaster && PYTHONPATH=$PWD .venv/bin/python $REPO/scripts/mvgen/eval_dates.py --list-sets \\
         --run $REPO/data/experiments/mvgen/train/gate3_keep --heldout 8 --cross-only --out $REPO/data/unused
+
+**Weights.** ``--weights raw`` evaluates the raw (not averaged) weights, which only a ``latest.pt`` of a
+run with an EMA holds; ``--expect-step N`` refuses a checkpoint of another step (a running job
+overwrites its ``latest.pt``). The default, the checkpoint's evaluated weights, is what it always was.
+
+**Experiment look1** (``--eval-sets configs/look1_eval_sets.json``, with ``--run``). The view sets, the
+loss and the renders above are replaced by look1's (``timemachine.mvgen.evaluation``, "Experiment
+look1", has the definitions): the sets of the file's 2x2 (``--cells`` some of them, ``--strict`` the
+sets whose five targets are all held out), checked against the run's hold-out; every set rendered under
+the conditions that ``--readouts`` (default: R1 to R6 and the weight-level date profile) need, with
+``--primary-seeds`` (4) for the base look at the true, cross-fire and within-period dates and
+``--other-seeds`` (2) for the rest; the loss with fixed noise at the base look for R2; the colour-blind
+state read-out from ``--readout-probe`` (default ``<dataset>/state_readout.npz``,
+``scripts/mvgen/fit_readout.py``), which is refused if it was fitted on any scored target. What a model
+cannot have is skipped with a note: a run without a look (arm A) has no R1, R4, R5, neutral or own
+code; the released model (``--checkpoint released``) has R6 alone. Printed: each read-out with the
+spec's pass line beside it, then with ``--compare ARM=results.json`` (other arms at the same step: ``A``,
+``A2``, ``B``, ``released``) the cross-arm lines, paired by target. ``--from-results results.json``
+prints them again without a model. ``--list-sets`` prints the sets, the renders and the estimated GPU
+time (22.25 s per rendered set, 0.233 s per loss pass) and stops.
+
+Output under ``--out``: ``results.json`` (``records``: per condition, seed and scored target its scores;
+``pairs``: the swaps' render differences; ``look1``: the read-outs, with their per-target values;
+``date_profile``), ``losses.jsonl`` and ``renders/<set>/<look>_<date>_seed<k>_view<j>.jpg`` of the
+scored targets. The queue lines of experiment look1 are in ``data/look1_build/evals.txt``.
 """
 from __future__ import annotations
 
@@ -90,16 +115,19 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
+import torch
 
 from timemachine.mvgen.data import SCALE_RULES
 from timemachine.mvgen.date import UNCOND_DATES
 from timemachine.mvgen.evaluation import (
-    HELDOUT_SOURCE, PRIORS_BY, RELEASED, RENDER_DATES, ViewSet, check_run_records, checkpoint_path,
-    collect_view_sets, describe_set, format_table, measure_losses, open_scene, priors_differ, render_set,
-    run_config, run_swap_years, summarise_groups, summarise_set_losses, summarise_set_renders, target_masks,
+    HELDOUT_SOURCE, LOOK1_READOUTS, PRIORS_BY, RELEASED, RENDER_DATES, LookInputs, ViewSet, check_eval_sets,
+    check_run_records, checkpoint_path, collect_view_sets, compare_look1, date_profile, describe_set, format_table,
+    look1_conditions, look1_lines, measure_look1_losses, measure_losses, open_scene, priors_differ, read_eval_sets,
+    render_look1_set, render_set, run_config, run_swap_years, stored_masks, summarise_groups, summarise_look1,
+    summarise_set_losses, summarise_set_renders, target_masks,
 )
-from timemachine.mvgen.model import assert_exact_matmul, load_finetuned, load_mvgen
-from timemachine.mvgen.probes import RenderProbe, representative_years
+from timemachine.mvgen.model import assert_exact_matmul, load_finetuned, load_mvgen, load_trainable_state_dict
+from timemachine.mvgen.probes import RenderProbe, describe_views, representative_years
 from timemachine.mvgen.regions import ChangedRegions
 from timemachine.mvgen.step import PRECISIONS, LossConfig
 from timemachine.mvgen.trainer import TrainConfig, parse_scale
@@ -108,6 +136,10 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_DATASET = REPO / "data/datasets/25512_model0_v2"
 DEFAULT_KEYS_FILE = REPO / "configs/mvgen_gate2.json"
 NO_KEYS_FILE = "none"                               # the --keys-file value that switches the default file off
+WEIGHTS = ("ema", "raw")                            # the checkpoint's evaluated weights, or a latest.pt's raw ones
+READOUT_FILE = "state_readout.npz"                  # the state read-out in the dataset folder (scripts/mvgen/fit_readout.py)
+# Measured GPU times (A6000, data/look1_critique/feasibility/07_costs.py): per rendered view set, per loss pass.
+SECONDS_PER_RENDER, SECONDS_PER_PASS = 22.25, 0.233
 # The settings that are given on the command line without --run, and are the run's with it.
 RELEASED_OPTIONS = ("dataset", "resolution", "scale", "class_label", "precision", "swap_years")
 # The tables: (column heading, the number's name in evaluation.summarise_groups, its format).
@@ -128,6 +160,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                        help=f"with --run: latest (default), a step number, a checkpoint file, or {RELEASED} (the "
                             "released model under the run's settings: the run's baseline)")
     model.add_argument("--model-dir", help="the released model, relative to the checkout (default: the run's)")
+    model.add_argument("--weights", choices=WEIGHTS, default=WEIGHTS[0],
+                       help="ema (default): the checkpoint's evaluated weights (the EMA when the run keeps one, as the "
+                            "trainer's probes); raw: the raw weights, which only a latest.pt holds")
+    model.add_argument("--expect-step", type=int,
+                       help="refuse a checkpoint of another step (for latest.pt, which a running job overwrites)")
 
     released = p.add_argument_group("settings of the released model (without --run)")
     released.add_argument("--dataset", type=Path, help=f"dataset folder (default: {DEFAULT_DATASET})")
@@ -182,7 +219,44 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                               "rendered at (default, as the run's render probe) or by the true dates in both renders "
                               "(then the two renders differ in the date alone)")
     renders.add_argument("--thumb", type=int, default=192, help="side of the sheets' pictures, in pixels")
+
+    look1 = p.add_argument_group("experiment look1 (replaces the view sets, the loss and the renders above)")
+    look1.add_argument("--eval-sets", type=Path,
+                       help="with --run: the look1 evaluation-sets file (configs/look1_eval_sets.json): read-outs "
+                            "R1-R6 and the date profile on its 2x2 of held-out sets")
+    look1.add_argument("--readouts", nargs="+", choices=LOOK1_READOUTS, default=list(LOOK1_READOUTS),
+                       help="which read-outs (default: all; those a model cannot have are skipped)")
+    look1.add_argument("--primary-seeds", type=int, default=4,
+                       help="seeds of the primary conditions: the base look at the true, swapped and within-period "
+                            "dates (default: 4)")
+    look1.add_argument("--other-seeds", type=int, default=2, help="seeds of every other condition (default: 2)")
+    look1.add_argument("--cells", nargs="+",
+                       help="only these cells, e.g. modern->after (quoted in a shell; default: all four)")
+    look1.add_argument("--strict", action="store_true", help="the strict sets (all five targets held out) instead")
+    look1.add_argument("--readout-probe", type=Path,
+                       help=f"the state read-out (default: <dataset>/{READOUT_FILE}, scripts/mvgen/fit_readout.py)")
+    look1.add_argument("--arm", help="this evaluation's arm, for the comparisons (A, A2, B, D or released)")
+    look1.add_argument("--compare", action="append", default=[], metavar="ARM=RESULTS",
+                       help="results.json of another arm at the same step: the cross-arm pass lines (repeatable)")
+    look1.add_argument("--from-results", type=Path,
+                       help="no model: print the read-outs of this look1 results.json and the --compare lines")
     args = p.parse_args(argv)
+
+    if args.from_results is not None:
+        return args
+    if args.eval_sets is not None:
+        if args.run is None:
+            p.error("--eval-sets needs --run: its sets are checked against the run's hold-out")
+        if args.keys_file or args.heldout or args.cross_only:
+            p.error("--eval-sets brings its own view sets: no --keys-file, --heldout or --cross-only")
+        if args.primary_seeds < 1 or args.other_seeds < 1:
+            p.error("--primary-seeds and --other-seeds must be at least 1")
+        if args.no_renders:
+            p.error("look1's read-outs are made from renders: --no-renders does not apply (--no-losses does)")
+        args.keys_file = []
+        return args
+    if args.strict or args.cells or args.compare or args.arm or args.readout_probe:
+        p.error("--strict, --cells, --compare, --arm and --readout-probe go with --eval-sets")
 
     if args.run is None:
         if args.checkpoint is not None:
@@ -284,9 +358,214 @@ def collect_results(header: dict, view_sets: Sequence[ViewSet], described: Seque
     return results
 
 
+def load_model(checkpoint: Path | None, model_dir: str, weights: str, expect_step: int | None):
+    """``(model, checkpoint dict)``: the released model (``{}``), or a checkpoint's adapters with its evaluated weights
+    or, with ``weights="raw"``, the raw weights of a ``latest.pt``. ``SystemExit`` for a checkpoint of another step
+    than ``expect_step`` or raw weights that the file does not hold."""
+    if checkpoint is None:
+        if weights == "raw" or expect_step is not None:
+            raise SystemExit("--weights raw and --expect-step need a checkpoint, not the released model")
+        return load_mvgen(model_dir), {}
+    model, ckpt = load_finetuned(checkpoint, model_dir)
+    if expect_step is not None and ckpt["step"] != expect_step:
+        raise SystemExit(f"{checkpoint} is at step {ckpt['step']}, not {expect_step}")
+    if weights == "raw":
+        if "raw_trainable" not in ckpt:
+            if ckpt.get("weights") == "raw":            # a run without an EMA: its weights are the raw ones
+                return model, ckpt
+            raise SystemExit(f"{checkpoint} holds no raw weights (only a latest.pt of a run with an EMA does)")
+        load_trainable_state_dict(model, ckpt["raw_trainable"])
+        ckpt = {**ckpt, "weights": "raw"}
+    return model, ckpt
+
+
+def look1_plan_lines(plan, conditions: dict[str, list], seeds: dict[bool, int], loss_passes: int) -> tuple[list[str], float]:
+    """The sets, the renders they need and the estimated GPU time (``SECONDS_PER_RENDER``, ``SECONDS_PER_PASS``)."""
+    lines, renders = [], 0
+    for view_set in plan.sets:
+        n = sum(seeds[c.primary] for c in conditions[view_set.name])
+        renders += n
+        lines.append(f"   {view_set.name:<14} {view_set.cell:<15} rows {list(view_set.rows)} scored "
+                     f"{sum(view_set.scored)} of {len(view_set.scored)}, units {sorted(set(view_set.units))}: {n} renders")
+    hours = (renders * SECONDS_PER_RENDER + loss_passes * SECONDS_PER_PASS) / 3600
+    lines.append(f"{len(plan.sets)} sets, {renders} renders, {loss_passes} loss passes: about {hours:.2f} GPU-h "
+                 f"({SECONDS_PER_RENDER} s per rendered set, {SECONDS_PER_PASS} s per pass)")
+    return lines, hours
+
+
+def print_look1(results: dict, comparisons: dict[str, dict], arm: str | None) -> None:
+    """The look1 read-outs of a results.json with their pass lines, then the cross-arm lines."""
+    print("\nLOOK1 READ-OUTS (mean +- standard error over hold-out units)", flush=True)
+    for line in look1_lines(results["look1"], results["eval_sets"]["yardsticks"]):
+        print(line, flush=True)
+    profile = results.get("date_profile")
+    if profile:
+        print("\nWEIGHT-LEVEL DATE PROFILE (RMS distances of the date embedding)", flush=True)
+        for step, numbers in profile.items():
+            print(f"   step {step}: " + ", ".join(f"{name} {value:.4f}" for name, value in numbers.items()), flush=True)
+    if comparisons:
+        print("\nAGAINST OTHER ARMS (paired by target, same sets and seeds)", flush=True)
+        for line in compare_look1(results, comparisons, arm):
+            print(line, flush=True)
+
+
+def read_comparisons(pairs: Sequence[str]) -> dict[str, dict]:
+    """``ARM=results.json`` options as ``{arm: results}``."""
+    out = {}
+    for pair in pairs:
+        arm, _, path = pair.partition("=")
+        if not path:
+            raise SystemExit(f"--compare takes ARM=RESULTS, got {pair!r}")
+        out[arm] = json.loads(Path(path).read_text())
+    return out
+
+
+def run_date_profile(run_dir: Path, ckpt: dict, plan, swap_years: Sequence[float], edge: float) -> dict:
+    """:func:`evaluation.date_profile` of every ``step_XXXXXX.pt`` of the run and of the evaluated weights."""
+    profile = {}
+    for path in sorted((run_dir / "checkpoints").glob("step_*.pt")):
+        state = torch.load(path, map_location="cpu", weights_only=False)
+        config = state["finetune_config"]
+        profile[str(state["step"])] = date_profile(state["trainable"]["date"], config["date_freqs"],
+                                                   config["date_hidden"], edge, plan.within_years, swap_years)
+    if ckpt:
+        config = ckpt["finetune_config"]
+        state = ckpt["raw_trainable" if ckpt.get("weights") == "raw" and "raw_trainable" in ckpt else "trainable"]
+        profile[f"{ckpt['step']} ({ckpt.get('weights')}, evaluated)"] = date_profile(
+            state["date"], config["date_freqs"], config["date_hidden"], edge, plan.within_years, swap_years)
+    return profile
+
+
+def main_look1(args: argparse.Namespace) -> None:
+    """Experiment look1: the read-outs R1-R6 and the date profile on the sets of ``--eval-sets`` (module docstring)."""
+    if args.from_results is not None:
+        print_look1(json.loads(args.from_results.read_text()), read_comparisons(args.compare), args.arm)
+        return
+    cfg, swap_years, checkpoint = settings(args)
+    n_ref, edges = cfg.sampling.n_ref, cfg.sampling.period_edges
+    edge = edges[-1] if args.region_edge is None else args.region_edge
+    timesteps = list(args.timesteps or cfg.probe_timesteps)
+    steps, guidance = first_given(args.steps, cfg.render_steps), first_given(args.guidance, cfg.render_guidance)
+    uncond_dates = first_given(args.uncond_dates, cfg.render_uncond_dates)
+    scene = open_scene(cfg)
+    check_run_records(scene, args.run)
+    if swap_years is None:
+        swap_years = representative_years(scene.dates[scene.usable], edges)
+    plan = read_eval_sets(args.eval_sets, scene, args.strict, args.cells)
+    check_eval_sets(plan, scene)
+    has_date = checkpoint is not None
+    has_look = has_date and bool(getattr(cfg.finetune, "look", False))
+    readouts = list(args.readouts)
+    skipped = sorted(set(readouts) - {"R6"} if not has_date else set(readouts) & ({"R1", "R4", "R5"} if not has_look
+                                                                                   else set()))
+    if skipped:
+        print(f"note: skipped for this model ({'no date' if not has_date else 'no look'} input): {skipped}", flush=True)
+    seeds = {True: args.primary_seeds, False: args.other_seeds}
+    conditions = {s.name: look1_conditions(readouts, has_date, has_look, s.target_period) for s in plan.sets}
+    with_losses = has_date and "R2" in readouts and not args.no_losses
+    loss_passes = len(plan.sets) * 4 * len(timesteps) * len(args.noise_seeds) if with_losses else 0
+    lines, hours = look1_plan_lines(plan, conditions, seeds, loss_passes)
+    print(f"look1 sets of {args.eval_sets} (hold-out seed {plan.seed}{', strict sets' if args.strict else ''}):",
+          flush=True)
+    for line in lines:
+        print(line, flush=True)
+    if args.list_sets:
+        return
+
+    model_dir = args.model_dir or cfg.model_dir
+    model, ckpt = load_model(checkpoint, model_dir, args.weights, args.expect_step)
+    model.unet.eval()
+    if model.config.camera_longest_side != scene.camera_longest_side:
+        raise ValueError(f"the model's camera_longest_side is {model.config.camera_longest_side}, the scene was "
+                         f"opened with {scene.camera_longest_side}: its scale factor is not the model's")
+    if ckpt:
+        check_run_records(scene, args.run, ckpt)
+    inputs = None
+    if has_look:
+        from timemachine.mvgen.look import read_class_maps, read_look
+
+        keys = scene.views["file_key"].tolist()
+        look = read_look(scene.dataset_dir, keys)
+        if look is None or getattr(model, "look_stats", None) is None:
+            raise SystemExit("a model with a look needs the scene's look codes (scripts/mvgen/prepare_look.py) and the "
+                             "checkpoint's look statistics")
+        grey = any(c.look == "grey" for of_set in conditions.values() for c in of_set)
+        inputs = LookInputs(look=look, stats=model.look_stats, class_maps=read_class_maps(scene.dataset_dir, keys)
+                            if grey else None)
+    readout = None
+    if has_date and set(readouts) & {"R2", "R4"}:
+        from timemachine.mvgen.readout import StateReadout
+
+        readout = StateReadout.load(args.readout_probe or Path(cfg.dataset) / READOUT_FILE, device=model.device)
+        readout.check_unseen([scene.views.file_key[row] for s in plan.sets
+                              for row, scored in zip(s.targets, s.scored) if scored])
+    weights = ckpt.get("weights", "not recorded") if ckpt else RELEASED
+    probes = {s.name: RenderProbe(scene, s.rows, s.n_ref, s.name, RENDER_DATES, (0,), cfg.loss, swap_years, steps,
+                                  guidance, uncond_dates) for s in plan.sets}
+    masks = {s.name: stored_masks(scene, s.targets) for s in plan.sets}
+    header = {
+        "model": {"run": str(args.run), "arm": args.arm, "checkpoint": None if checkpoint is None else str(checkpoint),
+                  "step": ckpt.get("step"), "weights": weights, "finetune": ckpt.get("finetune_config"),
+                  "has_date": has_date, "has_look": has_look},
+        "settings": {"dataset": cfg.dataset, "resolution": cfg.resolution, "scale": cfg.scale,
+                     "scale_factor": scene.scale_factor, "n_ref": n_ref, "period_edges": list(edges),
+                     "loss": asdict(cfg.loss), "swap_years": list(swap_years), "timesteps": timesteps,
+                     "noise_seeds": args.noise_seeds, "primary_seeds": args.primary_seeds,
+                     "other_seeds": args.other_seeds, "render_steps": steps, "render_guidance": guidance,
+                     "render_uncond_dates": uncond_dates, "render_priors_by": args.priors_by, "readouts": readouts,
+                     "readout_probe": None if readout is None else str(args.readout_probe or Path(cfg.dataset) / READOUT_FILE),
+                     "estimated_gpu_hours": hours},
+        "eval_sets": {"path": str(args.eval_sets), "seed": plan.seed, "strict": args.strict, "cells": args.cells,
+                      "within_years": dict(plan.within_years), "yardsticks": plan.yardsticks},
+        "sets": [{"name": s.name, "cell": s.cell, **describe_views(scene, s.rows, s.n_ref), "scored": list(s.scored),
+                  "units": list(s.units), "donors": {k: list(v) for k, v in s.donors.items()},
+                  "conditions": [c.name for c in conditions[s.name]]} for s in plan.sets]}
+    print(f"model: {checkpoint or 'the released model'} (step {ckpt.get('step', 0)}, {weights} weights); look "
+          f"{'yes' if has_look else 'no'}; {cfg.loss.precision}, domain label {cfg.loss.class_label}", flush=True)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    records, pairs, loss_records = [], [], []
+
+    def write_results() -> dict:
+        results = {**header, "records": records, "pairs": pairs,
+                   "look1": summarise_look1(records, pairs, loss_records, plan, readouts, has_date, has_look)}
+        (args.out / "results.json").write_text(json.dumps(results, indent=1))
+        return results
+
+    if with_losses:
+        with open(args.out / "losses.jsonl", "w") as f:
+            for number, s in enumerate(plan.sets, start=1):
+                started = time.time()
+                measured = measure_look1_losses(model, probes[s.name], s, plan, masks[s.name], timesteps,
+                                                args.noise_seeds, swap_years, inputs)
+                loss_records += measured
+                f.writelines(json.dumps(record) + "\n" for record in measured)
+                f.flush()
+                print(f"   loss {number} / {len(plan.sets)} {s.name} ({time.time() - started:.0f}s)", flush=True)
+    pipeline = model.sampling_pipeline()
+    pipeline.set_progress_bar_config(disable=True)
+    for number, s in enumerate(plan.sets, start=1):
+        started = time.time()
+        new_records, new_pairs = render_look1_set(model, pipeline, probes[s.name], s, plan, conditions[s.name], seeds,
+                                                  swap_years, masks[s.name], inputs, readout,
+                                                  args.out / "renders" / s.folder, args.priors_by)
+        records += new_records
+        pairs += new_pairs
+        write_results()
+        print(f"   renders {number} / {len(plan.sets)} {s.name} ({time.time() - started:.0f}s)", flush=True)
+    if "profile" in readouts and has_date:
+        header["date_profile"] = run_date_profile(args.run, ckpt, plan, swap_years, edge)
+    results = write_results()
+    print_look1(results, read_comparisons(args.compare), args.arm)
+    print(f"\nwrote results.json{', losses.jsonl' if with_losses else ''} and renders/ to {args.out}")
+
+
 def main(argv: list[str] | None = None) -> None:
     assert_exact_matmul()
     args = parse_args(argv)
+    if args.eval_sets is not None or args.from_results is not None:
+        main_look1(args)
+        return
     cfg, swap_years, checkpoint = settings(args)
     n_ref, edges = cfg.sampling.n_ref, cfg.sampling.period_edges
     if args.region_edge is None and not edges:
@@ -330,7 +609,10 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     model_dir = args.model_dir or cfg.model_dir
-    model, ckpt = load_finetuned(checkpoint, model_dir) if checkpoint is not None else (load_mvgen(model_dir), {})
+    if args.weights == "ema" and args.expect_step is None:
+        model, ckpt = load_finetuned(checkpoint, model_dir) if checkpoint is not None else (load_mvgen(model_dir), {})
+    else:
+        model, ckpt = load_model(checkpoint, model_dir, args.weights, args.expect_step)
     model.unet.eval()
     if model.config.camera_longest_side != scene.camera_longest_side:
         raise ValueError(f"the model's camera_longest_side is {model.config.camera_longest_side}, the scene was "

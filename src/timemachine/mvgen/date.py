@@ -53,11 +53,33 @@ the RMS of its embedding and of the ``temb`` it was added to in :attr:`DateCondi
 for the trainer to log. The two numbers are computed once per pass, when the embedding is bound,
 from detached tensors: no autograd work, nothing for a checkpoint to save, and the re-run during
 ``backward()`` leaves them alone.
+
+**The look** (experiment look1; ``timemachine.mvgen.look`` has the code). The same conditioner can
+also carry a per-view look code (:meth:`DateConditioner.attach_look`): a second conditioner of this
+design fails under gradient checkpointing, because its hooks are handed the first one's sum, a new
+tensor that nothing is bound to (``data/appearance_study/code/feasibility.md``, check T1). A
+:class:`LookEmbedding` turns each view's standardised code (or a learned "unknown look" input) into
+
+* with ``injection="temb"`` (the default) a vector of ``temb``'s width that is added with the date:
+  every ResBlock reads ``temb + date + look``;
+* with ``injection="film"`` (the fallback, if the look does not steer through ``temb``) a scale and a
+  shift per ResBlock, applied to the output of the block's second GroupNorm:
+  ``h * (1 + scale) + shift`` (a forward hook on ``block.norm2``). The date alone is added to ``temb``.
+
+Both start as exact no-ops (the output layers are zero), and both are computed with the date
+embedding in the UNet's pre-hook, in fp32, and bound to the pass's ``temb`` together, so the re-run
+of a checkpointed block applies exactly what its pass computed: a block's pre-hook hands the block's
+scale and shift to its ``norm2`` hook, which runs inside the same block call, in the forward pass and
+in the re-run alike. The looks fill a guidance-doubled batch as the dates do, and both halves get the
+same looks: guidance never acts on the look. A look pass also records ``look_rms`` (temb: the look
+embedding; FiLM: its scales and shifts together) and ``sum_rms`` (what is added to ``temb``: date plus
+look) in :attr:`DateConditioner.last_stats`.
 """
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from typing import NamedTuple
 
 import torch
 from my_diffusers.models.resnet import ResnetBlock2D
@@ -65,12 +87,25 @@ from torch import nn
 
 from timemachine.model.date_embedding import fourier_date_features, octave_freqs
 from timemachine.model.lora import LoRALinear
+from timemachine.mvgen.look import LOOK_DIM
 
 # What the unconditional half of a guidance-doubled batch sees: the same dates, or every date unknown.
 UNCOND_DATES = ("same", "unknown")
+# Where a look code enters: added to temb with the date, or as a scale and shift after each ResBlock's norm2.
+LOOK_INJECTIONS = ("temb", "film")
 
-# Attribute that binds a forward pass's date embedding (or None: undated pass) to its temb tensor.
+# Attribute that binds a forward pass's conditioning (or None: undated pass) to its temb tensor.
 _BOUND = "_timemachine_date_embedding"
+
+
+class _Bound(NamedTuple):
+    """What one dated UNet forward pass adds: ``added`` to every ResBlock's temb (date, plus the look with
+    ``injection="temb"``), and with ``injection="film"`` one ``(scale, shift)`` pair per ResBlock."""
+
+    added: torch.Tensor
+    film: list[tuple[torch.Tensor, torch.Tensor]] | None = None
+    date: torch.Tensor | None = None            # the date embedding alone, and the look's part, for last_stats
+    look: torch.Tensor | None = None
 
 
 class DateEmbedding(nn.Module):
@@ -99,6 +134,52 @@ class DateEmbedding(nn.Module):
     def forward(self, year: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
         """``year`` (N,) decimal years, ``valid`` (N,) bool (False: date unknown) -> (N, out_dim)."""
         return self.mlp(fourier_date_features(year, valid, self.freqs, self.unknown))
+
+
+class LookEmbedding(nn.Module):
+    """Standardised look code -> what a view's look adds to the UNet; exactly nothing at initialisation.
+
+    The code (``[N, 24]``, ``timemachine.mvgen.look.LookStats.standardise``), or for a view whose look is
+    unknown a learned "unknown look" input, goes through ``Linear(24, hidden)`` and SiLU. Then:
+
+    * ``injection="temb"``: ``Linear(hidden, out_dim)``, added to ``temb`` with the date;
+    * ``injection="film"``: one ``Linear(hidden, 2 C)`` per ResBlock (``film_channels``: the ``C`` of each
+      block's ``norm2``), the block's scale and shift. They read the hidden layer, which is not zero at
+      the start, so that they and the layer below them both receive a gradient from the first step.
+
+    The output layers' weights and biases start at zero. The ``unknown`` input starts near zero, like
+    the date's, which is about the population mean of a standardised code.
+    """
+
+    def __init__(self, out_dim: int = 1280, code_dim: int = LOOK_DIM, hidden_dim: int = 512, injection: str = "temb",
+                 film_channels: Sequence[int] = ()):
+        super().__init__()
+        if injection not in LOOK_INJECTIONS:
+            raise ValueError(f"injection must be one of {LOOK_INJECTIONS}")
+        if injection == "film" and not film_channels:
+            raise ValueError("a FiLM look needs the channels of every ResBlock's norm2")
+        self.out_dim, self.code_dim, self.injection = out_dim, code_dim, injection
+        self.unknown = nn.Parameter(torch.randn(code_dim) * 0.02)
+        layers = [nn.Linear(code_dim, hidden_dim), nn.SiLU()]
+        if injection == "temb":
+            layers.append(nn.Linear(hidden_dim, out_dim))
+        self.mlp = nn.Sequential(*layers)
+        self.film = nn.ModuleList(nn.Linear(hidden_dim, 2 * c) for c in film_channels) if injection == "film" else None
+        for layer in [self.mlp[-1]] if injection == "temb" else list(self.film):
+            nn.init.zeros_(layer.weight)
+            nn.init.zeros_(layer.bias)
+
+    def forward(self, code: torch.Tensor, known: torch.Tensor
+                ) -> tuple[torch.Tensor | None, list[tuple[torch.Tensor, torch.Tensor]] | None]:
+        """``code`` ``[N, 24]``, ``known`` ``[N]`` bool -> ``(temb part [N, out_dim] or None, film or None)``.
+
+        ``film`` is one ``(scale, shift)`` pair, each ``[N, C]``, per ResBlock.
+        """
+        code = torch.where(known[:, None], code, self.unknown.expand_as(code))
+        hidden = self.mlp(code)
+        if self.injection == "temb":
+            return hidden, None
+        return None, [tuple(layer(hidden).chunk(2, dim=1)) for layer in self.film]
 
 
 def dated_blocks(unet: nn.Module) -> list[ResnetBlock2D]:
@@ -137,15 +218,18 @@ class DateConditioner(nn.Module):
     view, ``[(B*F), width]``, batch elements one after the other.
 
     The UNet is not registered as a submodule: this module's parameters and state dict are the
-    embedding's alone.
+    embedding's alone, and the look's once one is attached (:meth:`attach_look`; its entries start
+    with ``look.``).
 
     Attributes:
-        embedding: the :class:`DateEmbedding`, the only trainable part.
+        embedding: the :class:`DateEmbedding`.
+        look: the :class:`LookEmbedding`, or None (no look: the conditioner of a date-only run).
         last_stats: sizes in the most recent UNet forward pass, ``{"date_rms": ..., "temb_rms": ...}``:
             the root mean square of the date embedding (over every view of the batch, those whose
             date is unknown included) and of the ``temb`` it was added to (timestep plus domain,
-            before the addition). ``None`` if that pass had no dates or failed before its first
-            ResBlock, before the first pass, and after :meth:`remove`.
+            before the addition); with a look also ``look_rms`` and ``sum_rms`` (module docstring).
+            ``None`` if that pass had no dates or failed before its first ResBlock, before the first
+            pass, and after :meth:`remove`.
     """
 
     def __init__(self, unet: nn.Module, embedding: DateEmbedding):
@@ -154,18 +238,48 @@ class DateConditioner(nn.Module):
         if embedding.out_dim != width:
             raise ValueError(f"the date embedding has width {embedding.out_dim}, the UNet's temb has {width}")
         self.embedding = embedding
+        self.look: LookEmbedding | None = None
         self.last_stats: dict[str, float] | None = None
-        self._dates: tuple[torch.Tensor, torch.Tensor, str] | None = None    # (year, valid, uncond) inside dates()
+        # (year, valid, uncond, look, look_known) inside dates()
+        self._dates: tuple[torch.Tensor, torch.Tensor, str, torch.Tensor | None, torch.Tensor | None] | None = None
         self._in_forward = False                    # True while the UNet's forward pass is running
-        self._pending: torch.Tensor | None = None   # embedding of the pass that is running; None: undated
+        self._pending: _Bound | None = None         # conditioning of the pass that is running; None: undated
+        self._blocks = dated_blocks(unet)
+        self._block_index = {id(block): index for index, block in enumerate(self._blocks)}
+        self._norm_index = {id(block.norm2): index for index, block in enumerate(self._blocks)}
+        self._film_now: dict[int, tuple[torch.Tensor, torch.Tensor] | None] = {}     # block -> its pair, this call
         self._handles = [unet.register_forward_pre_hook(self._start_forward, with_kwargs=True),
                          unet.register_forward_hook(self._end_forward, always_call=True)]
         self._handles += [block.register_forward_pre_hook(self._add_to_temb, with_kwargs=True)
-                          for block in dated_blocks(unet)]
+                          for block in self._blocks]
+
+    def film_channels(self) -> list[int]:
+        """The channels of each ResBlock's ``norm2``, in hook order: what a FiLM look's heads output, halved."""
+        return [block.norm2.num_channels for block in self._blocks]
+
+    def attach_look(self, look: LookEmbedding) -> None:
+        """Let the conditioner carry a per-view look as well (see "The look" in the module docstring).
+
+        The look is a no-op until its output layers have trained. ``ValueError`` if a look is attached
+        already or does not fit the UNet.
+        """
+        if self.look is not None:
+            raise ValueError("the conditioner already carries a look")
+        if look.injection == "temb" and look.out_dim != self.embedding.out_dim:
+            raise ValueError(f"the look embedding has width {look.out_dim}, the UNet's temb has "
+                             f"{self.embedding.out_dim}")
+        if look.injection == "film":
+            heads = [layer.out_features // 2 for layer in look.film]
+            if heads != self.film_channels():
+                raise ValueError(f"the FiLM heads are for blocks of {heads} channels, the UNet's are "
+                                 f"{self.film_channels()}")
+            self._handles += [block.norm2.register_forward_hook(self._apply_film) for block in self._blocks]
+        self.look = look
 
     @contextmanager
-    def dates(self, year: torch.Tensor, valid: torch.Tensor | None = None, uncond: str = "same") -> Iterator[None]:
-        """Condition the UNet forward passes inside the block on these per-view dates.
+    def dates(self, year: torch.Tensor, valid: torch.Tensor | None = None, uncond: str = "same",
+              look: torch.Tensor | None = None, look_known: torch.Tensor | None = None) -> Iterator[None]:
+        """Condition the UNet forward passes inside the block on these per-view dates (and looks).
 
         Args:
             year: (N,) decimal years. N must divide the number of views in the UNet's batch; the dates
@@ -173,6 +287,10 @@ class DateConditioner(nn.Module):
             valid: (N,) bool, False where the date is unknown. None: all known.
             uncond: one of ``UNCOND_DATES``. With ``"unknown"``, when the batch holds the dates exactly
                 twice (guidance: unconditional half first), the first half sees every date as unknown.
+            look: (N, 24) standardised look codes (``timemachine.mvgen.look.LookStats.standardise``), for a
+                conditioner that carries a look. None: every look unknown. Repeated like the dates; both
+                halves of a guidance batch get the same looks, whatever ``uncond``.
+            look_known: (N,) bool, False where the look is unknown. None: all known (with ``look``).
 
         Leaving the block clears the dates. ``backward()`` may run later, outside the block: each
         forward pass keeps its own embedding (see the module docstring).
@@ -184,7 +302,20 @@ class DateConditioner(nn.Module):
         if year.ndim != 1 or valid.shape != year.shape:
             raise ValueError(f"year and valid must be 1-D and of equal length, got {tuple(year.shape)} and "
                              f"{tuple(valid.shape)}")
-        previous, self._dates = self._dates, (year, valid, uncond)
+        if (look is not None or look_known is not None) and self.look is None:
+            raise ValueError("looks were given, but the conditioner carries no look (attach_look)")
+        if look is not None:
+            look = torch.as_tensor(look, dtype=torch.float32)
+            if look.shape != (len(year), self.look.code_dim) or not torch.isfinite(look).all():
+                raise ValueError(f"look must be finite and [{len(year)}, {self.look.code_dim}] (one standardised code "
+                                 f"per date); got {tuple(look.shape)}")
+            look_known = (torch.ones_like(year, dtype=torch.bool) if look_known is None
+                          else torch.as_tensor(look_known, dtype=torch.bool))
+        elif look_known is not None and bool(torch.as_tensor(look_known).any()):
+            raise ValueError("look_known marks looks as known, but no look was given")
+        if look_known is not None and look_known.shape != year.shape:
+            raise ValueError(f"look_known must have one entry per date, got {tuple(look_known.shape)}")
+        previous, self._dates = self._dates, (year, valid, uncond, look, look_known)
         try:
             yield
         finally:
@@ -196,10 +327,11 @@ class DateConditioner(nn.Module):
             handle.remove()
         self._handles = []
         self._in_forward, self._pending, self.last_stats = False, None, None
+        self._film_now.clear()
 
-    def _embed(self, rows: int) -> torch.Tensor:
-        """The (rows, width) fp32 embedding of the current dates, repeated to fill ``rows`` views."""
-        year, valid, uncond = self._dates
+    def _embed(self, rows: int) -> _Bound:
+        """The fp32 conditioning of the current dates (and looks), repeated to fill ``rows`` views."""
+        year, valid, uncond, look, look_known = self._dates
         n = year.shape[0]
         if rows % n:
             raise ValueError(f"{n} dates cannot fill the {rows} views of the UNet's batch")
@@ -209,10 +341,18 @@ class DateConditioner(nn.Module):
             valid[:n] = False
         device = self.embedding.unknown.device
         with torch.autocast(device.type, enabled=False):
-            return self.embedding(year.to(device), valid.to(device))
+            date = self.embedding(year.to(device), valid.to(device))
+            if self.look is None:
+                return _Bound(added=date)
+            if look is None:                                    # every look unknown
+                look, look_known = torch.zeros(n, self.look.code_dim), torch.zeros(n, dtype=torch.bool)
+            look_temb, film = self.look(look.repeat(reps, 1).to(device), look_known.repeat(reps).to(device))
+        if look_temb is None:
+            return _Bound(added=date, film=film, date=date)
+        return _Bound(added=date + look_temb, date=date, look=look_temb)
 
     def _start_forward(self, unet: nn.Module, args: tuple, kwargs: dict) -> None:
-        """UNet pre-hook: compute this forward pass's embedding (None when no dates are set)."""
+        """UNet pre-hook: compute this forward pass's conditioning (None when no dates are set)."""
         self._in_forward, self._pending, self.last_stats = True, None, None
         if self._dates is not None:
             sample = args[0] if args else kwargs["sample"]
@@ -223,20 +363,35 @@ class DateConditioner(nn.Module):
         self._in_forward, self._pending = False, None
 
     def _add_to_temb(self, block: nn.Module, args: tuple, kwargs: dict) -> tuple[tuple, dict] | None:
-        """ResBlock pre-hook: ``temb`` -> ``temb`` + the embedding bound to it (no change for an undated pass)."""
+        """ResBlock pre-hook: ``temb`` -> ``temb`` + the embedding bound to it (no change for an undated pass).
+
+        With a FiLM look it also hands the block's scale and shift, from the same binding, to the block's
+        ``norm2`` hook, which runs next inside this block call.
+        """
         temb = args[1] if len(args) > 1 else kwargs["temb"]
-        embedding = self._bound_embedding(temb)
-        if embedding is None:
+        bound = self._bound_embedding(temb)
+        if self.look is not None and self.look.injection == "film":
+            self._film_now[self._block_index[id(block)]] = (
+                None if bound is None or bound.film is None else bound.film[self._block_index[id(block)]])
+        if bound is None:
             return None
-        if temb.shape[0] != embedding.shape[0]:
-            raise ValueError(f"temb has {temb.shape[0]} rows, the date embedding {embedding.shape[0]}")
-        shifted = temb + embedding.to(temb.dtype)
+        if temb.shape[0] != bound.added.shape[0]:
+            raise ValueError(f"temb has {temb.shape[0]} rows, the date embedding {bound.added.shape[0]}")
+        shifted = temb + bound.added.to(temb.dtype)
         if len(args) > 1:
             return (args[0], shifted, *args[2:]), kwargs
         return args, {**kwargs, "temb": shifted}
 
-    def _bound_embedding(self, temb: torch.Tensor) -> torch.Tensor | None:
-        """The embedding of the forward pass that created ``temb``, binding it on first sight.
+    def _apply_film(self, norm: nn.Module, args: tuple, output: torch.Tensor) -> torch.Tensor | None:
+        """``norm2`` hook of a FiLM look: ``h * (1 + scale) + shift`` with the pair its block's pre-hook set."""
+        pair = self._film_now.pop(self._norm_index[id(norm)], None)
+        if pair is None:
+            return None
+        scale, shift = (part.to(output.dtype)[:, :, None, None] for part in pair)
+        return output * (1 + scale) + shift
+
+    def _bound_embedding(self, temb: torch.Tensor) -> _Bound | None:
+        """The conditioning of the forward pass that created ``temb``, binding it on first sight.
 
         The first binding of a dated pass also records :attr:`last_stats`. A re-run during
         ``backward()`` finds its ``temb`` bound already and records nothing.
@@ -249,5 +404,16 @@ class DateConditioner(nn.Module):
                     "so its dates cannot be recovered")
             setattr(temb, _BOUND, self._pending)
             if self._pending is not None and self.last_stats is None:
-                self.last_stats = {"date_rms": _rms(self._pending), "temb_rms": _rms(temb)}
+                self.last_stats = self._sizes(self._pending, temb)
         return getattr(temb, _BOUND)
+
+    def _sizes(self, bound: _Bound, temb: torch.Tensor) -> dict[str, float]:
+        """:attr:`last_stats` of a pass, from its conditioning and the ``temb`` it is added to."""
+        if self.look is None:
+            return {"date_rms": _rms(bound.added), "temb_rms": _rms(temb)}
+        if bound.film is not None:
+            look = torch.cat([part.detach().flatten() for pair in bound.film for part in pair])
+        else:
+            look = bound.look
+        return {"date_rms": _rms(bound.date), "temb_rms": _rms(temb), "look_rms": _rms(look),
+                "sum_rms": _rms(bound.added)}

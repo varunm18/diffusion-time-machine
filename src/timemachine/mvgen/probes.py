@@ -16,10 +16,22 @@ ratio is well below 1. Where the dataset folder says where the scene changed (``
 ``timemachine.mvgen.data``), the probe also gives the two gaps inside that region and outside it:
 the whole frame barely registers a change that covers a few percent of it.
 
+Two optional kinds of variant (experiment look1). With ``within_years`` the probe also moves each
+target's date WITHIN its period (:func:`within_swapped_years`; Notre-Dame: 2013.4 <-> 2016.5 before the
+fire, 2019.45 <-> 2021.5 after it), the null for the swap across the edge: ``rel_gap_within``. For a
+model with a look (``look_stats``) every variant gives each view its OWN look code, so that only the
+date differs between them; with ``look_axis`` two more variants keep the true dates and give the
+targets the code of a donor photo instead (``look.matched_donors``: matched on tone, sky and season as
+far as the codes allow), once from another period ("look_other") and once from the target's period
+but another day ("look_same"). ``rel_gap_look = look_other / look_same - 1`` rises above zero when the
+look code carries the state of the place, which it should not.
+
 **Renders** (:class:`RenderProbe`, slow). A fixed view set is generated with MVGenMaster's sampling
 pipeline (the references' pixels and depth are given, the targets' are not) at several dates and
-with several noise seeds. It writes a contact sheet (the real views on top, then one row per date
-and seed) and the PSNR against the real target photos. The UNet is given what a training step gives
+with several noise seeds (for a model with a look, at given per-view looks: the trainer gives each
+reference its own code and every target the references' code, :func:`default_looks`). It writes a
+contact sheet (the real views on top, then one row per date and seed) and the PSNR against the real
+target photos. The UNet is given what a training step gives
 it: only the UNet runs at the run's precision, and the 3D priors in particular are computed in fp32
 (:func:`unet_precision`) from depth whose far values are contracted once
 (``step.depth_for_priors``); cross-date targets lose the priors that the run's
@@ -59,11 +71,12 @@ import torch
 from PIL import Image, ImageDraw
 from torch import nn
 
-from timemachine.data.holdout import era_index
+from timemachine.data.holdout import DAY, era_index
 from timemachine.mvgen.data import MVGenScene, eligible_anchors, sample_rows
+from timemachine.mvgen.look import LOOK_DIM, LookStats, matched_donors, references_code, season_of
 from timemachine.mvgen.step import (
     LossConfig, autocast, build_inputs, cross_date_drops, date_embedding_size, depth_for_priors, encode_images,
-    region_means, target_region, v_prediction_loss, v_prediction_loss_and_map,
+    look_embedding_size, region_means, target_region, v_prediction_loss, v_prediction_loss_and_map,
 )
 from timemachine.training.loss import shown_dates
 
@@ -74,6 +87,8 @@ PROBE_SAMPLE_SEED = 0           # sampler seed of the probes' view sets, whateve
 PROBE_EPOCH = 1_000_000         # ... drawn in an "epoch" that training never reaches
 DEFAULT_TIMESTEPS = (100, 300, 500, 700, 900)
 DATE_VARIANTS = ("true", "swapped", "unknown")
+WITHIN_VARIANT = "within"                   # the targets' dates moved within their period (within_years)
+LOOK_VARIANTS = ("look_other", "look_same")     # true dates, a donor's look from another period / the same one
 REGION_AREAS = ("inside", "outside")    # of the changed region: where the date-loss probe measures besides the frame
 # What a render can be dated with, besides a year: each target's own date, its swapped date, or no date at all.
 RENDER_DATE_WORDS = DATE_VARIANTS
@@ -227,6 +242,46 @@ def representative_years(dates: np.ndarray, edges: Sequence[float], preferred: n
     return tuple(years)
 
 
+def other_periods(dates: np.ndarray, edges: Sequence[float]) -> np.ndarray:
+    """``[N]`` the period across the edge nearest to each date (edge ``k`` separates periods ``k`` and ``k + 1``)."""
+    dates, edges = np.asarray(dates, dtype=np.float64), np.asarray(edges, dtype=np.float64)
+    nearest = np.abs(dates[:, None] - edges[None, :]).argmin(axis=1)
+    return np.where(dates < edges[nearest], nearest + 1, nearest)
+
+
+def within_years(dates: np.ndarray, edges: Sequence[float]) -> tuple[tuple[float, float], ...]:
+    """Two years per period for within-period swaps: the 25th and 75th percentiles of ``dates`` in it (NaN for a
+    period without dates)."""
+    dates = np.asarray(dates, dtype=np.float64)
+    period = era_index(dates, tuple(edges))
+    pairs = []
+    for p in range(len(edges) + 1):
+        inside = dates[period == p]
+        pairs.append(tuple(float(y) for y in np.percentile(inside, [25, 75])) if len(inside) else (np.nan, np.nan))
+    return tuple(pairs)
+
+
+def within_swapped_years(dates: np.ndarray, n_ref: int, edges: Sequence[float],
+                         pairs: Sequence[Sequence[float]]) -> np.ndarray:
+    """The views' dates with every target moved within its own period; the references keep theirs.
+
+    ``pairs`` holds two years per period (:func:`within_years`, or given: ``TrainConfig.within_years``). A
+    target goes to the year of its period's pair that is farther from its own date. ``ValueError`` when
+    a target's period has no pair (NaN).
+    """
+    dates = np.asarray(dates, dtype=np.float64)
+    pairs = np.asarray(pairs, dtype=np.float64).reshape(-1, 2)
+    if len(pairs) != len(edges) + 1:
+        raise ValueError(f"{len(edges) + 1} periods need as many pairs of within-period years, got {len(pairs)}")
+    pair = pairs[era_index(dates, tuple(edges))]
+    farther = np.where(np.abs(dates - pair[:, 0]) >= np.abs(dates - pair[:, 1]), pair[:, 0], pair[:, 1])
+    moved = dates.copy()
+    moved[n_ref:] = farther[n_ref:]
+    if np.isnan(moved[n_ref:]).any():
+        raise ValueError("a target's period has no within-period years: give them explicitly (within_years)")
+    return moved
+
+
 def swapped_years(dates: np.ndarray, n_ref: int, edges: Sequence[float], years: Sequence[float]) -> np.ndarray:
     """The views' dates with every target moved to another period; the references keep theirs.
 
@@ -248,8 +303,7 @@ def swapped_years(dates: np.ndarray, n_ref: int, edges: Sequence[float], years: 
         raise ValueError("dates are swapped across a period edge, and there is none (period_edges is empty)")
     if len(years) != len(edges) + 1:
         raise ValueError(f"{len(edges) + 1} periods need as many representative years, got {len(years)}")
-    nearest = np.abs(dates[:, None] - edges[None, :]).argmin(axis=1)
-    other_side = np.where(dates < edges[nearest], nearest + 1, nearest)     # edge k separates periods k and k + 1
+    other_side = other_periods(dates, edges)
     swapped = dates.copy()
     swapped[n_ref:] = np.asarray(years, dtype=np.float64)[other_side[n_ref:]]
     if np.isnan(swapped[n_ref:]).any():
@@ -270,12 +324,20 @@ def date_loss_summary(losses: dict[str, np.ndarray], baseline: np.ndarray, times
     * ``change``: mean of ``loss_true / baseline - 1``, the change since the first evaluation;
     * ``sample_*``: the same three ratios per sample (mean over its timesteps);
     * ``*_by_timestep``: the true-date loss and the three ratios per timestep (mean over samples).
+
+    With a ``within`` variant also ``loss_within`` and ``rel_gap_within`` (against the true dates), and with
+    the look variants ``loss_look_other``, ``loss_look_same`` and ``rel_gap_look``
+    (``look_other / look_same - 1``), each with its per-sample and per-timestep lists.
     """
     true = losses["true"]
     ratios = {"rel_gap_swapped": losses["swapped"] / true - 1, "rel_gap_unknown": losses["unknown"] / true - 1,
               "change": true / baseline - 1}
+    if WITHIN_VARIANT in losses:
+        ratios["rel_gap_within"] = losses[WITHIN_VARIANT] / true - 1
+    if LOOK_VARIANTS[0] in losses:
+        ratios["rel_gap_look"] = losses[LOOK_VARIANTS[0]] / losses[LOOK_VARIANTS[1]] - 1
     summary = {"samples": int(true.shape[0]), "timesteps": [int(t) for t in timesteps]}
-    summary.update({f"loss_{variant}": float(losses[variant].mean()) for variant in DATE_VARIANTS})
+    summary.update({f"loss_{variant}": float(values.mean()) for variant, values in losses.items()})
     summary.update({name: float(ratio.mean()) for name, ratio in ratios.items()})
     summary.update({f"sample_{name}": ratio.mean(axis=1).tolist() for name, ratio in ratios.items()})
     summary["loss_true_by_timestep"] = true.mean(axis=0).tolist()
@@ -290,9 +352,10 @@ def region_loss_summary(losses: dict[str, dict[str, np.ndarray]]) -> dict:
     * ``sets``: how many view sets have the area (``inside``: at least one target shows the region);
     * ``loss_true``: the mean true-date loss in the area, over those sets and the timesteps;
     * ``rel_gap_swapped`` / ``rel_gap_unknown``: the mean of ``loss_variant / loss_true - 1`` over the same
-      (above zero: the true date gives the lower loss in that area);
-    * ``sample_rel_gap_*``: the two gaps per view set (None for a set without the area);
-    * ``rel_gap_*_by_timestep``: the two gaps per timestep (mean over the sets that have the area).
+      (above zero: the true date gives the lower loss in that area); likewise ``rel_gap_within`` with a
+      within-period variant, and ``rel_gap_look`` (``look_other / look_same - 1``) with the look variants;
+    * ``sample_rel_gap_*``: the gaps per view set (None for a set without the area);
+    * ``rel_gap_*_by_timestep``: the gaps per timestep (mean over the sets that have the area).
 
     The numbers of an area that no view set has are None, and its lists hold only None.
     """
@@ -302,8 +365,11 @@ def region_loss_summary(losses: dict[str, dict[str, np.ndarray]]) -> dict:
         has_area = ~np.isnan(true).any(axis=1)
         n_sets = int(has_area.sum())
         of_area: dict = {"sets": n_sets, "loss_true": float(true[has_area].mean()) if n_sets else None}
-        for variant in DATE_VARIANTS[1:]:
-            gap = by_variant[variant] / true - 1                    # NaN in the rows of the sets without the area
+        gaps = {variant: (variant, "true") for variant in by_variant if variant in (*DATE_VARIANTS[1:], WITHIN_VARIANT)}
+        if LOOK_VARIANTS[0] in by_variant:
+            gaps["look"] = LOOK_VARIANTS
+        for variant, (measured, against) in gaps.items():
+            gap = by_variant[measured] / by_variant[against] - 1    # NaN in the rows of the sets without the area
             of_area[f"rel_gap_{variant}"] = float(gap[has_area].mean()) if n_sets else None
             of_area[f"sample_rel_gap_{variant}"] = [float(value) if has else None
                                                     for value, has in zip(gap.mean(axis=1), has_area)]
@@ -315,15 +381,52 @@ def region_loss_summary(losses: dict[str, dict[str, np.ndarray]]) -> dict:
 
 def region_gap_line(region: dict, samples: int) -> str:
     """One line for the log on a :func:`region_loss_summary` of ``samples`` view sets: what a wrong and an
-    unknown date cost inside the changed region, and outside it."""
+    unknown date (and a date within the period, a donor's look, where measured) cost inside the changed
+    region, and outside it."""
     def gaps(of_area: dict) -> str:
         if of_area["sets"] == 0:
             return "no view set has it"
-        return f"swapped dates {of_area['rel_gap_swapped']:+.2%}, unknown dates {of_area['rel_gap_unknown']:+.2%}"
+        text = f"swapped dates {of_area['rel_gap_swapped']:+.2%}, unknown dates {of_area['rel_gap_unknown']:+.2%}"
+        if "rel_gap_within" in of_area:
+            text += f", within-period dates {of_area['rel_gap_within']:+.2%}"
+        if "rel_gap_look" in of_area:
+            text += f", other-period look {of_area['rel_gap_look']:+.2%}"
+        return text
 
     inside, outside = region["inside"], region["outside"]
     return (f"inside the changed region ({inside['sets']} of {samples} view sets show it): {gaps(inside)}; "
             f"outside: {gaps(outside)}")
+
+
+def look_donors(scene: MVGenScene, view_sets: Sequence[Sequence[int]], n_ref: int, stats: LookStats
+                ) -> list[dict[str, list[int]]]:
+    """Per view set, a donor of a look code for each target: ``{"look_other": rows, "look_same": rows}``.
+
+    The donors are training views of the scene (neither held out nor unusable) with a look code, not in
+    the set: for ``look_other`` from the period across the target's nearest period edge, for
+    ``look_same`` from the target's own period on another day (date midpoints more than a day,
+    ``holdout.DAY``, apart). Each is the best match on tone, sky and season (``look.matched_donors``).
+    ``ValueError`` when a target has no candidate at all.
+    """
+    look, dates = scene.look, scene.dates
+    training = scene.target_ok & np.asarray(look["computed"], dtype=bool)
+    season = season_of(scene.views["date_lo"].to_numpy(), scene.views["date_hi"].to_numpy())
+    other = other_periods(dates, scene.config.period_edges)
+    donors = []
+    for rows in view_sets:
+        rows = [int(row) for row in rows]
+        targets = rows[n_ref:]
+        allowed = training.copy()
+        allowed[rows] = False
+        other_period = np.stack([allowed & (scene.period == other[t]) for t in targets])
+        same_period = np.stack([allowed & (scene.period == scene.period[t]) & (np.abs(dates - dates[t]) > DAY)
+                                for t in targets])
+        chosen = {"look_other": matched_donors(targets, other_period, look, season, stats).tolist(),
+                  "look_same": matched_donors(targets, same_period, look, season, stats).tolist()}
+        if min(min(donor_rows) for donor_rows in chosen.values()) < 0:
+            raise ValueError(f"a target of view set {rows} has no look donor among the training views")
+        donors.append(chosen)
+    return donors
 
 
 class DateLossProbe:
@@ -353,13 +456,24 @@ class DateLossProbe:
             dates and of the cross-date rule.
         view_sets: row lists, each with its ``n_ref`` references first.
         swap_years: one representative year per period of ``scene.config.period_edges``.
+        within_years: two years per period (:func:`within_swapped_years`), for the "within" variant; None:
+            no such variant.
+        look_stats: for a model with a look, how its codes are standardised: every variant then gives each
+            view its own look (``scene`` must have look codes). None: no look is given.
+        look_axis: with ``look_stats``, also the two look variants (:func:`look_donors`).
     """
 
     def __init__(self, scene: MVGenScene, view_sets: Sequence[Sequence[int]], n_ref: int, loss_cfg: LossConfig,
                  swap_years: Sequence[float], baseline_path: str | Path,
-                 timesteps: Sequence[int] = DEFAULT_TIMESTEPS, seed: int = 1234):
+                 timesteps: Sequence[int] = DEFAULT_TIMESTEPS, seed: int = 1234,
+                 within_years: Sequence[Sequence[float]] | None = None, look_stats: LookStats | None = None,
+                 look_axis: bool = False):
         if len(view_sets) == 0 or len(timesteps) == 0:
             raise ValueError("the date-loss probe needs at least one view set and one timestep")
+        if look_stats is not None and not scene.has_look:
+            raise ValueError("the probe gives each view its own look, and the scene has no look codes")
+        if look_axis and look_stats is None:
+            raise ValueError("the look variants need look_stats")
         check_view_sets(view_sets, n_ref, len(scene.views))
         self.n_ref, self.loss_cfg, self.seed = n_ref, loss_cfg, seed
         self.timesteps = tuple(int(t) for t in timesteps)
@@ -370,15 +484,45 @@ class DateLossProbe:
         self.has_regions = scene.has_regions                    # the samples then carry changed-region weights
         self.swapped = [torch.from_numpy(swapped_years(scene.dates[rows], n_ref, self.period_edges,
                                                        swap_years)).float() for rows in self.rows]
+        self.within_years = None if within_years is None else tuple(tuple(float(y) for y in pair)
+                                                                    for pair in within_years)
+        self.within = (None if within_years is None else
+                       [torch.from_numpy(within_swapped_years(scene.dates[rows], n_ref, self.period_edges,
+                                                              within_years)).float() for rows in self.rows])
+        self.look_stats = look_stats
+        self.own_looks = (None if look_stats is None else
+                          [torch.from_numpy(look_stats.standardise(sample["look_raw"])) for sample in self.samples])
+        self.donors = look_donors(scene, self.rows, n_ref, look_stats) if look_axis else None
+        self.donor_looks = None                 # per view set and look variant: the own looks, the targets' replaced
+        if self.donors is not None:
+            codes = scene.look["codes"]
+            self.donor_looks = []
+            for own, donors in zip(self.own_looks, self.donors):
+                by_variant = {}
+                for variant, donor_rows in donors.items():
+                    look = own.clone()
+                    look[n_ref:] = torch.from_numpy(look_stats.standardise(codes[donor_rows]))
+                    by_variant[variant] = look
+                self.donor_looks.append(by_variant)
+        self.variants = (*DATE_VARIANTS, *([WITHIN_VARIANT] if self.within is not None else []),
+                         *(LOOK_VARIANTS if self.donors is not None else []))
         self.last_losses: dict[str, list[list[float]]] = {}     # the latest evaluation's raw losses, per variant
 
     def describe(self) -> list[dict]:
-        """Per view set: its rows, file keys, dates, scene-scale factor and the dates its targets are swapped to."""
-        return [{"rows": rows, "file_keys": sample["file_keys"],
-                 "years": [round(float(year), 4) for year in sample["date_mid"]],
-                 "scale_factor": float(sample["scale"]),
-                 "swapped_years": [round(float(year), 4) for year in swapped[self.n_ref:]]}
-                for rows, sample, swapped in zip(self.rows, self.samples, self.swapped)]
+        """Per view set: its rows, file keys, dates, scene-scale factor and the dates its targets are swapped to
+        (within the period too, and the targets' look donors, where measured)."""
+        described = []
+        for i, (rows, sample, swapped) in enumerate(zip(self.rows, self.samples, self.swapped)):
+            record = {"rows": rows, "file_keys": sample["file_keys"],
+                      "years": [round(float(year), 4) for year in sample["date_mid"]],
+                      "scale_factor": float(sample["scale"]),
+                      "swapped_years": [round(float(year), 4) for year in swapped[self.n_ref:]]}
+            if self.within is not None:
+                record["within_years"] = [round(float(year), 4) for year in self.within[i][self.n_ref:]]
+            if self.donors is not None:
+                record["look_donors"] = self.donors[i]
+            described.append(record)
+        return described
 
     def identity(self) -> dict:
         """Everything that decides the true-date losses, as JSON types: two probes with the same identity
@@ -386,14 +530,18 @@ class DateLossProbe:
 
         The view sets, the timesteps and the noise seed; the number of references; the loss settings that
         change the loss (precision, domain label, which views show their date, the cross-date rule with
-        its gap and the period edges); and the scene-scale factor of each view set.
+        its gap and the period edges); and the scene-scale factor of each view set. A probe that gives the
+        views their own looks also records how the codes are standardised (``look_stats``).
         """
         cfg = self.loss_cfg
-        return {"rows": self.rows, "timesteps": list(self.timesteps), "seed": self.seed, "n_ref": self.n_ref,
-                "precision": cfg.precision, "class_label": cfg.class_label, "date_views": cfg.date_views,
-                "cross_date_pixels": cfg.cross_date_pixels, "cross_date_gap": cfg.cross_date_gap,
-                "period_edges": list(self.period_edges),
-                "scale_factors": [float(sample["scale"]) for sample in self.samples]}
+        identity = {"rows": self.rows, "timesteps": list(self.timesteps), "seed": self.seed, "n_ref": self.n_ref,
+                    "precision": cfg.precision, "class_label": cfg.class_label, "date_views": cfg.date_views,
+                    "cross_date_pixels": cfg.cross_date_pixels, "cross_date_gap": cfg.cross_date_gap,
+                    "period_edges": list(self.period_edges),
+                    "scale_factors": [float(sample["scale"]) for sample in self.samples]}
+        if self.look_stats is not None:
+            identity["look_stats"] = self.look_stats.to_dict()
+        return identity
 
     def _baseline(self, true: np.ndarray) -> np.ndarray:
         """The first evaluation's true-date losses: read from the run folder, or written there now."""
@@ -410,28 +558,41 @@ class DateLossProbe:
         self.baseline_path.write_text(json.dumps({**identity, "loss_true": true.tolist()}))
         return true
 
+    def _conditions(self, i: int, sample: dict, swapped: torch.Tensor) -> dict[str, tuple]:
+        """Per variant, what view set ``i`` is given: ``(year, valid, look, look_known)``."""
+        is_ref = torch.arange(len(swapped)) < self.n_ref
+        shown = shown_dates(torch.ones_like(is_ref), is_ref, self.loss_cfg.date_views)
+        own = None if self.own_looks is None else self.own_looks[i]
+        known = None if own is None else torch.ones(len(swapped), dtype=torch.bool)
+        conditions = {"true": (sample["date_mid"], shown, own, known), "swapped": (swapped, shown, own, known),
+                      "unknown": (sample["date_mid"], torch.zeros_like(shown), own, known)}
+        if self.within is not None:
+            conditions[WITHIN_VARIANT] = (self.within[i], shown, own, known)
+        if self.donor_looks is not None:
+            for variant in LOOK_VARIANTS:
+                conditions[variant] = (sample["date_mid"], shown, self.donor_looks[i][variant], known)
+        return conditions
+
     @torch.no_grad()
     def __call__(self, model: MVGen) -> dict:
         """Evaluate ``model``; gradient-free.
 
         Returns :func:`date_loss_summary` of the losses, plus ``date_rms`` and ``date_temb_ratio``: the
         size of the date embedding in the true-date passes, averaged over them
-        (``step.date_embedding_size``; None for a model without a date conditioner). On a scene with
-        changed-region weights also ``region``: :func:`region_loss_summary` of the losses inside and
-        outside the changed region.
+        (``step.date_embedding_size``; None for a model without a date conditioner); for a model with a
+        look also ``look_rms``, ``look_temb_ratio`` and ``sum_temb_ratio`` (``step.look_embedding_size``). On
+        a scene with changed-region weights also ``region``: :func:`region_loss_summary` of the losses
+        inside and outside the changed region.
         """
         cfg, n_ref = self.loss_cfg, self.n_ref
         if max(self.timesteps) >= model.scheduler.config.num_train_timesteps or min(self.timesteps) < 0:
             raise ValueError(f"probe timesteps {self.timesteps} are outside the scheduler's training steps")
-        losses = {variant: np.zeros((len(self.samples), len(self.timesteps))) for variant in DATE_VARIANTS}
-        region_losses = {area: {variant: np.full_like(losses[variant], np.nan) for variant in DATE_VARIANTS}
+        losses = {variant: np.zeros((len(self.samples), len(self.timesteps))) for variant in self.variants}
+        region_losses = {area: {variant: np.full_like(losses[variant], np.nan) for variant in self.variants}
                          for area in REGION_AREAS}
         sizes = []
         for i, (sample, swapped) in enumerate(zip(self.samples, self.swapped)):
-            is_ref = torch.arange(len(swapped)) < n_ref
-            shown = shown_dates(torch.ones_like(is_ref), is_ref, cfg.date_views)
-            dates = {"true": (sample["date_mid"], shown), "swapped": (swapped, shown),
-                     "unknown": (sample["date_mid"], torch.zeros_like(shown))}
+            conditions = self._conditions(i, sample, swapped)
             latents = encode_images(model, sample["images"], sample_posterior=False)
             prior_views, pixel_views = cross_date_drops(sample["date_mid"], n_ref, cfg, self.period_edges)
             inputs = build_inputs(model, sample, latents, dropped_prior_views=prior_views,
@@ -439,22 +600,26 @@ class DateLossProbe:
             generator = torch.Generator().manual_seed(self.seed + i)
             for j, timestep in enumerate(self.timesteps):
                 noise = torch.randn(latents.shape, generator=generator)
-                for variant, (year, valid) in dates.items():
+                for variant, (year, valid, look, look_known) in conditions.items():
+                    looks = {} if look is None else {"look": look, "look_known": look_known}
                     if not self.has_regions:
-                        loss, _ = v_prediction_loss(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref)
+                        loss, _ = v_prediction_loss(model, latents, inputs, timestep, noise, year, valid, cfg, n_ref,
+                                                    **looks)
                     else:               # the same loss, and where it lies, from the one forward pass
                         loss, error = v_prediction_loss_and_map(model, latents, inputs, timestep, noise, year, valid,
-                                                                cfg, n_ref)
+                                                                cfg, n_ref, **looks)
                         for area, mean in zip(REGION_AREAS, region_means(error, target_region(sample, n_ref, error))):
                             if mean is not None:
                                 region_losses[area][variant][i, j] = float(mean)
                     losses[variant][i, j] = float(loss)
                     if variant == "true":
-                        sizes.append(date_embedding_size(model))
+                        sizes.append({**date_embedding_size(model), **(look_embedding_size(model) if looks else {})})
         self.last_losses = {variant: values.tolist() for variant, values in losses.items()}
         summary = date_loss_summary(losses, self._baseline(losses["true"]), self.timesteps)
-        for name in ("date_rms", "date_temb_ratio"):
-            measured = [size[name] for size in sizes if size[name] is not None]
+        names = ("date_rms", "date_temb_ratio") + (("look_rms", "look_temb_ratio", "sum_temb_ratio")
+                                                   if self.look_stats is not None else ())
+        for name in names:
+            measured = [size[name] for size in sizes if size.get(name) is not None]
             summary[name] = float(np.mean(measured)) if measured else None
         if self.has_regions:
             summary["region"] = region_loss_summary(region_losses)
@@ -567,11 +732,21 @@ def unet_precision(unet: nn.Module, precision: str) -> Iterator[None]:
             handle.remove()
 
 
+def default_looks(sample: dict, n_ref: int, stats: LookStats) -> torch.Tensor:
+    """The looks a view set is rendered at by default: each reference its own code and every target the
+    references' code (``look.references_code``), standardised: float32 ``[F, 24]``. The sample must carry
+    look codes (``look_raw``, ``look_shown``)."""
+    raw = sample["look_raw"].numpy().astype(np.float32).copy()
+    raw[n_ref:] = references_code(raw[:n_ref], sample["look_shown"].numpy()[:n_ref])
+    return torch.from_numpy(stats.standardise(raw))
+
+
 @torch.no_grad()
 def render_views(model: MVGen, pipeline, sample: dict, year: torch.Tensor, valid: torch.Tensor, *, seed: int,
                  steps: int = 50, guidance: float = 2.0, class_label: int = 0, precision: str = "bf16",
                  uncond_dates: str = "same", dropped_prior_views: torch.Tensor | None = None,
-                 dropped_pixel_views: torch.Tensor | None = None) -> np.ndarray:
+                 dropped_pixel_views: torch.Tensor | None = None, look: torch.Tensor | None = None,
+                 look_known: torch.Tensor | None = None) -> np.ndarray:
     """A view set as MVGenMaster's sampling pipeline generates it at the given dates: uint8 ``[F, H, W, 3]``.
 
     The pipeline is called as ``scripts/mvgen/nvs_test.py`` calls it, except that the UNet is given
@@ -591,6 +766,8 @@ def render_views(model: MVGen, pipeline, sample: dict, year: torch.Tensor, valid
             all ``"unknown"`` (guidance then also amplifies the effect of the date).
         dropped_prior_views, dropped_pixel_views: bool ``[F]``, targets that get no 3D priors at all, or no
             warped-pixel prior (:func:`view_priors_dropped`; as the arguments of ``step.build_inputs``).
+        look, look_known: ``[F, 24]`` standardised look codes and ``[F]`` which are known, for a model with a
+            look (``MVGen.dates``: both guidance halves get them; ignored without a look). None: unknown looks.
     """
     n_views, n_ref = sample["images"].shape[0], int(sample["n_ref"])
     height, width = sample["images"].shape[-2:]
@@ -601,7 +778,9 @@ def render_views(model: MVGen, pipeline, sample: dict, year: torch.Tensor, valid
     config.nframe = n_views
     depth = depth_for_priors(sample["depth"], device)
     drop = view_priors_dropped(model.unet, n_ref, dropped_prior_views, dropped_pixel_views)
-    with drop, model.dates(year, valid, uncond_dates), unet_precision(model.unet, precision):
+    dates = (model.dates(year, valid, uncond_dates) if look is None and look_known is None
+             else model.dates(year, valid, uncond_dates, look=look, look_known=look_known))
+    with drop, dates, unet_precision(model.unet, precision):
         frames = pipeline(images=images.to(device), nframe=n_views, cond_num=n_ref, key_rescale=None, height=height,
                           width=width, intrinsics=sample["K"].to(device), extrinsics=sample["w2c"].to(device),
                           num_inference_steps=steps, guidance_scale=guidance, output_type="np", config=config,
@@ -656,13 +835,19 @@ class RenderProbe:
         rows: the view set's rows, its ``n_ref`` references first.
         swap_years: one representative year per period; only needed for the date ``"swapped"``.
         loss_cfg: the run's :class:`LossConfig` (dates shown, domain label, cross-date rule, precision).
+        look, look_known: for a model with a look, the per-view standardised looks of every render (``[F, 24]``,
+            e.g. :func:`default_looks`) and which are known; None: unknown looks (:func:`render_views`).
     """
 
     def __init__(self, scene: MVGenScene, rows: Sequence[int], n_ref: int, name: str,
                  dates: Sequence[str | float] = ("true", "swapped"), seeds: Sequence[int] = (0, 1),
                  loss_cfg: LossConfig = LossConfig(), swap_years: Sequence[float] | None = None, steps: int = 50,
-                 guidance: float = 2.0, uncond_dates: str = "same"):
+                 guidance: float = 2.0, uncond_dates: str = "same", look: torch.Tensor | None = None,
+                 look_known: torch.Tensor | None = None):
         check_view_sets([rows], n_ref, len(scene.views))
+        if look is not None and tuple(look.shape) != (len(rows), LOOK_DIM):
+            raise ValueError(f"a render probe's looks are one standardised code per view, [{len(rows)}, {LOOK_DIM}]")
+        self.look, self.look_known = look, look_known
         self.name, self.n_ref, self.loss_cfg = name, n_ref, loss_cfg
         self.dates = tuple(dict.fromkeys(parse_render_date(date) for date in dates))      # unique, in order
         self.seeds = tuple(int(seed) for seed in seeds)
@@ -690,6 +875,8 @@ class RenderProbe:
                      "steps": self.steps, "guidance": self.guidance, "uncond_dates": self.uncond_dates}
         if self.swapped is not None:
             described["swapped_years"] = [round(float(year), 4) for year in self.swapped[self.n_ref:]]
+        if self.look is not None:
+            described["look"] = [[round(float(x), 4) for x in code] for code in self.look]
         return described
 
     def view_dates(self, date: str | float) -> tuple[torch.Tensor, torch.Tensor]:
@@ -718,7 +905,7 @@ class RenderProbe:
                 frames = render_views(model, pipeline, self.sample, year, valid, seed=seed, steps=self.steps,
                                       guidance=self.guidance, class_label=cfg.class_label, precision=cfg.precision,
                                       uncond_dates=self.uncond_dates, dropped_prior_views=prior_views,
-                                      dropped_pixel_views=pixel_views)
+                                      dropped_pixel_views=pixel_views, look=self.look, look_known=self.look_known)
                 renders[date, seed] = frames
                 per_target = [psnr(frames[j], real[j]) for j in range(n_ref, len(real))]
                 first = renders[self.dates[0], seed]
