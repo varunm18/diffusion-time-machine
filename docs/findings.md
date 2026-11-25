@@ -640,3 +640,93 @@ python scripts/appearance_entanglement.py --dataset data/datasets/*_model0 --mak
 # label the sheet in a browser, download lighting_labels.csv
 python scripts/appearance_entanglement.py --dataset data/datasets/*_model0 --labels lighting_labels.csv
 ```
+## Both appearance findings, re-measured on 28 scenes (2026-11-25)
+*Supersedes the 4-scene numbers in the two entries above. Code unchanged; only the
+dataset grew. Built with `scripts/plan_dataset.py` → 28 scenes, 12,323 cached images,
+7.1 GB. Run: `scripts/date_shortcut_probe.py`, `scripts/appearance_entanglement.py`.*
+
+Both results held with five times the old photographs, and the second improved.
+
+### 1. The date is still readable from the medium alone
+
+| treatment | AUC | 95% CI | (4 scenes) |
+|---|---|---|---|
+| original | **0.868** | 0.85-0.89 | 0.892, CI 0.84-0.93 |
+| grayscale | 0.779 | 0.75-0.81 | 0.853 |
+| tone_matched | 0.673 | 0.64-0.71 | 0.712 |
+
+*2,000 test views, 284 old / 1,716 modern (was 58 / 382).*
+
+The estimate barely moved while the interval halved (±0.09 → ±0.04). Across 28
+buildings on four continents, a linear probe on 14 appearance-only statistics -
+no scene content - separates pre-1945 from modern photographs at 0.87.
+
+By cue: colour 0.792, tone 0.751, detail 0.548, framing 0.516. **Grayscale
+evaluation still does not remove the shortcut** (0.868 → 0.779).
+
+Causal check, 1,326 modern photographs sepia-toned with the scene untouched: the
+classifier already calls 31% of them old, and **69% more flip once toned** - after
+toning, effectively all of them read as pre-1945.
+
+### 2. An era-free appearance vector exists, and it is cheaper than we thought
+
+| | 4 scenes | 28 scenes |
+|---|---|---|
+| old photos in test | 58 | **172** |
+| dimensions to remove | 7 of 14 | **6 of 14** |
+| variance kept | 59% | **73%** |
+| era AUC after | 0.527 | 0.552 |
+
+Era goes from AUC 0.858 to 0.552 after removing six directions, leaving **73% of
+the variance** for the model to use - noticeably more capacity than the first
+measurement suggested.
+
+The first era direction sharpened too: **76% colour** (was 52%), led by
+`chroma_major` (0.64) and `saturation_mean` (0.58). With more scenes the tone
+component washes out and colour is clearly the dominant cue.
+
+### 3. Lighting is untouched by the removal
+
+82 hand-labelled views (24 sunlit, 58 overcast), 5-fold cross-validated:
+
+| appearance features | sunlit-vs-overcast AUC |
+|---|---|
+| as-is | 0.856 |
+| 6 era directions removed | **0.878** |
+
+Lighting does not merely survive - it is marginally *better* after the removal.
+That is not noise-free, but it is consistent: the era directions are colour-heavy,
+while sunlit-versus-overcast is mostly a luminance-structure property, so removing
+them strips variance that was not helping.
+
+**Verdict: separable.** Appearance can be conditioned on without handing the model
+the date.
+
+### What this settles
+
+- **Phase C should use `--appearance-remove-era`** (`model/appearance_film.py`).
+  The factorization is achievable, costs 27% of the appearance variance, and
+  loses nothing of the lighting signal it was meant to carry.
+- A null result from date conditioning with an era-free appearance code would be
+  evidence about the **data** - too few informative old/modern pairs of the same
+  place - rather than about the architecture.
+
+### Caveats
+
+- 172 old photos in the test split and 82 lighting labels. Better than before, not
+  large.
+- "Separable" is a statement about *these* 14 statistics. A learned appearance code
+  could re-entangle, since nothing would stop it encoding era.
+- `tone_matched` remains an upper bound on content-driven dating: it cannot remove
+  grain or scan resolution, which are medium cues too.
+- Lighting retention above 100% should be read as "no loss", not as an improvement
+  worth explaining.
+
+### A storage correction
+
+An earlier estimate of 8.3 GB for all 140 gated scenes was images-only and ignored
+that this filesystem rounds every file up to a block (271 kB of bytes becomes
+527 kB of disk, 1.95x). Measured against the real build: **28 scenes = 7.1 GB**,
+and the full gated set is **~28 GB** - essentially a whole home quota before SEVA's
+weights. 50 scenes (~11.7 GB) is a comfortable ceiling without group storage.
+`scripts/plan_dataset.py` now calibrates from a built dataset rather than guessing.
