@@ -101,6 +101,15 @@ conditioning, and only exists on some branches. A preflight that guessed wrong
 would report a failure that was its own fault, which is the worst outcome for a
 tool whose only job is to be believed when it says something is broken.
 
-The same reasoning is why `REQUIRED_VIEW_COLUMNS` is a deliberate subset of
-`VIEW_COLUMNS`: extra columns are harmless, so only the ones a sample cannot be
-built without are treated as required.
+The required columns come from `DatedViewsDataset._REQUIRED` for the same reason,
+rather than being restated here. A second hand-maintained copy of that list is a
+copy that goes stale, and the first version of this file kept one: it demanded
+columns the loader never reads and reported healthy datasets as broken.
+`test_required_columns_match_the_dataset` now pins the two together.
+
+## When the dataset check fails on `k1`/`k2`
+
+That is a real blocker, not a false alarm - `DatedViewsDataset` rejects the table
+and no run can start. It means the dataset predates the lens-distortion columns.
+See [distortion_migration.md](distortion_migration.md); the fix is a local
+recompute, not a rebuild.

@@ -19,22 +19,37 @@ from timemachine.training import preflight as pf
 # --------------------------------------------------------------------------- fixtures
 
 def _views(n: int = 20, *, old: int = 0, root: Path | None = None, drop: str = "") -> pd.DataFrame:
-    """A view table with the columns the real builder emits."""
+    """A view table carrying every column the dataset requires, plus the usual extras.
+
+    The required columns are generated from ``required_view_columns()`` rather than
+    listed here, because a hardcoded fixture is the same mistake as a hardcoded
+    requirement: when the dataset gained ``image_path`` and friends, a fixture built
+    from an assumed list declared perfectly good tables broken.
+    """
     rows = []
     for i in range(n):
         year = 1900 + (i % 44) if i < old else 2015   # always < 1945
+        image = str((root / f"img{i}.jpg") if root else f"images/img{i}.jpg")
         rows.append({
             "scene_id": "Scene_A", "model": 0, "file_key": f"k{i}",
-            "path": str((root / f"img{i}.jpg") if root else f"images/img{i}.jpg"),
-            "title": f"img{i}.jpg",
+            "path": f"commons/img{i}.jpg",            # bucket key, not a local file
+            "image_path": image, "title": f"img{i}.jpg",
+            "image_width": 800, "image_height": 600,
             "camera_width": 800, "camera_height": 600,
             "fx": 700.0, "fy": 700.0, "cx": 400.0, "cy": 300.0, "k1": 0.0, "k2": 0.0,
             "qw": 1.0, "qx": 0.0, "qy": 0.0, "qz": 0.0, "tx": 0.0, "ty": 0.0, "tz": 1.0,
             "date_lo": float(year), "date_hi": float(year), "date_mid": float(year),
             "date_confidence": 1.0, "era": "old" if year < 1945 else "modern",
-            "medium": "photo", "color_hint": "color", "pose_source": "colmap",
+            "medium": "photo", "color_hint": "color", "is_monochrome": year < 1945,
+            "pose_source": "colmap",
         })
     frame = pd.DataFrame(rows)
+
+    # Anything the dataset requires that this fixture does not know about still has to
+    # be present, or every test fails for a reason that has nothing to do with it.
+    for column in pf.required_view_columns():
+        if column not in frame.columns:
+            frame[column] = 0.0
     return frame.drop(columns=[drop]) if drop else frame
 
 
@@ -418,12 +433,126 @@ def test_no_smoke_skips_the_slow_check(dataset: Path, hub: Path):
     assert smoke.skipped
 
 
-def test_an_uninstalled_repo_does_not_masquerade_as_a_dataset_failure(dataset: Path):
-    """A missing package is an environment problem, and the import checks own it.
+@pytest.fixture
+def fake_dataset_module(monkeypatch):
+    """A stand-in for timemachine.data.dataset, so the load path can be exercised.
 
-    Calling it a dataset failure sends someone rebuilding datasets that are fine.
+    The real one needs torch and the full package; the preflight only depends on its
+    constructor accepting a frame and its items being indexable, which is exactly
+    what this pins down.
     """
+    import types
+
+    module = types.ModuleType("timemachine.data.dataset")
+    module._REQUIRED = list(pf._FALLBACK_VIEW_COLUMNS)
+
+    class DatedViewsDataset:
+        def __init__(self, views, resolution=576, with_appearance=False):
+            missing = [c for c in module._REQUIRED if c not in views]
+            if missing:
+                raise ValueError(f"View table is missing columns: {missing}")
+            self.views, self.with_appearance = views, with_appearance
+
+        def __len__(self):
+            return len(self.views)
+
+        def __getitem__(self, i):
+            keys = ["image", "date", "is_input", "c2w", "intrinsics"]
+            return dict.fromkeys(keys + (["appearance"] if self.with_appearance else []), 0)
+
+    module.DatedViewsDataset = DatedViewsDataset
+    monkeypatch.setitem(sys.modules, "timemachine.data.dataset", module)
+    return module
+
+
+def test_sample_builds_on_a_healthy_dataset(dataset: Path, fake_dataset_module):
     check = pf.check_dataset_loads([dataset])
-    assert check.ok
-    if check.skipped and "cannot import" in check.detail:
-        assert "timemachine" in check.detail or "seva" in check.detail
+    assert check.ok, check.detail
+    assert "20 samples" in check.detail
+
+
+def test_sample_builds_concatenates_several_folders(dataset: Path, tmp_path: Path,
+                                                    fake_dataset_module):
+    """The trainer concatenates the folders, so the preflight must too - a column
+    present in one table and absent in another only shows up after the concat."""
+    second = tmp_path / "Scene_Z_model0"
+    images = second / "images"
+    images.mkdir(parents=True)
+    for i in range(5):
+        (images / f"img{i}.jpg").write_bytes(b"\xff\xd8\xff")
+    _views(5, old=5, root=images).to_parquet(second / "views.parquet")
+
+    check = pf.check_dataset_loads([dataset, second])
+    assert check.ok, check.detail
+    assert "25 samples" in check.detail
+
+
+def test_sample_builds_accepts_a_parquet_path_directly(dataset: Path, fake_dataset_module):
+    """--dataset takes a folder or a view table; the trainer supports both."""
+    check = pf.check_dataset_loads([dataset / "views.parquet"])
+    assert check.ok, check.detail
+
+
+def test_sample_builds_reports_a_dataset_that_rejects_the_table(dataset: Path,
+                                                                fake_dataset_module):
+    """The real failure mode of the stale distortion columns."""
+    _views(20, old=12, root=dataset / "images", drop="k1").to_parquet(
+        dataset / "views.parquet")
+    check = pf.check_dataset_loads([dataset])
+    assert not check.ok
+    assert "k1" in check.detail
+
+
+def test_appearance_flag_reaches_the_dataset(dataset: Path, fake_dataset_module):
+    assert "appearance" in pf.check_dataset_loads([dataset], appearance=True).detail
+    assert "appearance" not in pf.check_dataset_loads([dataset], appearance=False).detail
+
+
+# ------------------------------------------------------------------ drift and defects
+
+def test_required_columns_match_the_dataset():
+    """The preflight must require exactly what DatedViewsDataset requires.
+
+    Two hand-maintained lists drift, and a preflight that demands a column nothing
+    reads reports healthy datasets as broken - which is how 34 good datasets were
+    once declared unusable.
+    """
+    try:
+        from timemachine.data.dataset import _REQUIRED
+    except Exception:                                  # noqa: BLE001
+        pytest.skip("the dataset module is not importable here")
+    assert set(pf.required_view_columns()) == set(_REQUIRED)
+
+
+def test_fallback_columns_are_a_subset_of_the_real_ones():
+    """The fallback is used when the repo cannot be imported, so it must not invent
+    requirements the dataset does not have."""
+    try:
+        from timemachine.data.dataset import _REQUIRED
+    except Exception:                                  # noqa: BLE001
+        pytest.skip("the dataset module is not importable here")
+    assert set(pf._FALLBACK_VIEW_COLUMNS) <= set(_REQUIRED)
+
+
+def test_an_uninstalled_package_skips():
+    exc = ModuleNotFoundError("No module named 'seva'", name="seva")
+    check = pf.import_failure("sample builds", exc)
+    assert check.skipped and check.ok
+    assert "seva" in check.detail
+
+
+def test_a_missing_name_in_an_installed_module_fails():
+    """The bug this file shipped with: a function that did not exist, skipped away.
+
+    ``pathlib`` is certainly installed, so an ImportError naming it cannot be an
+    environment gap - it means the caller asked for something that is not there.
+    """
+    exc = ImportError("cannot import name 'load_views' from 'pathlib'", name="pathlib")
+    check = pf.import_failure("sample builds", exc)
+    assert not check.ok and not check.skipped
+    assert "load_views" in check.detail
+
+
+def test_a_nameless_import_error_fails_rather_than_hiding():
+    check = pf.import_failure("sample builds", ImportError("something went wrong"))
+    assert not check.ok

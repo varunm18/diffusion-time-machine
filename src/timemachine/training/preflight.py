@@ -43,14 +43,34 @@ REQUIRED_REPOS = {
     "laion/CLIP-ViT-H-14-laion2B-s32B-b79K": "the CLIP image encoder",
 }
 
-# Columns the dataset cannot build a sample without. Deliberately a subset of
-# VIEW_COLUMNS: extra columns are harmless, these are not optional.
-REQUIRED_VIEW_COLUMNS = (
-    "scene_id", "model", "path",
+# The column holding the local image file. `path` is the MegaScenes bucket key the
+# image came from, not a file on this machine, so checking that one reports every
+# dataset as missing its images.
+IMAGE_COLUMN = "image_path"
+_FALLBACK_IMAGE_COLUMN = "path"
+
+# Columns a sample cannot be built without. This has to be whatever
+# ``DatedViewsDataset`` enforces, so it is read from the dataset module rather than
+# restated here: a second copy of the list is a copy that goes stale, and a
+# preflight that reports its own staleness as a project failure is worse than none.
+# The literal below is only a fallback for when the package cannot be imported at
+# all, and ``test_required_columns_match_the_dataset`` pins the two together.
+_FALLBACK_VIEW_COLUMNS = (
+    "scene_id", "file_key", "image_path", "image_width", "image_height",
     "camera_width", "camera_height", "fx", "fy", "cx", "cy", "k1", "k2",
     "qw", "qx", "qy", "qz", "tx", "ty", "tz",
-    "date_lo", "date_hi", "date_mid", "era", "medium",
+    "date_lo", "date_hi", "date_mid", "medium", "is_monochrome",
 )
+
+
+def required_view_columns() -> tuple[str, ...]:
+    """What the dataset itself refuses to build a sample without."""
+    try:
+        from timemachine.data.dataset import _REQUIRED
+
+        return tuple(_REQUIRED)
+    except Exception:                                  # noqa: BLE001 - fall back, never fail
+        return _FALLBACK_VIEW_COLUMNS
 
 # Below this there is not enough signal for date conditioning to learn anything,
 # which is worth knowing before a run rather than after reading its samples.
@@ -243,7 +263,7 @@ def check_datasets(folders: Sequence[Path], image_root: Path | None = None,
             out.append(Check(name, False, f"unreadable: {type(exc).__name__}: {exc}",
                              "rebuild the dataset"))
             continue
-        missing = [c for c in REQUIRED_VIEW_COLUMNS if c not in views.columns]
+        missing = [c for c in required_view_columns() if c not in views.columns]
         if missing:
             out.append(Check(name, False, f"missing columns: {', '.join(missing[:5])}",
                              "rebuild it with the current scripts/build_scene_dataset.py"))
@@ -251,7 +271,8 @@ def check_datasets(folders: Sequence[Path], image_root: Path | None = None,
         if views.empty:
             out.append(Check(name, False, "table has no rows", "rebuild the dataset"))
             continue
-        gone = [p for p in views["path"].head(sample_images)
+        column = IMAGE_COLUMN if IMAGE_COLUMN in views.columns else _FALLBACK_IMAGE_COLUMN
+        gone = [p for p in views[column].head(sample_images)
                 if _resolve(str(p), folder, image_root) is None]
         if gone:
             out.append(Check(name, False, f"{len(gone)} of {min(sample_images, len(views))} "
@@ -269,6 +290,34 @@ def check_datasets(folders: Sequence[Path], image_root: Path | None = None,
                          f"under ~{min_old} old views there is little for date "
                          "conditioning to learn; add scenes with scripts/plan_dataset.py"))
     return out
+
+
+def import_failure(name: str, exc: ImportError) -> Check:
+    """Decide whether an ImportError is an environment gap or a real defect.
+
+    "The package is not installed here" is an environment problem that the import
+    checks already report, so skipping is right and re-reporting it against the data
+    would send someone rebuilding datasets that are fine.
+
+    "The package is installed and does not contain what was asked for" is a genuine
+    defect - the repo moved, or this file was written against an API that does not
+    exist - and must fail. Swallowing it is how a call to a function that never
+    existed survived a full green test run: every test hit the skip path.
+    """
+    package = (exc.name or "").split(".")[0]
+    if package and not _have(package):
+        return Check(name, True, skipped=True, detail=f"{package} is not installed here")
+    return Check(name, False, f"ImportError: {exc}",
+                 "the module is installed but does not provide this; the preflight and "
+                 "the repo have drifted apart")
+
+
+def _require_table(folder: Path) -> Path:
+    """The view table inside a dataset folder, or a clear error naming the folder."""
+    table = _view_table(folder)
+    if table is None:
+        raise FileNotFoundError(f"{folder} holds no views.parquet")
+    return table
 
 
 def _call_with_supported(factory: Callable, *args, **wanted):
@@ -296,10 +345,15 @@ def check_dataset_loads(folders: Sequence[Path], resolution: int = 576,
     if not folders:
         return Check("sample builds", True, skipped=True, detail="no datasets given")
     try:
-        from timemachine.data.dataset import DatedViewsDataset
-        from timemachine.data.views import load_views
+        import pandas as pd
 
-        views = load_views([str(f) for f in folders])
+        from timemachine.data.dataset import DatedViewsDataset
+
+        # Mirrors the trainer: a dataset argument is a folder holding views.parquet,
+        # or a view table directly, and several of them concatenate into one frame.
+        tables = [pd.read_parquet(f if f.suffix == ".parquet" else _require_table(f))
+                  for f in folders]
+        views = pd.concat(tables, ignore_index=True)
         dataset = _call_with_supported(DatedViewsDataset, views, resolution=resolution,
                                        with_appearance=appearance)
         sample = dataset[0]
@@ -308,11 +362,7 @@ def check_dataset_loads(folders: Sequence[Path], resolution: int = 576,
                      f"{len(dataset)} samples; first has {', '.join(keys)}"
                      + (" ..." if keys else ""))
     except ImportError as exc:
-        # The package itself is not importable, which says nothing about the data.
-        # Reporting it as a dataset failure would send someone rebuilding datasets
-        # that are fine, and the import checks above already name the real cause.
-        return Check("sample builds", True, skipped=True,
-                     detail=f"cannot import the repo here ({exc.name or exc})")
+        return import_failure("sample builds", exc)
     except Exception as exc:                           # noqa: BLE001 - the point is to report it
         return Check("sample builds", False, f"{type(exc).__name__}: {exc}",
                      "the dataset cannot produce a sample; this would kill the job at step 0")
