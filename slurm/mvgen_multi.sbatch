@@ -28,6 +28,11 @@ set -euo pipefail
 REPO="${SLURM_SUBMIT_DIR:?submit this script with sbatch from the repository root}"
 RUN_DIR="${RUN_DIR:?set RUN_DIR to the run folder (absolute path)}"
 ARGS="${ARGS:-}"
+# ARGS_FILE: arguments read when the job starts (one or more per line, '#' comments), so a queued or
+# chained job takes the settings of the moment; added after ARGS.
+if [[ -n "${ARGS_FILE:-}" ]]; then
+    ARGS="$ARGS $(sed 's/#.*//' "$ARGS_FILE" | tr '\n' ' ')"
+fi
 cd "$REPO/external/MVGenMaster"
 export HF_HUB_OFFLINE=1
 export PYTHONDONTWRITEBYTECODE=1
