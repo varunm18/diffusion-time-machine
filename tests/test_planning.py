@@ -99,7 +99,8 @@ def test_storage_is_measured_from_real_files_when_available(tmp_path):
     for i in range(4):
         (folder / f"v{i}.jpg").write_bytes(b"x" * 1000)
     size, counted = pl.calibrate_bytes_per_image([tmp_path / "1_model0"])
-    assert size == 1000 and counted == 4
+    # Disk, not file size: 1000-byte files each occupy at least one block.
+    assert counted == 4 and size >= 1000
 
     # and falls back loudly-but-safely when there is nothing to measure
     size, counted = pl.calibrate_bytes_per_image([tmp_path / "empty"])
@@ -130,7 +131,7 @@ def test_report_surfaces_the_concentration_and_the_warning():
     plan = pl.plan_scenes(c, n_scenes=8)
     text = pl.render_plan(plan, 190_000, measured_from=5000, have=["Scene_99"])
     assert "Scene build plan" in text and "Scene_99" in text
-    assert "measured at 190 kB/image over 5,000 cached images" in text
+    assert "measured at 190 kB of disk per image over 5,000 cached images" in text
     assert "Gini" in text and "top 1 scene(s) hold" in text
     assert "location input most of all" in text               # the point of the whole table
     assert "| pre-1900 |" in text and "| 2000+ |" in text
@@ -163,3 +164,42 @@ def test_the_shipped_census_plans_without_surprises():
     assert plan["cum_gigabytes"].iloc[-1] < 100
     text = pl.render_plan(plan, pl.DEFAULT_BYTES_PER_IMAGE)
     assert "old posed photos" in text
+
+
+# ------------------------------------------------- the cost model vs reality
+def test_cost_model_reproduces_the_measured_28_scene_build():
+    """Pinned against a real build, because the first version was 3x too low.
+
+    Measured on the Nexus class filesystem: 28 scenes, 12,323 cached images,
+    7.1 GB on disk. Two things had been missed - the filesystem rounds every file
+    up to a large block (271 kB of bytes becomes 527 kB of disk), and the cache
+    holds ~21% more images than the view tables end up keeping.
+    """
+    from pathlib import Path
+
+    path = Path("census.csv")
+    if not path.exists():
+        pytest.skip("real census not available in this checkout")
+    plan = pl.plan_scenes(pl.load_census(path), n_scenes=28)
+    total_gb = plan["cum_gigabytes"].iloc[-1] + pl.FIXED_OVERHEAD_GB
+    assert 6.0 < total_gb < 8.5, f"model says {total_gb:.1f} GB, the real build was 7.1 GB"
+
+
+def test_storage_is_measured_as_disk_not_as_file_size(tmp_path):
+    """A quota counts allocated blocks, so that is what calibration must measure."""
+    folder = tmp_path / "1_model0"
+    folder.mkdir()
+    (folder / "v.jpg").write_bytes(b"x" * 1000)       # tiny file, one whole block on disk
+    size, counted = pl.calibrate_bytes_per_image([folder])
+    assert counted == 1
+    assert size >= 1000                                # never *under*-reports the real cost
+
+
+def test_cache_overshoot_and_overhead_are_applied():
+    c = census()
+    plan = pl.plan_scenes(c, n_scenes=5, bytes_per_image=100_000)
+    bare = (plan["images"] * 100_000 / 1e9).cumsum().iloc[-1]
+    assert plan["cum_gigabytes"].iloc[-1] == pytest.approx(bare * pl.CACHE_OVERSHOOT)
+    assert pl.FIXED_OVERHEAD_GB > 0
+    assert "index and tables" in pl.render_plan(plan, 527_000)
+    assert "as a quota counts it" in pl.render_plan(plan, 527_000)

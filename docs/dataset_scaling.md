@@ -2,19 +2,33 @@
 
 ## The short answer
 
-**All 140 scenes that pass the posed gate fit in 8.3 GB**, capping modern photos at
-300 per scene, and yield **5,787 posed pre-1970 photographs**. Storage is not the
-constraint anyone assumed it was: the whole usable MegaScenes subset is smaller
-than SEVA's weights.
+From `docs/census/census_scenes_top800.csv`, capping modern photos at 300 per scene:
 
-For comparison, from `docs/census/census_scenes_top800.csv`:
-
-| scenes | old posed photos | approx. GB |
+| scenes | old posed photos | GB on disk |
 |---|---|---|
-| 4 (current single-person set) | 1,533 | 0.5 |
-| 13 (current training set) | 2,458 | 1.1 |
-| 30 | 3,489 | 2.3 |
-| 140 (everything gated) | 5,787 | 8.3 |
+| 13 (earlier training set) | 2,458 | ~3.5 |
+| 28 (built, measured) | 3,462 | **7.1 actual** |
+| 50 | 4,263 | 11.7 |
+| 140 (everything gated) | 5,787 | **28.4** |
+
+So the full gated set does **not** fit comfortably in a 30 GB home quota, especially
+once SEVA's ~5 GB of weights are there too. 50 scenes is a comfortable middle, and
+28 is already built.
+
+### The cost model, and why the first version was wrong
+
+The first version of this planner predicted 2.0 GB for the 28-scene build that
+actually took 7.1 GB - a 3x underestimate, from two things it did not model:
+
+- **The filesystem rounds every file up to a large block.** Measured over 12,323
+  cached images: 271 kB of actual bytes but **527 kB of disk each**, a 1.95x
+  inflation. `du` and a quota count the latter, so that is what we plan against.
+  `calibrate_bytes_per_image` now measures `st_blocks`, not `st_size`.
+- **The cache holds ~21% more images than the view tables keep** - images that fail
+  a filter after download, and duplicates.
+
+With both corrected the model gives 7.4 GB for that build against 7.1 GB measured,
+and `test_cost_model_reproduces_the_measured_28_scene_build` pins it there.
 
 ## Why this matters
 

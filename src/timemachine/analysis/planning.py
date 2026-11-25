@@ -34,10 +34,20 @@ ERA_COLUMNS = ("posed_pre-1900", "posed_1900-1944", "posed_1945-1969",
 OLD_COLUMN = "posed_pre-1970"
 GATES = {"posed": "gate_posed", "any": "gate_any", "none": None}
 
-# Cached images are JPEG, longest side 1024 (see data/images.py). Measured at ~190 kB
-# on the four scenes built so far; calibrate_bytes_per_image() replaces this with the
-# real figure whenever a built dataset is available.
-DEFAULT_BYTES_PER_IMAGE = 190_000
+# Cached images are JPEG, longest side 1024 (see data/images.py). Measured over 12,323
+# images on the Nexus class filesystem: 271 kB of actual bytes, but **527 kB of disk**,
+# because the filesystem allocates in large blocks and rounds every small file up. That
+# near-2x inflation is what `du` reports and what a quota counts, so it is what we plan
+# against. calibrate_bytes_per_image() measures it directly whenever a dataset exists.
+DEFAULT_BYTES_PER_IMAGE = 527_000
+
+# `build_scene_dataset.py` caches more images than the final view table keeps - images
+# that fail a filter after download, and duplicates. Measured at 21% over 28 scenes.
+CACHE_OVERSHOOT = 1.21
+
+# One-time cost of the MegaScenes index plus the per-scene metadata/poses/dates tables
+# and preview sheets: ~620 MB over 28 scenes, almost all of it the shared index.
+FIXED_OVERHEAD_GB = 0.62
 
 
 def load_census(path: str | Path) -> pd.DataFrame:
@@ -58,7 +68,10 @@ def calibrate_bytes_per_image(dataset_dirs: Iterable[str | Path]) -> tuple[int, 
     total_bytes = total_images = 0
     for folder in dataset_dirs:
         for image in Path(folder).rglob("*.jpg"):
-            total_bytes += image.stat().st_size
+            # st_blocks (512-byte units), not st_size: we want the disk a quota counts,
+            # which on a large-block filesystem is nearly twice the file's own bytes.
+            stat = image.stat()
+            total_bytes += getattr(stat, "st_blocks", 0) * 512 or stat.st_size
             total_images += 1
     if not total_images:
         return DEFAULT_BYTES_PER_IMAGE, 0
@@ -111,7 +124,8 @@ def plan_scenes(census: pd.DataFrame, n_scenes: int | None = None, budget_gb: fl
     middle = ranked["posed_1970-1999"].to_numpy() if "posed_1970-1999" in ranked else 0
 
     images = old + modern + middle
-    gigabytes = images * bytes_per_image / 1e9
+    # The cache ends up holding more than the view table keeps (see CACHE_OVERSHOOT).
+    gigabytes = images * CACHE_OVERSHOOT * bytes_per_image / 1e9
     plan = ranked.assign(images=images, gigabytes=gigabytes,
                          cum_gigabytes=np.cumsum(gigabytes), cum_old=np.cumsum(old))
     if budget_gb is not None:
@@ -163,14 +177,17 @@ def render_plan(plan: pd.DataFrame, bytes_per_image: int, measured_from: int = 0
         return "No candidate scenes left: everything passing the gate is already built.\n"
     old_conc = concentration(plan[OLD_COLUMN])
     eras = era_totals(plan, max_modern)
-    size_note = (f"measured at {bytes_per_image / 1e3:.0f} kB/image over {measured_from:,} "
-                 "cached images" if measured_from else
-                 f"estimated at {bytes_per_image / 1e3:.0f} kB/image (no built dataset to measure)")
+    size_note = (f"measured at {bytes_per_image / 1e3:.0f} kB of disk per image over "
+                 f"{measured_from:,} cached images" if measured_from else
+                 f"estimated at {bytes_per_image / 1e3:.0f} kB of disk per image "
+                 "(no built dataset to measure)")
     lines = [
         "## Scene build plan",
-        f"*{len(plan)} scenes, **{plan['cum_gigabytes'].iloc[-1]:.1f} GB**, "
-        f"**{int(plan['cum_old'].iloc[-1]):,} old posed photos** "
-        f"(pre-1970). Modern photos capped at {max_modern} per scene; {size_note}.*",
+        f"*{len(plan)} scenes, **{plan['cum_gigabytes'].iloc[-1] + FIXED_OVERHEAD_GB:.1f} GB** "
+        f"({plan['cum_gigabytes'].iloc[-1]:.1f} GB of images plus ~{FIXED_OVERHEAD_GB:.1f} GB of "
+        f"index and tables), **{int(plan['cum_old'].iloc[-1]):,} old posed photos** "
+        f"(pre-1970). Modern photos capped at {max_modern} per scene; {size_note}. "
+        "Sizes are disk as a quota counts it, not the sum of file sizes.*",
     ]
     if len(have):
         lines.append(f"*Already built and excluded: {', '.join(str(h) for h in have)}.*")
