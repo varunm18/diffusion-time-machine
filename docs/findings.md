@@ -1441,3 +1441,9 @@ Inside the changed region:
   - The grey-flag check in R1 cannot pass as written (no decoded render is as grey as a real grey photo); it is not part of the gate.
   - 12 of the 53 scored targets are by photographers who have training photos in the other period.
 - **Early observation (step 250-350, B):** the look embedding grows faster than the date's (look rms 0.097 against date 0.071 at step 350; together 0.91 of the timestep embedding).
+
+**look1 gate at step 2,000, arm B: the look code steers the render** (2026-11-25; raw weights; 25 held-out view sets; `data/experiments/mvgen/eval_look1/B_step2000_raw/`, picture `gate_sheet.jpg` there)
+- **Steering passes clearly:** giving a target another photo's code moves the render's colour toward it with slopes 0.79 (red), 0.77 (green), 0.60 (blue); gate line 0.4. By eye: another photo's code changes sky, light and white balance; the grey code gives an almost grey render (some residual tint, so the strict "as grey as a real grey photo" line fails, as expected).
+- **The date has not taken the look so far:** a date swap across the fire shifts the look along the real after-fire-vs-modern difference by −0.04 ± 0.02 sd (date-only runs: about +0.35 sd at step 2,000). Arm A's step-2,000 weights are copied for the matched comparison when A gets a GPU.
+- **The date does not yet choose the building** (as in the date-only runs at step 2,000): after-fire input photos still give a burnt cathedral for pre-fire targets.
+- The within-period swap null is +0.04 ± 0.01 sd (not zero but small).
