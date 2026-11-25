@@ -168,8 +168,13 @@ def main() -> None:
         say(f"[multi] resumed from {latest} at step {step}")
     generator = torch.Generator().manual_seed(args.seed * 100_003 + rank * 7919 + step)
 
+    # train_config / scale / scale_factor in the form render.py reads (single-scene checkpoints have them):
+    # no dataset, no period edges and no factor, which are the rendered scene's own (scene.json).
     extra_base = {"train_args": {k: str(v) for k, v in vars(args).items()}, "scenes": mixture.names,
-                  "shares": mixture.shares.tolist(), "precision": "bf16", "world_size": world}
+                  "shares": mixture.shares.tolist(), "precision": "bf16", "world_size": world,
+                  "train_config": {"loss": asdict(loss_cfg), "sampling": {"n_ref": mixture.sampling.n_ref},
+                                   "resolution": mixture.resolution, "scale": "scene", "multi_scene": True},
+                  "scale": "scene", "scale_factor": None}
 
     def save(path: Path, full: bool) -> None:
         extra = dict(extra_base, weights="ema" if ema is not None else "raw")

@@ -129,7 +129,8 @@ def view_depth(views: pd.DataFrame, row: int, sparse: dict[str, np.ndarray], dep
     The image, its intrinsics and its COLMAP points are those of the ``size`` crop that training
     loads (``load_view``), and the scaling is ``reference_depth`` of ``nvs_test.py``. Returns the
     map exactly as the folder stores it (float16 ``[size, size]``, COLMAP units; None for a view
-    with no COLMAP point in its crop) and the stats record (``DEPTH_STATS_COLUMNS``).
+    with no COLMAP point in its crop, or whose fitted map is not finite and positive everywhere, which
+    is then not ``ok``) and the stats record (``DEPTH_STATS_COLUMNS``).
     """
     view = views.iloc[row]
     c2w = colmap_to_c2w(view[["qw", "qx", "qy", "qz"]].to_numpy(dtype=np.float64)[None],
@@ -141,9 +142,13 @@ def view_depth(views: pd.DataFrame, row: int, sparse: dict[str, np.ndarray], dep
     depth = None
     if len(points):
         depth, fit = reference_depth(depth_model, transform, image, K, points)
-        depth = as_stored(depth, f"view {row} ({view.file_key})")
         record.update(scale=fit["scale"], median_rel_error=fit["median_rel_error"])
-    record["ok"] = bool(depth_is_reliable(record["n_points"], record["median_rel_error"]))
+        try:
+            depth = as_stored(depth, f"view {row} ({view.file_key})")
+        except ValueError as err:       # e.g. a fit with a negative scale (panoramas, drawings): no map, not ok
+            print(f"   no depth map stored: {err}", flush=True)
+            depth = None
+    record["ok"] = depth is not None and bool(depth_is_reliable(record["n_points"], record["median_rel_error"]))
     return depth, record
 
 

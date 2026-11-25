@@ -48,6 +48,7 @@ import pandas as pd
 from timemachine.mvgen.data import SCALE_RULES, MVGenScene, ViewSamplingConfig
 from timemachine.mvgen.date import UNCOND_DATES
 from timemachine.mvgen.evaluation import LookInputs, view_looks
+from timemachine.mvgen.multiscene import scene_edges
 from timemachine.mvgen.model import DEFAULT_MODEL_DIR, assert_exact_matmul, load_finetuned, load_mvgen
 from timemachine.mvgen.probes import (
     RenderProbe, parse_render_date, read_keys_file, read_rows_file, representative_years,
@@ -130,8 +131,11 @@ def main(argv: list[str] | None = None) -> None:
     given = {name: getattr(args, name) for name in LOSS_OPTIONS if getattr(args, name) is not None}
     loss_cfg = LossConfig(**{**trained.get("loss", {}), **given})
     n_ref = first_given(args.n_ref, trained_sampling.get("n_ref"), ViewSamplingConfig.n_ref)
-    edges = tuple(first_given(args.period_edges, trained_sampling.get("period_edges"), ViewSamplingConfig.period_edges))
     dataset = Path(first_given(args.dataset, trained.get("dataset"), DEFAULT_DATASET))
+    # A multi-scene checkpoint (scripts/mvgen/train_multi.py) names no edges: the scene's own (scene.json).
+    edges = tuple(first_given(args.period_edges, trained_sampling.get("period_edges"),
+                              scene_edges(dataset) if trained.get("multi_scene") else None,
+                              ViewSamplingConfig.period_edges))
     resolution = first_given(args.resolution, trained.get("resolution"), 512)
     scale = parse_scale(first_given(args.scale, trained.get("scale"), "scene"))
 
@@ -149,7 +153,8 @@ def main(argv: list[str] | None = None) -> None:
           f"step {ckpt.get('step', 0)}; dates {args.dates}, seeds {args.seeds}, guidance {args.guidance:g}, "
           f"{loss_cfg.precision}; scene scale {scale!r} ({factor}); swapped dates use the years {list(swap_years)}",
           flush=True)
-    if ckpt and (scale, scene.scale_factor) != (ckpt["scale"], ckpt["scale_factor"]):
+    per_scene = ckpt.get("scale") == "scene" and ckpt.get("scale_factor") is None   # multi-scene: each scene's own
+    if ckpt and not (per_scene and scale == "scene") and (scale, scene.scale_factor) != (ckpt["scale"], ckpt["scale_factor"]):
         print(f"note: the checkpoint was trained with scene scale {ckpt['scale']!r} (factor {ckpt['scale_factor']}); "
               "these renders use another, so the cameras are not at the size the adapters were trained on",
               flush=True)
