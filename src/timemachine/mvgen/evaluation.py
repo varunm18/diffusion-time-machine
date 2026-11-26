@@ -247,7 +247,8 @@ def check_run_records(scene: MVGenScene, run_dir: str | Path, checkpoint: Mappin
 
     Compared, wherever the run recorded them: the held-out views (``heldout.json``: rows and file keys),
     the scene-scale factor (``config.json``) and, with a loaded ``checkpoint``, its scale factor and
-    its fingerprint of the dataset folder (``MVGenScene.fingerprint``). If one differs, the folder
+    its fingerprint of the dataset folder (``MVGenScene.fingerprint``); a multi-scene checkpoint
+    (``scripts/mvgen/train_multi.py``) records no single factor (None). If one differs, the folder
     was rebuilt or this version of the code draws the hold-out differently; "held-out" views would
     then include views the run trained on, and the cameras could be at another scale.
     """
@@ -261,7 +262,7 @@ def check_run_records(scene: MVGenScene, run_dir: str | Path, checkpoint: Mappin
     records = {"config.json": json.loads((run_dir / "config.json").read_text()), "the checkpoint": checkpoint or {}}
     differing += [f"the scene-scale factor is {scene.scale_factor!r}, {where} has {record['scale_factor']!r}"
                   for where, record in records.items()
-                  if "scale_factor" in record and record["scale_factor"] != scene.scale_factor]
+                  if record.get("scale_factor") is not None and record["scale_factor"] != scene.scale_factor]
     if records["the checkpoint"].get("dataset_fingerprint", scene.fingerprint()) != scene.fingerprint():
         differing.append("the dataset fingerprint is not the checkpoint's (the view table, the views with reliable "
                          "depth or the co-visibility changed)")
