@@ -1475,3 +1475,10 @@ Inside the changed region:
   - **The date does not yet choose the fire state:** the state read-out flip is +0.08 ± 0.06 logits (D +1.81 ± 0.42), and the wrong date costs +0.14% more inside the region than outside (D +2.1%).
   - PSNR 11.6 dB at the references' look and 13.2 dB with the target's own code (D 12.2 and 14.0).
   - This is expected at this stage: Notre-Dame has had about 6,000 samples in ms1 against 20,000 in D at step 10,000; ms1 reaches D's count near step 33,000. The step-30,000 evaluation is queued.
+
+**look1 final result at step 10,000: the look code passes both pre-registered lines** (2026-11-26; `eval_look1/*_step10000/`, read with `eval_dates.py --from-results D_step10000/results.json --compare A=... A2=... B=... released=...`)
+- **The date no longer takes the photo's look:** a date swap across the fire moves the render's look along the real after-fire-vs-modern difference by +0.09 sd in D and B, against +0.63 (A) and +0.67 (A2) without a look code. Pass line (at most half of A, and at least 0.15 below it): PASS.
+- **The date still chooses the building as well as without a look code:** the fire-state read-out flips by +1.81 logits in D (B +1.96), against A +2.13 and A2 +3.80 (the two date-only seeds differ a lot). Non-inferiority: PASS.
+- The look code steers the render (slope 0.87), and D's grey code gives greyer renders than B's (chroma −0.14).
+- Against the released model, D is +0.6 dB at the references' look and +1.3 dB with the target's own code (under the 0.8 dB line where noise dominates for the first).
+- **ms1 sweeps at step 30,000 with the neutral look** (`sweeps/step030000_neutral/`): the building is still the same at every year; what the year changes is colour and sky (later years bluer and more colourful, earlier years greyer), also with the look code held fixed. A "neutral" code is not neutral in tone (it averages grey, toned and colour), so renders of one set can still differ in colour from target to target.
