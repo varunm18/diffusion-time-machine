@@ -53,6 +53,9 @@ def main() -> None:
     print(f"{scene.scene} ({sid}), model {model}")
 
     views = build_view_table(paths, sid, model)
+    if views.attrs.get("bad_distortion"):
+        print(f"dropping {len(views.attrs['bad_distortion'])} views with unusable lens coefficients "
+              f"(non-finite, or not invertible over their frame): {views.attrs['bad_distortion']}")
     if args.max_modern is not None:
         modern = views[views["era"] == "2000+"]
         drop = modern.sample(max(len(modern) - args.max_modern, 0), random_state=args.seed).index

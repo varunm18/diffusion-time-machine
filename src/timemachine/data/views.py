@@ -8,10 +8,12 @@ format later, as long as they are in the same coordinate frame.
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from timemachine.analysis.census import assign_era, load_scene
 from timemachine.config import DataPaths
+from timemachine.data.distortion import usable_distortion
 from timemachine.dating.medium import PHOTOGRAPHIC
 from timemachine.megascenes.index import load_image_index
 
@@ -27,7 +29,7 @@ VIEW_COLUMNS = [
 def build_view_table(
     paths: DataPaths, scene_id: int, model: int,
     max_date_width: float = 30.0, min_date_confidence: float = 0.3,
-    include_unknown_medium: bool = True,
+    include_unknown_medium: bool = True, drop_bad_distortion: bool = True,
 ) -> pd.DataFrame:
     """Posed, dated, photographic views of one COLMAP model of a scene.
 
@@ -35,6 +37,14 @@ def build_view_table(
     have confidence >= ``min_date_confidence``; the image must be a photo or
     postcard (or of unknown type if ``include_unknown_medium``). Files registered
     several times (duplicate paths) keep their first entry.
+
+    ``drop_bad_distortion``: also drop views whose lens coefficients are unusable -
+    not finite (a camera model ``load_view`` cannot undo, on which it raises), or not
+    invertible over the camera's own frame (COLMAP's fit for a weakly-observed
+    camera; undistorting with it warps the photo). The same rule
+    (:func:`~timemachine.data.distortion.usable_distortion`) the distortion migration
+    applies, so a rebuilt table matches a migrated one. Their ``file_key`` values are
+    in ``views.attrs["bad_distortion"]``.
     """
     poses = pd.read_parquet(paths.poses_table(scene_id))
     if "k1" not in poses:
@@ -57,7 +67,11 @@ def build_view_table(
     views["era"] = assign_era(views["date_mid"], views["date_width"])
     views = views.rename(columns={"width": "camera_width", "height": "camera_height"})
     views["pose_source"] = "megascenes_colmap"
-    return views[VIEW_COLUMNS].reset_index(drop=True)
+    bad = ~usable_distortion(views) if drop_bad_distortion else np.zeros(len(views), dtype=bool)
+    rejected = views.loc[bad, "file_key"].tolist()
+    views = views[VIEW_COLUMNS][~bad].reset_index(drop=True)
+    views.attrs["bad_distortion"] = rejected
+    return views
 
 
 def unposed_candidates(paths: DataPaths, scene_id: int, model: int, before: float,

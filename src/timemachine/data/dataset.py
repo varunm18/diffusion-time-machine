@@ -34,6 +34,7 @@ from timemachine.data.cameras import (
     normalize_intrinsics, resize_and_center_crop_params, undistorted_crop,
 )
 from timemachine.data.appearance import appearance_batch
+from timemachine.data.distortion import finite_distortion
 from timemachine.data.sampling import SamplingConfig, eligible_anchors, event_anchors, sample_views
 from timemachine.dating.medium import Medium
 
@@ -91,6 +92,13 @@ class DatedViewsDataset(Dataset):
         missing = [c for c in _REQUIRED if c not in views]
         if missing:
             raise ValueError(f"View table is missing columns: {missing}")
+        # load_view raises on these, so a table holding any would kill a run at whichever
+        # step first draws one - possibly hours in. Refuse the table up front instead.
+        unloadable = ~finite_distortion(views)
+        if unloadable.any():
+            keys = views.loc[unloadable, "file_key"].astype(str).tolist()
+            raise ValueError(f"{len(keys)} view(s) have non-finite k1/k2, which load_view cannot load "
+                             f"(e.g. {keys[:3]}); remove them with scripts/prune_unloadable_views.py")
         self.views = views.reset_index(drop=True)
         self.config = config
         self.resolution = resolution

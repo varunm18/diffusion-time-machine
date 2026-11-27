@@ -11,6 +11,10 @@ on - no re-download, and the cached images are untouched.
 
 Originals are kept beside each table as ``views.pre_distortion.parquet``, and the
 poses tables as ``<scene>.pre_distortion.parquet``, so this is reversible.
+
+Views whose coefficients cannot be used (uninvertible over their own frame, or with
+no match) are dropped from the written table. Tables migrated before that rule
+hold them as NaN instead; clean those with scripts/prune_unloadable_views.py.
 """
 from __future__ import annotations
 
@@ -88,8 +92,9 @@ def main() -> int:
                              "values to weakly-observed cameras, and undistorting with "
                              "one warps a good image, so these are dropped by default")
     parser.add_argument("--allow-partial", action="store_true",
-                        help="write tables where some rows found no coefficients; those "
-                             "views become unknown and load_view skips them")
+                        help="write tables where some rows found no coefficients, dropping "
+                             "those views. They are never written as non-finite: load_view "
+                             "raises on such a row rather than skipping it")
     args = parser.parse_args()
 
     paths, bucket = DataPaths(), MegaScenesBucket()

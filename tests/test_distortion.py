@@ -113,18 +113,22 @@ def test_coefficients_land_where_the_schema_puts_them():
     assert columns[columns.index("cy") + 1:columns.index("cy") + 3] == ["k1", "k2"]
 
 
-def test_unmatched_rows_are_left_unknown_rather_than_zeroed():
+def test_unmatched_rows_are_dropped_rather_than_zeroed():
     """Zero is a real coefficient value, so it must never stand in for 'unknown'.
 
-    load_view skips a non-finite row; a zeroed one trains on an undistorted crop
-    that was never undistorted.
+    A zeroed row trains on a crop that was never undistorted. A non-finite one is
+    no better: load_view raises on it (it does not skip), killing the run at the
+    first step that draws it. So the row goes, and the counts keep it visible.
     """
     views = _views(10)
     out, result = dz.attach_distortion(views, _poses([f"key{i}" for i in range(6)]))
     assert result.matched == 6
     assert result.unmatched == 4
+    assert result.dropped == 4
     assert not result.ok
-    assert out["k1"].isna().sum() == 4
+    assert len(out) == 6
+    assert out["file_key"].tolist() == [f"key{i}" for i in range(6)]
+    assert np.isfinite(out[["k1", "k2"]].to_numpy()).all()
     assert (out["k1"] == 0).sum() == 0
 
 
@@ -147,10 +151,15 @@ def test_predicted_poses_are_filled_with_exact_zeros():
 
 
 def test_radial_cameras_are_never_filled_with_zeros():
-    """The whole point: a SIMPLE_RADIAL row with no match stays unknown."""
+    """The whole point: a SIMPLE_RADIAL row with no match is not given k1 = 0.
+
+    It is dropped instead - checked by count, since "every remaining k1 is NaN"
+    would also hold, vacuously, of an empty table.
+    """
     out, result = dz.attach_distortion(_views(5), _poses([]))
     assert not result.ok
-    assert out["k1"].isna().all()
+    assert result.matched == 0 and result.dropped == 5
+    assert out.empty
 
 
 def test_mixed_models_are_handled_row_by_row():
@@ -217,11 +226,21 @@ def test_a_partial_migration_is_refused_by_default(folder: Path):
     assert "k1" not in pd.read_parquet(folder / "views.parquet").columns
 
 
-def test_a_partial_migration_can_be_forced(folder: Path):
+def test_a_partial_migration_can_be_forced_and_drops_the_unmatched_rows(folder: Path):
     result = dz.migrate_folder(folder, _poses([f"key{i}" for i in range(6)]),
                                allow_partial=True)
     assert result.written
-    assert pd.read_parquet(folder / "views.parquet")["k1"].isna().sum() == 4
+    written = pd.read_parquet(folder / "views.parquet")
+    assert len(written) == 6
+    assert np.isfinite(written[["k1", "k2"]].to_numpy()).all()
+    assert "4 unmatched, dropped" in result.line()
+
+
+def test_a_forced_migration_never_writes_an_empty_table(folder: Path):
+    result = dz.migrate_folder(folder, _poses([]), allow_partial=True)
+    assert not result.written
+    assert "empty" in result.note
+    assert "k1" not in pd.read_parquet(folder / "views.parquet").columns
 
 
 def test_dry_run_changes_nothing(folder: Path):
@@ -337,7 +356,7 @@ def test_a_non_finite_coefficient_is_not_invertible():
     assert not dz.is_invertible(np.array([np.nan]), np.array([0.0]), r2)[0]
 
 
-def test_uninvertible_rows_are_left_unknown_and_counted():
+def test_uninvertible_rows_are_dropped_and_counted():
     views = _views(10)
     poses = pd.concat([_poses([f"key{i}" for i in range(7)], k1=-0.05),
                        _poses([f"key{i}" for i in range(7, 10)], k1=-3.0)],
@@ -345,8 +364,10 @@ def test_uninvertible_rows_are_left_unknown_and_counted():
     out, result = dz.attach_distortion(views, poses)
     assert result.implausible == 3
     assert result.matched == 7
-    assert out["k1"].isna().sum() == 3
-    assert out["k1"].dropna().eq(-0.05).all()
+    assert result.dropped == 3
+    assert len(out) == 7
+    assert not out["file_key"].isin(["key7", "key8", "key9"]).any()
+    assert out["k1"].eq(-0.05).all()                     # the survivors keep their real value
 
 
 def test_uninvertible_rows_can_be_kept_deliberately():
@@ -365,7 +386,11 @@ def test_a_table_whose_only_gaps_are_uninvertible_rows_still_writes(folder: Path
                       ignore_index=True)
     result = dz.migrate_folder(folder, poses)
     assert result.written
-    assert pd.read_parquet(folder / "views.parquet")["k1"].isna().sum() == 2
+    written = pd.read_parquet(folder / "views.parquet")
+    assert len(written) == 8
+    assert np.isfinite(written[["k1", "k2"]].to_numpy()).all()
+    # The dropped views are still recoverable from the backup.
+    assert len(pd.read_parquet(folder / ("views" + dz.BACKUP_SUFFIX))) == 10
 
 
 def test_a_genuinely_partial_table_is_still_refused(folder: Path):
@@ -384,7 +409,8 @@ def test_report_mentions_the_dropped_rows(folder: Path):
                       ignore_index=True)
     rendered = dz.render_report([dz.migrate_folder(folder, poses)])
     assert "cannot be inverted" in rendered
-    assert "load_view skips those" in rendered
+    assert "dropped from the table" in rendered
+    assert "skips" not in rendered                       # load_view raises; it never skipped
 
 
 def test_report_shows_the_median_not_only_the_maximum():

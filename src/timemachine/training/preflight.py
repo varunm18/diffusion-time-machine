@@ -272,6 +272,17 @@ def check_datasets(folders: Sequence[Path], image_root: Path | None = None,
         if views.empty:
             out.append(Check(name, False, "table has no rows", "rebuild the dataset"))
             continue
+        import numpy as np
+
+        # load_view raises on these (it does not skip them), and DatedViewsDataset
+        # refuses a table holding any. This check once passed 34 tables holding 49.
+        lens = np.isfinite(views[["k1", "k2"]].to_numpy(dtype=np.float64)).all(axis=1)
+        if not lens.all():
+            out.append(Check(name, False, f"{int((~lens).sum())} of {len(views):,} views have "
+                             "non-finite k1/k2",
+                             f"remove them: python scripts/prune_unloadable_views.py "
+                             f"--dataset {folder}"))
+            continue
         column = IMAGE_COLUMN if IMAGE_COLUMN in views.columns else _FALLBACK_IMAGE_COLUMN
         gone = [p for p in views[column].head(sample_images)
                 if _resolve(str(p), folder, image_root) is None]

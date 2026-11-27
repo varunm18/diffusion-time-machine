@@ -183,6 +183,17 @@ def test_missing_required_column_is_named(dataset: Path):
     assert "k1" in check.detail
 
 
+def test_non_finite_lens_coefficients_are_caught(dataset: Path):
+    """load_view raises on these. This check once passed 34 tables holding 49 of them."""
+    views = _views(20, old=12, root=dataset / "images")
+    views.loc[[3, 11], "k2"] = float("nan")
+    views.to_parquet(dataset / "views.parquet")
+    check = pf.check_datasets([dataset])[0]
+    assert not check.ok
+    assert "2 of 20" in check.detail and "k1/k2" in check.detail
+    assert "prune_unloadable_views.py" in check.fix and str(dataset) in check.fix
+
+
 def test_empty_table_is_caught(dataset: Path):
     _views(0).to_parquet(dataset / "views.parquet")
     assert not pf.check_datasets([dataset])[0].ok
