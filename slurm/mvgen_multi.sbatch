@@ -52,7 +52,9 @@ if [[ -n "${PREP_POOL:-}" ]]; then
     done
     .venv/bin/python "$REPO/scripts/mvgen/pool_worker.py" --pool "$PREP_POOL" --wait
     wait
-    "$REPO/.venv/bin/python" "$REPO/scripts/mvgen/write_scene_lists.py"
+    # LISTS_ARGS: arguments of write_scene_lists.py (e.g. --base/--add-ids/--train-out for a run with added scenes)
+    # shellcheck disable=SC2086
+    "$REPO/.venv/bin/python" "$REPO/scripts/mvgen/write_scene_lists.py" ${LISTS_ARGS:-}
     echo "[multi] $(date) data ready"
 fi
 # shellcheck disable=SC2086  # ARGS is split into arguments on purpose

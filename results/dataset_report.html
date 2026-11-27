@@ -1,0 +1,291 @@
+<title>Multi-Scene Photo Dataset</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one reading column; summary tiles, then one question per section, full scene table last. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1b1f27; --muted: #5d6573; --line: #dde1e8; --grid: #eceef2;
+  --old: #f47230; --mid: #00b894; --new: #257de0; --held: #6a4ce2; --chip: #eef1f6;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #13161b; --panel: #1b1f26; --fg: #e9ecf1; --muted: #9aa3b2; --line: #2c323c; --grid: #242932;
+  --old: #e76624; --mid: #00a888; --new: #338ced; --held: #9887ef; --chip: #252a33; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #13161b; --panel: #1b1f26; --fg: #e9ecf1; --muted: #9aa3b2; --line: #2c323c; --grid: #242932;
+  --old: #e76624; --mid: #00a888; --new: #338ced; --held: #9887ef; --chip: #252a33; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 40px; }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: 2rem; line-height: 1.15; }
+h2 { font-size: 1.3rem; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--muted); font-size: 1.02rem; }
+header { display: flex; flex-direction: column; gap: 10px; }
+.eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; color: var(--muted); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile b { font-family: var(--display); font-size: 1.7rem; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.tile span { color: var(--muted); font-size: .85rem; }
+section { display: flex; flex-direction: column; gap: 14px; }
+.take { border-left: 3px solid var(--line); padding-left: 12px; color: var(--fg); }
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 14px 8px; overflow-x: auto; }
+.chart svg { display: block; width: 100%; height: auto; min-width: 520px; }
+.chart svg text { fill: var(--muted); font-family: var(--body); font-size: 11px; }
+.chart svg .val { fill: var(--fg); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .82rem; color: var(--muted); padding: 2px 2px 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.two > * { min-width: 0; }
+.chart h3 { margin: 0 0 6px; font-size: .9rem; font-weight: 600; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+dt { font-weight: 600; } dd { margin: 0; color: var(--muted); }
+.note { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls button, .controls input { font: inherit; font-size: .85rem; border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.controls input { border-radius: 8px; cursor: text; min-width: 0; flex: 1 1 180px; }
+.controls button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+button:focus-visible, input:focus-visible, th:focus-visible { outline: 2px solid var(--new); outline-offset: 2px; }
+.tablebox { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; max-height: 620px; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .84rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+th { position: sticky; top: 0; background: var(--panel); font-weight: 600; cursor: pointer; user-select: none; color: var(--muted); }
+th.l, td.l { text-align: left; }
+td.name { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.pill { display: inline-block; font-size: .72rem; padding: 1px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+.pill.h { color: var(--held); font-weight: 600; }
+.mini { display: inline-flex; width: 120px; height: 10px; gap: 1px; vertical-align: middle; }
+.mini span { display: block; height: 100%; }
+.mini span:first-child { border-radius: 3px 0 0 3px; } .mini span:last-child { border-radius: 0 3px 3px 0; }
+#tip { position: fixed; pointer-events: none; background: var(--fg); color: var(--bg); font-size: .8rem; padding: 6px 9px; border-radius: 6px; z-index: 5; max-width: 260px; }
+.src { color: var(--muted); font-size: .8rem; }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Diffusion Time Machine · dataset of the multi-scene run (ms1) · 26 Nov 2026</div>
+  <h1>What the multi-scene model learns from</h1>
+  <p class="lede">Every photo here is a real, dated photo of a famous place, taken from Wikimedia Commons, with a camera pose from MegaScenes. The model sees several photos of one place, plus a date, and learns to draw the place as it looked on that date. This page sums up the data in the training run that started on 25 Nov.</p>
+</header>
+
+<div class="tiles" id="tiles"></div>
+
+<section>
+  <h2>When were the photos taken?</h2>
+  <p class="take" id="take-time"></p>
+  <div class="legend"><span><i style="background:var(--old)"></i>Before 1970 ("old")</span><span><i style="background:var(--mid)"></i>1970–1999</span><span><i style="background:var(--new)"></i>2000 and later</span></div>
+  <div class="two">
+    <div class="chart"><h3>All photos, by decade</h3><svg id="c-dec-all"></svg></div>
+    <div class="chart"><h3>Zoomed in: before 2000 only</h3><svg id="c-dec-old"></svg></div>
+  </div>
+</section>
+
+<section>
+  <h2>How many old photos does each place have?</h2>
+  <p class="take" id="take-old"></p>
+  <div class="chart"><h3>Number of places, by how many pre-1970 photos they have</h3><svg id="c-oldbins"></svg></div>
+</section>
+
+<section>
+  <h2>Where are the places, and what are they?</h2>
+  <p class="take" id="take-where"></p>
+  <div class="legend"><span><i style="background:var(--new)"></i>Training places</span><span><i style="background:var(--held)"></i>Held-out places (never trained on)</span></div>
+  <div class="two">
+    <div class="chart"><h3>Places by continent</h3><svg id="c-cont"></svg></div>
+    <div class="chart"><h3>Places by kind</h3><svg id="c-type"></svg></div>
+  </div>
+</section>
+
+<section>
+  <h2>What a training step actually sees</h2>
+  <p>One training sample is 8 photos of one place: 3 <b>reference</b> photos the model can look at, and 5 <b>target</b> photos it has to draw, all with the targets' date. The targets are built around one <b>anchor</b> photo plus the photos that see the same part of the place from the same period.</p>
+  <div class="tiles" id="mix-tiles"></div>
+  <p class="take" id="take-mix"></p>
+</section>
+
+<section>
+  <h2>Black-and-white is not a date</h2>
+  <p class="take" id="take-bw"></p>
+</section>
+
+<section>
+  <h2>The 11 held-out places</h2>
+  <p>The model never trains on these. They test whether a date sweep works on a place it has never seen. The ones with old photos give a real "then" to compare against.</p>
+  <div class="tablebox" style="max-height:none"><table id="t-held"></table></div>
+</section>
+
+<section>
+  <h2>Every place</h2>
+  <div class="controls">
+    <button type="button" id="f-all" aria-pressed="true">All 129</button>
+    <button type="button" id="f-train" aria-pressed="false">Training</button>
+    <button type="button" id="f-held" aria-pressed="false">Held out</button>
+    <input id="f-q" type="search" placeholder="Search a place, country or kind" aria-label="Search places">
+  </div>
+  <p class="src">Click a column to sort. The bar shows each place's mix of eras (same colors as above).</p>
+  <div class="tablebox"><table id="t-all"></table></div>
+</section>
+
+<section>
+  <h2>Words used on this page</h2>
+  <div class="note"><dl>
+    <dt>Usable photo</dt><dd>Has a camera pose, a date, is not a duplicate and is not excluded (for example a rolled or broken image).</dd>
+    <dt>Reliable depth</dt><dd>Its estimated depth map agrees with the 3D points of the place. Only these photos can be references; any usable photo can be a target.</dd>
+    <dt>Old</dt><dd>Taken before 1970. Each place's eras are cut at 1970; Notre-Dame also has a cut at the April 2019 fire.</dd>
+    <dt>Anchor</dt><dd>A photo a training sample can be built around: it needs enough photos from the same period that see the same part of the place.</dd>
+    <dt>Held-out photos</dt><dd>Inside training places, about 10% of photos per era are kept aside for checking (Notre-Dame: 132 photos in whole groups).</dd>
+    <dt>Dates</dt><dd>From the file's metadata or title. They are mostly reliable (average confidence 0.92 out of 1); some old photos only have a range, like "1890s", and we use the middle of it.</dd>
+  </dl></div>
+  <p class="src">Numbers come from the scene folders (<code>views.parquet</code>, <code>depth_stats.parquet</code>) via <code>scripts/mvgen/dataset_stats.py</code>, and from the sampling table that the run printed at start-up (job 8577831).</p>
+</section>
+</div>
+<div id="tip" hidden></div>
+
+<script id="data" type="application/json">{"decades":[1840,1850,1860,1870,1880,1890,1900,1910,1920,1930,1940,1950,1960,1970,1980,1990,2000,2010,2020],"rows":[{"n":"Cath\u00e9drale Notre-Dame de Paris","c":"France","ct":"Europe","t":"church","sp":"train","u":1115,"dk":1019,"o":77,"m":26,"r":1012,"y0":1860,"bw":118,"bwm":68,"sh":0.15,"a":707,"oa":22,"dec":[0,1,4,13,3,13,10,3,3,14,1,0,12,8,1,17,131,775,106]},{"n":"Persepolis","c":"Iran","ct":"Asia","t":"tomb/archaeological","sp":"train","u":244,"dk":208,"o":4,"m":4,"r":236,"y0":1845,"bw":13,"bwm":11,"sh":0.007,"a":101,"oa":0,"dec":[1,0,0,0,0,0,1,0,0,1,0,0,1,1,0,3,110,125,1]},{"n":"Spasskaya Tower","c":"Russia","ct":"Europe","t":"arch/gate","sp":"train","u":287,"dk":260,"o":22,"m":8,"r":257,"y0":1884,"bw":12,"bwm":5,"sh":0.008,"a":176,"oa":6,"dec":[0,0,0,0,2,1,1,2,0,3,0,2,11,4,3,1,75,175,7]},{"n":"Sheikh Lotfollah Mosque","c":"Iran","ct":"Asia","t":"mosque","sp":"train","u":281,"dk":271,"o":1,"m":4,"r":276,"y0":1962,"bw":4,"bwm":4,"sh":0.008,"a":156,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,4,50,208,18]},{"n":"Arch of Titus (Rome)","c":"Italy","ct":"Europe","t":"tomb/archaeological","sp":"train","u":282,"dk":275,"o":24,"m":11,"r":247,"y0":1848,"bw":25,"bwm":11,"sh":0.008,"a":144,"oa":0,"dec":[2,2,3,0,4,2,3,0,0,4,0,4,0,0,2,9,84,153,10]},{"n":"V\u00f6lkerschlachtdenkmal","c":"Germany","ct":"Europe","t":"monument/statue","sp":"train","u":177,"dk":170,"o":27,"m":7,"r":143,"y0":1908,"bw":42,"bwm":15,"sh":0.006,"a":86,"oa":10,"dec":[0,0,0,0,0,0,1,6,2,2,0,13,3,3,2,2,15,116,12]},{"n":"Taj Mahal","c":"India","ct":"Asia","t":"tomb/archaeological","sp":"train","u":332,"dk":319,"o":35,"m":14,"r":283,"y0":1860,"bw":56,"bwm":43,"sh":0.008,"a":177,"oa":5,"dec":[0,0,9,2,1,5,2,1,1,1,2,5,6,11,2,1,49,228,6]},{"n":"Itmad-Ud-Daulah's Tomb","c":"India","ct":"Asia","t":"tomb/archaeological","sp":"train","u":232,"dk":225,"o":17,"m":2,"r":213,"y0":1865,"bw":55,"bwm":50,"sh":0.007,"a":111,"oa":0,"dec":[0,0,2,1,4,0,2,1,3,2,2,0,0,2,0,0,27,181,5]},{"n":"Washington Monument","c":"United States","ct":"North America","t":"monument/statue","sp":"train","u":232,"dk":200,"o":0,"m":0,"r":232,"y0":2004,"bw":19,"bwm":19,"sh":0.007,"a":93,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33,174,25]},{"n":"Lapa do Santo archaeological site","c":"Brazil","ct":"South America","t":"natural/park","sp":"train","u":197,"dk":48,"o":0,"m":0,"r":197,"y0":2010,"bw":137,"bwm":137,"sh":0.006,"a":76,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,194,0]},{"n":"Tomb of the Unknown Soldier (Arlington National Cemetery)","c":"United States","ct":"North America","t":"tomb/archaeological","sp":"train","u":318,"dk":255,"o":82,"m":0,"r":236,"y0":1916,"bw":83,"bwm":1,"sh":0.008,"a":204,"oa":54,"dec":[0,0,0,0,0,0,0,1,73,8,0,0,0,0,0,0,11,191,34]},{"n":"Kamakura Daibutsu","c":"Japan","ct":"Asia","t":"monument/statue","sp":"train","u":184,"dk":176,"o":17,"m":8,"r":159,"y0":1866,"bw":13,"bwm":6,"sh":0.006,"a":122,"oa":0,"dec":[0,0,2,1,1,3,3,3,1,1,0,0,2,1,0,7,66,89,4]},{"n":"Padr\u00e3o dos Descobrimentos","c":"Portugal","ct":"Europe","t":"monument/statue","sp":"train","u":280,"dk":258,"o":0,"m":3,"r":277,"y0":1984,"bw":57,"bwm":57,"sh":0.007,"a":141,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,1,58,194,25]},{"n":"Pakistan Monument Islamabad","c":"Pakistan","ct":"Asia","t":"monument/statue","sp":"train","u":281,"dk":244,"o":0,"m":1,"r":280,"y0":1980,"bw":6,"bwm":6,"sh":0.008,"a":199,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,25,254,1]},{"n":"Charles Bridge","c":"Czech Republic","ct":"Europe","t":"bridge","sp":"train","u":325,"dk":253,"o":14,"m":20,"r":291,"y0":1922,"bw":30,"bwm":18,"sh":0.008,"a":84,"oa":0,"dec":[0,0,0,0,0,0,0,0,1,0,0,5,8,6,9,5,58,209,24]},{"n":"Mehmed Pa\u0161a Sokolovi\u0107 Bridge in Vi\u0161egrad","c":"Bosnia and Herzegovina","ct":"Europe","t":"bridge","sp":"train","u":279,"dk":253,"o":0,"m":1,"r":278,"y0":1990,"bw":16,"bwm":16,"sh":0.008,"a":168,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,13,257,8]},{"n":"Chain Bridge, Budapest","c":"Hungary","ct":"Europe","t":"bridge","sp":"train","u":303,"dk":243,"o":2,"m":5,"r":296,"y0":1970,"bw":7,"bwm":6,"sh":0.008,"a":102,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,2,1,1,3,97,195,4]},{"n":"Hagia Sophia","c":"Turkey","ct":"Europe","t":"church","sp":"train","u":302,"dk":281,"o":21,"m":8,"r":273,"y0":1865,"bw":13,"bwm":1,"sh":0.008,"a":131,"oa":0,"dec":[0,0,3,1,7,1,4,4,0,0,0,1,0,0,8,0,92,172,9]},{"n":"Dome of the Rock","c":"Palestine","ct":"Asia","t":"mosque","sp":"train","u":306,"dk":272,"o":2,"m":10,"r":294,"y0":1968,"bw":3,"bwm":2,"sh":0.008,"a":157,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,2,1,1,8,87,193,14]},{"n":"Faisal Mosque","c":"Pakistan","ct":"Asia","t":"mosque","sp":"train","u":282,"dk":173,"o":0,"m":1,"r":281,"y0":1998,"bw":11,"bwm":11,"sh":0.008,"a":114,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,12,269,0]},{"n":"Palace of Versailles","c":"France","ct":"Europe","t":"palace/castle","sp":"train","u":200,"dk":190,"o":6,"m":2,"r":192,"y0":1858,"bw":7,"bwm":4,"sh":0.006,"a":88,"oa":0,"dec":[0,1,0,0,1,1,0,2,0,0,0,0,1,0,2,0,57,126,9]},{"n":"Alhambra","c":"Spain","ct":"Europe","t":"natural/park","sp":"train","u":347,"dk":330,"o":29,"m":40,"r":278,"y0":1850,"bw":22,"bwm":8,"sh":0.008,"a":54,"oa":1,"dec":[0,5,11,3,0,2,1,2,1,0,0,0,4,3,13,24,59,190,29]},{"n":"Zwinger, Dresden","c":"Germany","ct":"Europe","t":"tomb/archaeological","sp":"train","u":489,"dk":437,"o":73,"m":123,"r":293,"y0":1858,"bw":134,"bwm":88,"sh":0.01,"a":181,"oa":18,"dec":[0,1,0,0,1,1,2,4,3,0,0,34,27,69,25,29,75,190,28]},{"n":"Doge's Palace (Venice)","c":"Italy","ct":"Europe","t":"palace/castle","sp":"train","u":344,"dk":322,"o":26,"m":22,"r":296,"y0":1866,"bw":24,"bwm":10,"sh":0.008,"a":169,"oa":0,"dec":[0,0,1,3,1,2,3,3,0,0,1,1,11,8,7,7,99,175,22]},{"n":"Grand Peterhof Palace","c":"Russia","ct":"Europe","t":"palace/castle","sp":"train","u":298,"dk":282,"o":2,"m":12,"r":284,"y0":1898,"bw":3,"bwm":2,"sh":0.008,"a":148,"oa":0,"dec":[0,0,0,0,0,1,0,0,0,0,0,0,1,5,3,4,52,231,1]},{"n":"Royal Palace, Oslo","c":"Norway","ct":"Europe","t":"palace/castle","sp":"train","u":179,"dk":153,"o":18,"m":1,"r":160,"y0":1870,"bw":36,"bwm":19,"sh":0.006,"a":84,"oa":0,"dec":[0,0,0,1,1,1,1,4,3,0,1,6,0,0,0,1,39,103,18]},{"n":"Royal Palace of Amsterdam","c":"Netherlands","ct":"Europe","t":"civic building","sp":"train","u":540,"dk":512,"o":214,"m":54,"r":272,"y0":1860,"bw":206,"bwm":64,"sh":0.01,"a":381,"oa":146,"dec":[0,1,14,10,11,25,8,8,7,11,44,43,32,30,23,1,84,179,9]},{"n":"Oslo City Hall","c":"Norway","ct":"Europe","t":"civic building","sp":"train","u":187,"dk":173,"o":27,"m":7,"r":153,"y0":1944,"bw":34,"bwm":7,"sh":0.006,"a":84,"oa":8,"dec":[0,0,0,0,0,0,0,0,0,0,8,19,0,5,0,2,43,97,13]},{"n":"Altes Rathaus (Leipzig)","c":"Germany","ct":"Europe","t":"civic building","sp":"train","u":226,"dk":201,"o":67,"m":34,"r":125,"y0":1948,"bw":86,"bwm":19,"sh":0.007,"a":80,"oa":30,"dec":[0,0,0,0,0,0,0,0,0,0,7,46,14,14,6,14,30,80,15]},{"n":"Gateway of India","c":"India","ct":"Asia","t":"arch/gate","sp":"train","u":294,"dk":282,"o":0,"m":0,"r":294,"y0":2000,"bw":28,"bwm":28,"sh":0.008,"a":230,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,29,241,24]},{"n":"Brisbane City Hall","c":"Australia","ct":"Oceania","t":"civic building","sp":"train","u":230,"dk":194,"o":1,"m":0,"r":229,"y0":1932,"bw":3,"bwm":2,"sh":0.007,"a":142,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,29,155,45]},{"n":"Tower Bridge","c":"United Kingdom","ct":"Europe","t":"bridge","sp":"train","u":349,"dk":314,"o":13,"m":43,"r":293,"y0":1892,"bw":25,"bwm":15,"sh":0.008,"a":162,"oa":0,"dec":[0,0,0,0,0,3,2,0,1,2,2,1,2,6,10,27,80,207,6]},{"n":"Semperoper","c":"Germany","ct":"Europe","t":"public building","sp":"train","u":446,"dk":407,"o":66,"m":87,"r":293,"y0":1884,"bw":77,"bwm":45,"sh":0.01,"a":228,"oa":13,"dec":[0,0,0,0,6,8,16,10,0,3,3,13,7,7,41,39,81,201,11]},{"n":"Palace of Westminster","c":"United Kingdom","ct":"Europe","t":"civic building","sp":"train","u":102,"dk":83,"o":10,"m":3,"r":89,"y0":1860,"bw":8,"bwm":1,"sh":0.005,"a":54,"oa":0,"dec":[0,0,1,0,1,4,2,2,0,0,0,0,0,0,0,3,25,60,4]},{"n":"Palacio Legislativo, Uruguay","c":"Uruguay","ct":"South America","t":"civic building","sp":"train","u":233,"dk":225,"o":0,"m":0,"r":233,"y0":2005,"bw":12,"bwm":12,"sh":0.007,"a":158,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,37,194,2]},{"n":"Wroc\u0142aw Town Hall","c":"Poland","ct":"Europe","t":"civic building","sp":"train","u":304,"dk":297,"o":16,"m":1,"r":287,"y0":1895,"bw":9,"bwm":0,"sh":0.008,"a":158,"oa":7,"dec":[0,0,0,0,0,2,2,7,2,2,1,0,0,1,0,0,94,163,30]},{"n":"Chennakesava Temple, Somanathapura","c":"India","ct":"Asia","t":"temple/shrine","sp":"train","u":230,"dk":219,"o":0,"m":0,"r":230,"y0":2002,"bw":15,"bwm":15,"sh":0.007,"a":83,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17,103,110]},{"n":"Templo Mayor","c":"Mexico","ct":"North America","t":"tomb/archaeological","sp":"train","u":294,"dk":223,"o":0,"m":0,"r":294,"y0":2004,"bw":3,"bwm":3,"sh":0.008,"a":131,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,26,255,13]},{"n":"Medinet Habu","c":"Egypt","ct":"Africa","t":"tomb/archaeological","sp":"train","u":306,"dk":295,"o":11,"m":7,"r":288,"y0":1850,"bw":32,"bwm":29,"sh":0.008,"a":148,"oa":0,"dec":[0,5,2,3,0,0,1,0,0,0,0,0,0,0,5,2,65,152,71]},{"n":"Parthenon","c":"Greece","ct":"Europe","t":"tomb/archaeological","sp":"train","u":242,"dk":232,"o":11,"m":10,"r":221,"y0":1941,"bw":13,"bwm":6,"sh":0.007,"a":107,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,1,3,7,4,1,5,94,80,47]},{"n":"Erechtheum","c":"Greece","ct":"Europe","t":"tomb/archaeological","sp":"train","u":330,"dk":313,"o":25,"m":12,"r":293,"y0":1850,"bw":31,"bwm":16,"sh":0.008,"a":138,"oa":4,"dec":[0,1,2,0,0,1,1,1,1,2,2,8,6,2,1,9,93,162,38]},{"n":"Chennakesava Temple, Belur","c":"India","ct":"Asia","t":"temple/shrine","sp":"train","u":192,"dk":181,"o":0,"m":1,"r":191,"y0":1989,"bw":9,"bwm":9,"sh":0.006,"a":64,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,5,68,118]},{"n":"Arc de Triomphe de l'\u00c9toile","c":"France","ct":"Europe","t":"arch/gate","sp":"train","u":384,"dk":370,"o":79,"m":23,"r":282,"y0":1854,"bw":93,"bwm":41,"sh":0.009,"a":198,"oa":43,"dec":[0,5,9,6,6,2,2,15,9,8,15,0,2,0,0,23,89,180,13]},{"n":"Brandenburg Gate","c":"Germany","ct":"Europe","t":"arch/gate","sp":"train","u":333,"dk":316,"o":11,"m":42,"r":280,"y0":1962,"bw":18,"bwm":11,"sh":0.008,"a":237,"oa":5,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,11,7,32,3,33,150,97]},{"n":"Great Temple of Abu Simbel","c":"Egypt","ct":"Africa","t":"church","sp":"train","u":358,"dk":341,"o":29,"m":43,"r":286,"y0":1850,"bw":29,"bwm":12,"sh":0.009,"a":212,"oa":0,"dec":[0,12,1,2,0,0,3,1,1,0,0,2,7,0,13,30,106,173,7]},{"n":"Little Temple of Abu Simbel","c":"Egypt","ct":"Africa","t":"church","sp":"train","u":210,"dk":207,"o":11,"m":15,"r":184,"y0":1850,"bw":7,"bwm":1,"sh":0.007,"a":149,"oa":2,"dec":[0,6,1,1,1,0,0,0,0,0,0,1,1,0,4,11,69,96,19]},{"n":"Old Town Square (Prague)","c":"Czech Republic","ct":"Europe","t":"square","sp":"train","u":333,"dk":300,"o":25,"m":18,"r":290,"y0":1860,"bw":29,"bwm":12,"sh":0.008,"a":150,"oa":0,"dec":[0,0,1,0,0,4,2,1,3,0,2,4,8,1,8,9,69,197,24]},{"n":"Theaterplatz, Dresden","c":"Germany","ct":"Europe","t":"square","sp":"train","u":334,"dk":284,"o":38,"m":31,"r":265,"y0":1884,"bw":53,"bwm":30,"sh":0.008,"a":166,"oa":6,"dec":[0,0,0,0,3,4,13,4,1,1,0,4,8,2,21,8,62,171,32]},{"n":"Red Square","c":"Russia","ct":"Europe","t":"square","sp":"train","u":351,"dk":284,"o":16,"m":44,"r":291,"y0":1958,"bw":22,"bwm":14,"sh":0.008,"a":147,"oa":8,"dec":[0,0,0,0,0,0,0,0,0,0,0,2,14,15,24,5,114,170,7]},{"n":"Saint Peter's Square","c":"Vatican City","ct":"Europe","t":"square","sp":"train","u":353,"dk":329,"o":53,"m":13,"r":287,"y0":1850,"bw":52,"bwm":22,"sh":0.008,"a":199,"oa":21,"dec":[0,4,3,3,2,1,3,0,2,17,10,2,6,5,2,6,81,195,11]},{"n":"Alexanderplatz (Berlin-Mitte)","c":"Germany","ct":"Europe","t":"square","sp":"train","u":99,"dk":75,"o":1,"m":1,"r":97,"y0":1962,"bw":2,"bwm":1,"sh":0.004,"a":22,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,8,70,19]},{"n":"Piazza San Marco (Venice)","c":"Italy","ct":"Europe","t":"square","sp":"train","u":355,"dk":306,"o":39,"m":24,"r":292,"y0":1855,"bw":23,"bwm":6,"sh":0.008,"a":159,"oa":6,"dec":[0,1,5,4,1,8,3,1,3,3,3,2,5,8,8,8,75,195,22]},{"n":"Republic Square of Yerevan","c":"Armenia","ct":"Asia","t":"square","sp":"train","u":260,"dk":229,"o":0,"m":1,"r":259,"y0":1980,"bw":2,"bwm":2,"sh":0.007,"a":100,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,39,189,31]},{"n":"Pra\u00e7a do Com\u00e9rcio","c":"Portugal","ct":"Europe","t":"square","sp":"train","u":298,"dk":254,"o":9,"m":3,"r":286,"y0":1850,"bw":15,"bwm":7,"sh":0.008,"a":86,"oa":0,"dec":[0,1,0,0,0,0,2,3,1,0,0,0,2,2,0,1,23,218,45]},{"n":"Old Town Market Square in Warsaw","c":"Poland","ct":"Europe","t":"square","sp":"train","u":290,"dk":278,"o":16,"m":6,"r":268,"y0":1946,"bw":12,"bwm":0,"sh":0.008,"a":154,"oa":6,"dec":[0,0,0,0,0,0,0,0,0,0,1,3,12,1,2,3,66,181,21]},{"n":"Helsinki Senate Square","c":"Finland","ct":"Europe","t":"square","sp":"train","u":202,"dk":164,"o":35,"m":14,"r":153,"y0":1896,"bw":45,"bwm":13,"sh":0.006,"a":58,"oa":17,"dec":[0,0,0,0,0,2,5,1,1,1,21,3,1,9,3,2,21,76,56]},{"n":"Piazzetta San Marco (Venice)","c":"Italy","ct":"Europe","t":"square","sp":"train","u":330,"dk":263,"o":25,"m":14,"r":291,"y0":1871,"bw":32,"bwm":17,"sh":0.008,"a":154,"oa":0,"dec":[0,0,0,1,1,1,3,2,1,3,2,1,10,3,8,3,107,169,15]},{"n":"Rynok Square, Lviv","c":"Ukraine","ct":"Europe","t":"square","sp":"train","u":249,"dk":241,"o":0,"m":0,"r":249,"y0":2005,"bw":1,"bwm":1,"sh":0.007,"a":66,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,38,210,1]},{"n":"N\u00e1m\u011bst\u00ed Zachari\u00e1\u0161e z Hradce","c":"Czech Republic","ct":"Europe","t":"square","sp":"train","u":295,"dk":273,"o":0,"m":1,"r":294,"y0":1984,"bw":4,"bwm":4,"sh":0.008,"a":150,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,36,258,0]},{"n":"Heidelberg Castle","c":"Germany","ct":"Europe","t":"palace/castle","sp":"train","u":118,"dk":115,"o":22,"m":8,"r":88,"y0":1870,"bw":11,"bwm":3,"sh":0.005,"a":43,"oa":6,"dec":[0,0,0,4,0,6,8,0,0,1,0,2,1,0,2,6,21,55,12]},{"n":"Wartburg Castle","c":"Germany","ct":"Europe","t":"palace/castle","sp":"train","u":181,"dk":146,"o":29,"m":10,"r":142,"y0":1954,"bw":34,"bwm":9,"sh":0.006,"a":92,"oa":18,"dec":[0,0,0,0,0,0,0,0,0,0,0,19,10,3,5,2,28,76,38]},{"n":"Tower of David","c":"Israel","ct":"Asia","t":"palace/castle","sp":"train","u":304,"dk":259,"o":7,"m":3,"r":294,"y0":1946,"bw":7,"bwm":5,"sh":0.008,"a":119,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,1,0,6,0,1,2,52,218,24]},{"n":"Kohtuotsa viewing platform","c":"Estonia","ct":"Europe","t":"other building","sp":"train","u":211,"dk":126,"o":0,"m":0,"r":211,"y0":2004,"bw":2,"bwm":2,"sh":0.007,"a":131,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,56,152,3]},{"n":"Tokyo Skytree","c":"Japan","ct":"Asia","t":"tower","sp":"train","u":259,"dk":206,"o":0,"m":0,"r":259,"y0":2012,"bw":2,"bwm":2,"sh":0.007,"a":173,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,250,9]},{"n":"Utrecht Dom church","c":"Netherlands","ct":"Europe","t":"other building","sp":"train","u":204,"dk":168,"o":20,"m":8,"r":176,"y0":1928,"bw":29,"bwm":9,"sh":0.006,"a":72,"oa":0,"dec":[0,0,0,0,0,0,0,0,1,0,1,11,7,1,5,2,62,112,2]},{"n":"Santa Maria del Fiore (Florence)","c":"Italy","ct":"Europe","t":"church","sp":"train","u":329,"dk":290,"o":34,"m":31,"r":264,"y0":1865,"bw":27,"bwm":8,"sh":0.008,"a":99,"oa":4,"dec":[0,0,3,4,2,12,4,3,1,0,0,1,4,12,2,17,59,182,23]},{"n":"Matthias Church (Budapest)","c":"Hungary","ct":"Europe","t":"church","sp":"train","u":306,"dk":285,"o":32,"m":7,"r":267,"y0":1896,"bw":33,"bwm":8,"sh":0.008,"a":149,"oa":11,"dec":[0,0,0,0,0,1,4,3,0,2,3,4,15,4,3,0,20,216,31]},{"n":"Wawel Cathedral","c":"Poland","ct":"Europe","t":"church","sp":"train","u":287,"dk":275,"o":6,"m":2,"r":279,"y0":1910,"bw":10,"bwm":5,"sh":0.008,"a":191,"oa":0,"dec":[0,0,0,0,0,0,1,0,0,4,0,0,1,0,0,2,72,195,12]},{"n":"Saint John's Cathedral, 's-Hertogenbosch","c":"Netherlands","ct":"Europe","t":"church","sp":"train","u":176,"dk":168,"o":15,"m":28,"r":133,"y0":1866,"bw":37,"bwm":26,"sh":0.006,"a":63,"oa":0,"dec":[0,0,1,2,1,0,2,0,0,1,6,2,0,5,23,0,47,78,8]},{"n":"Cologne Cathedral","c":"Germany","ct":"Europe","t":"church","sp":"train","u":112,"dk":104,"o":2,"m":0,"r":110,"y0":1955,"bw":9,"bwm":8,"sh":0.005,"a":59,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,28,76,6]},{"n":"Cath\u00e9drale de la Major de Marseille","c":"France","ct":"Europe","t":"church","sp":"train","u":208,"dk":203,"o":13,"m":2,"r":193,"y0":1884,"bw":16,"bwm":7,"sh":0.006,"a":118,"oa":0,"dec":[0,0,0,0,4,3,3,2,0,0,0,1,0,0,0,2,26,116,51]},{"n":"Duomo (Milan)","c":"Italy","ct":"Europe","t":"church","sp":"train","u":298,"dk":293,"o":12,"m":12,"r":274,"y0":1860,"bw":24,"bwm":20,"sh":0.008,"a":205,"oa":0,"dec":[0,0,1,0,3,3,2,0,1,1,0,0,1,4,3,5,41,195,38]},{"n":"Cath\u00e9drale Notre-Dame d'Amiens","c":"France","ct":"Europe","t":"church","sp":"train","u":294,"dk":280,"o":17,"m":0,"r":277,"y0":1858,"bw":39,"bwm":26,"sh":0.008,"a":167,"oa":2,"dec":[0,2,2,1,3,0,1,7,1,0,0,0,0,0,0,0,93,150,34]},{"n":"Cath\u00e9drale Notre-Dame de Chartres","c":"France","ct":"Europe","t":"church","sp":"train","u":249,"dk":239,"o":5,"m":0,"r":244,"y0":1880,"bw":43,"bwm":39,"sh":0.007,"a":137,"oa":0,"dec":[0,0,0,0,4,0,0,1,0,0,0,0,0,0,0,0,64,177,3]},{"n":"Metropolitan Cathedral of Mexico City","c":"Mexico","ct":"North America","t":"church","sp":"train","u":306,"dk":288,"o":19,"m":4,"r":283,"y0":1865,"bw":42,"bwm":33,"sh":0.008,"a":179,"oa":0,"dec":[0,0,1,0,2,3,5,1,1,0,3,2,1,0,3,1,58,209,16]},{"n":"Cath\u00e9drale Notre-Dame de Strasbourg","c":"France","ct":"Europe","t":"church","sp":"train","u":285,"dk":260,"o":11,"m":10,"r":264,"y0":1852,"bw":18,"bwm":9,"sh":0.008,"a":80,"oa":0,"dec":[0,4,1,3,1,1,0,0,0,0,0,1,0,0,9,1,64,155,45]},{"n":"Cath\u00e9drale Saint-Gervais-et-Saint-Protais de Soissons","c":"France","ct":"Europe","t":"church","sp":"train","u":259,"dk":252,"o":2,"m":0,"r":257,"y0":1916,"bw":9,"bwm":7,"sh":0.007,"a":160,"oa":0,"dec":[0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,13,238,6]},{"n":"Keukenhof","c":"Netherlands","ct":"Europe","t":"natural/park","sp":"train","u":298,"dk":139,"o":0,"m":0,"r":298,"y0":2018,"bw":0,"bwm":0,"sh":0.008,"a":87,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,24,274]},{"n":"Yellowstone National Park","c":"United States","ct":"North America","t":"natural/park","sp":"train","u":292,"dk":220,"o":3,"m":12,"r":277,"y0":1910,"bw":2,"bwm":0,"sh":0.008,"a":181,"oa":0,"dec":[0,0,0,0,0,0,1,1,1,0,0,0,0,7,2,3,39,211,27]},{"n":"Mount Vesuvius","c":"Italy","ct":"Europe","t":"natural/park","sp":"train","u":153,"dk":143,"o":0,"m":2,"r":151,"y0":1996,"bw":0,"bwm":0,"sh":0.006,"a":99,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,30,104,17]},{"n":"Matterhorn","c":"Switzerland","ct":"Europe","t":"natural/park","sp":"train","u":308,"dk":245,"o":7,"m":21,"r":280,"y0":1898,"bw":31,"bwm":26,"sh":0.008,"a":146,"oa":0,"dec":[0,0,0,0,0,1,1,0,0,0,4,0,1,1,1,19,103,132,45]},{"n":"Statue of Liberty","c":"United States","ct":"North America","t":"monument/statue","sp":"train","u":280,"dk":257,"o":1,"m":6,"r":273,"y0":1956,"bw":12,"bwm":12,"sh":0.007,"a":163,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,1,0,3,0,3,103,165,5]},{"n":"Grand Central Terminal","c":"United States","ct":"North America","t":"public building","sp":"train","u":299,"dk":273,"o":5,"m":2,"r":292,"y0":1923,"bw":11,"bwm":7,"sh":0.008,"a":181,"oa":0,"dec":[0,0,0,0,0,0,0,0,2,1,1,1,0,0,0,2,34,184,74]},{"n":"Mont Saint-Michel","c":"France","ct":"Europe","t":"natural/park","sp":"train","u":292,"dk":253,"o":6,"m":16,"r":270,"y0":1936,"bw":25,"bwm":22,"sh":0.008,"a":176,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,1,3,1,1,3,0,13,49,207,14]},{"n":"Niagara Falls","c":"United States","ct":"North America","t":"natural/park","sp":"train","u":183,"dk":110,"o":0,"m":0,"r":183,"y0":2005,"bw":14,"bwm":14,"sh":0.006,"a":109,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,83,97,3]},{"n":"Ephesus","c":"Turkey","ct":"Asia","t":"tomb/archaeological","sp":"train","u":68,"dk":67,"o":2,"m":3,"r":63,"y0":1962,"bw":1,"bwm":0,"sh":0.004,"a":35,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,2,0,1,2,22,39,2]},{"n":"Grand Canyon","c":"United States","ct":"North America","t":"natural/park","sp":"train","u":319,"dk":163,"o":18,"m":17,"r":284,"y0":1900,"bw":22,"bwm":4,"sh":0.008,"a":75,"oa":5,"dec":[0,0,0,0,0,0,7,0,0,8,3,0,0,2,8,7,54,225,5]},{"n":"Luxor","c":"Egypt","ct":"Africa","t":"civic building","sp":"train","u":182,"dk":167,"o":12,"m":8,"r":162,"y0":1852,"bw":7,"bwm":3,"sh":0.006,"a":54,"oa":0,"dec":[0,4,1,2,1,2,2,0,0,0,0,0,0,0,3,5,71,73,18]},{"n":"Acropolis of Athens","c":"Greece","ct":"Europe","t":"tomb/archaeological","sp":"train","u":291,"dk":266,"o":0,"m":1,"r":290,"y0":1991,"bw":4,"bwm":4,"sh":0.008,"a":178,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,19,122,149]},{"n":"Alcatraz Island","c":"United States","ct":"North America","t":"natural/park","sp":"train","u":286,"dk":266,"o":0,"m":0,"r":286,"y0":2002,"bw":10,"bwm":10,"sh":0.008,"a":134,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,75,199,12]},{"n":"Reichstag (building)","c":"Germany","ct":"Europe","t":"civic building","sp":"train","u":293,"dk":292,"o":1,"m":7,"r":285,"y0":1968,"bw":20,"bwm":20,"sh":0.008,"a":229,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,1,0,2,5,67,184,34]},{"n":"Rothenburg ob der Tauber","c":"Germany","ct":"Europe","t":"civic building","sp":"train","u":316,"dk":238,"o":19,"m":5,"r":292,"y0":1895,"bw":12,"bwm":0,"sh":0.008,"a":90,"oa":2,"dec":[0,0,0,0,0,1,3,3,1,0,1,0,10,4,0,1,29,244,19]},{"n":"Central Park","c":"United States","ct":"North America","t":"natural/park","sp":"train","u":106,"dk":80,"o":0,"m":3,"r":103,"y0":1984,"bw":3,"bwm":3,"sh":0.005,"a":17,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,35,54,14]},{"n":"Hoover Dam","c":"United States","ct":"North America","t":"arch/gate","sp":"train","u":314,"dk":236,"o":8,"m":14,"r":292,"y0":1933,"bw":14,"bwm":6,"sh":0.008,"a":87,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,7,1,0,0,8,1,5,84,194,14]},{"n":"Matsumoto Castle","c":"Japan","ct":"Asia","t":"palace/castle","sp":"train","u":287,"dk":283,"o":0,"m":2,"r":285,"y0":1995,"bw":14,"bwm":14,"sh":0.008,"a":200,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,52,217,16]},{"n":"Gangneung Fire Station","c":"South Korea","ct":"Asia","t":"public building","sp":"train","u":262,"dk":220,"o":0,"m":0,"r":262,"y0":2006,"bw":0,"bwm":0,"sh":0.007,"a":104,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,261,0]},{"n":"Svetitskhoveli","c":"Georgia","ct":"Asia","t":"other","sp":"train","u":245,"dk":230,"o":3,"m":1,"r":241,"y0":1900,"bw":7,"bwm":6,"sh":0.007,"a":95,"oa":0,"dec":[0,0,0,0,0,0,1,0,0,0,0,1,1,1,0,0,35,199,7]},{"n":"Uspenski Cathedral","c":"Finland","ct":"Europe","t":"church","sp":"train","u":284,"dk":254,"o":32,"m":10,"r":242,"y0":1890,"bw":33,"bwm":10,"sh":0.008,"a":107,"oa":9,"dec":[0,0,0,0,0,14,3,3,2,1,1,3,5,7,2,1,59,161,22]},{"n":"Saint Stephen's Basilica (Budapest)","c":"Hungary","ct":"Europe","t":"church","sp":"train","u":305,"dk":284,"o":17,"m":0,"r":288,"y0":1900,"bw":25,"bwm":17,"sh":0.008,"a":197,"oa":4,"dec":[0,0,0,0,0,0,7,1,0,2,2,2,3,0,0,0,94,177,17]},{"n":"St. Paul's Cathedral","c":"United Kingdom","ct":"Europe","t":"church","sp":"train","u":318,"dk":278,"o":16,"m":8,"r":294,"y0":1870,"bw":37,"bwm":28,"sh":0.008,"a":140,"oa":0,"dec":[0,0,0,2,1,4,5,2,0,0,0,0,2,1,1,6,89,191,14]},{"n":"Helsinki Cathedral","c":"Finland","ct":"Europe","t":"church","sp":"train","u":376,"dk":326,"o":53,"m":37,"r":286,"y0":1864,"bw":78,"bwm":42,"sh":0.009,"a":172,"oa":2,"dec":[0,0,3,0,0,7,1,3,2,1,8,9,19,26,7,4,90,163,33]},{"n":"Storkyrkan, Stockholm","c":"Sweden","ct":"Europe","t":"church","sp":"train","u":183,"dk":160,"o":19,"m":2,"r":162,"y0":1920,"bw":20,"bwm":1,"sh":0.006,"a":77,"oa":0,"dec":[0,0,0,0,0,0,0,0,1,2,5,8,3,1,0,1,11,151,0]},{"n":"Santa Maria Novella","c":"Italy","ct":"Europe","t":"church","sp":"train","u":216,"dk":212,"o":4,"m":6,"r":206,"y0":1854,"bw":8,"bwm":6,"sh":0.007,"a":138,"oa":0,"dec":[0,1,0,0,0,0,1,0,0,0,0,0,2,4,0,2,41,145,20]},{"n":"Church of All Nations (Jerusalem)","c":"Israel","ct":"Asia","t":"church","sp":"train","u":187,"dk":182,"o":14,"m":3,"r":170,"y0":1930,"bw":12,"bwm":1,"sh":0.006,"a":135,"oa":0,"dec":[0,0,0,0,0,0,0,0,1,5,3,1,4,0,2,1,45,122,3]},{"n":"Sint-Nicolaaskerk (Amsterdam)","c":"Netherlands","ct":"Europe","t":"church","sp":"train","u":179,"dk":155,"o":68,"m":15,"r":96,"y0":1880,"bw":53,"bwm":15,"sh":0.006,"a":104,"oa":34,"dec":[0,0,0,0,5,18,22,2,2,3,4,7,5,10,5,0,25,68,3]},{"n":"Ponte 25 de Abril","c":"Portugal","ct":"Europe","t":"bridge","sp":"train","u":85,"dk":55,"o":1,"m":0,"r":84,"y0":1968,"bw":3,"bwm":3,"sh":0.004,"a":36,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,16,63,5]},{"n":"Grote Kerk, Haarlem","c":"Netherlands","ct":"Europe","t":"church","sp":"train","u":210,"dk":197,"o":29,"m":65,"r":116,"y0":1866,"bw":71,"bwm":58,"sh":0.006,"a":66,"oa":3,"dec":[0,0,2,3,2,7,6,1,0,3,0,1,4,4,31,30,22,82,12]},{"n":"Saint Peter's Basilica","c":"Vatican City","ct":"Europe","t":"church","sp":"train","u":322,"dk":287,"o":23,"m":6,"r":293,"y0":1848,"bw":30,"bwm":18,"sh":0.008,"a":198,"oa":0,"dec":[1,3,1,0,0,0,2,0,2,4,2,1,7,4,2,0,72,208,13]},{"n":"Karmravor","c":"Armenia","ct":"Asia","t":"church","sp":"train","u":233,"dk":220,"o":0,"m":0,"r":233,"y0":2007,"bw":3,"bwm":3,"sh":0.007,"a":118,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,207,20]},{"n":"Monumento a la Revoluci\u00f3n (M\u00e9xico)","c":"Mexico","ct":"North America","t":"tomb/archaeological","sp":"train","u":266,"dk":247,"o":0,"m":1,"r":265,"y0":1994,"bw":10,"bwm":10,"sh":0.007,"a":187,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,9,246,10]},{"n":"Westerkerk (Amsterdam)","c":"Netherlands","ct":"Europe","t":"church","sp":"train","u":278,"dk":230,"o":90,"m":18,"r":170,"y0":1860,"bw":89,"bwm":16,"sh":0.007,"a":88,"oa":23,"dec":[0,0,7,0,4,7,2,2,4,5,7,10,42,7,11,0,44,118,8]},{"n":"Church of Our Lady in front of T\u00fdn","c":"Czech Republic","ct":"Europe","t":"church","sp":"train","u":297,"dk":282,"o":13,"m":6,"r":278,"y0":1856,"bw":26,"bwm":15,"sh":0.008,"a":226,"oa":0,"dec":[0,1,1,0,0,3,2,1,0,0,0,2,3,3,1,2,71,193,14]},{"n":"Porta Makedonija","c":"North Macedonia","ct":"Europe","t":"arch/gate","sp":"train","u":165,"dk":144,"o":0,"m":0,"r":165,"y0":2012,"bw":13,"bwm":13,"sh":0.006,"a":114,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,161,4]},{"n":"Galleria Vittorio Emanuele II (Milan)","c":"Italy","ct":"Europe","t":"street","sp":"train","u":290,"dk":125,"o":5,"m":8,"r":277,"y0":1880,"bw":14,"bwm":12,"sh":0.008,"a":114,"oa":0,"dec":[0,0,0,0,3,0,0,1,0,1,0,0,0,3,2,3,48,206,23]},{"n":"TRA Changhua Roundhouse","c":"Taiwan","ct":"Asia","t":"other building","sp":"train","u":281,"dk":233,"o":0,"m":0,"r":281,"y0":2006,"bw":2,"bwm":2,"sh":0.008,"a":120,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,26,133,122]},{"n":"Saint Basil's Cathedral","c":"Russia","ct":"Europe","t":"church","sp":"train","u":337,"dk":291,"o":14,"m":39,"r":284,"y0":1890,"bw":11,"bwm":6,"sh":0.008,"a":180,"oa":6,"dec":[0,0,0,0,0,1,0,0,0,0,0,1,12,13,19,7,72,201,11]},{"n":"Taipei 101","c":"Taiwan","ct":"Asia","t":"tower","sp":"train","u":271,"dk":170,"o":0,"m":0,"r":271,"y0":2005,"bw":2,"bwm":2,"sh":0.007,"a":165,"oa":0,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,57,194,20]},{"n":"Palace of Culture and Science","c":"Poland","ct":"Europe","t":"palace/castle","sp":"train","u":291,"dk":253,"o":10,"m":3,"r":278,"y0":1956,"bw":13,"bwm":5,"sh":0.008,"a":96,"oa":5,"dec":[0,0,0,0,0,0,0,0,0,0,0,2,8,1,1,1,40,193,45]},{"n":"CN Tower","c":"Canada","ct":"North America","t":"tower","sp":"heldout","u":275,"dk":214,"o":0,"m":5,"r":270,"y0":1978,"bw":4,"bwm":4,"sh":null,"a":null,"oa":null,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,4,55,213,2]},{"n":"Great Sphinx of Giza","c":"Egypt","ct":"Africa","t":"tomb/archaeological","sp":"heldout","u":379,"dk":311,"o":74,"m":15,"r":290,"y0":1850,"bw":72,"bwm":28,"sh":null,"a":null,"oa":null,"dec":[3,11,10,6,5,12,3,10,0,8,2,2,2,0,9,6,115,169,6]},{"n":"Sydney Harbour Bridge","c":"Australia","ct":"Oceania","t":"bridge","sp":"heldout","u":367,"dk":250,"o":63,"m":15,"r":289,"y0":1930,"bw":78,"bwm":23,"sh":null,"a":null,"oa":null,"dec":[0,0,0,0,0,0,0,0,3,42,7,1,10,7,3,5,135,141,13]},{"n":"Op\u00e9ra Garnier","c":"France","ct":"Europe","t":"public building","sp":"heldout","u":345,"dk":335,"o":52,"m":8,"r":285,"y0":1865,"bw":43,"bwm":14,"sh":null,"a":null,"oa":null,"dec":[0,0,5,7,7,5,7,7,3,5,2,0,4,3,2,3,88,191,6]},{"n":"Prambanan","c":"Indonesia","ct":"Asia","t":"temple/shrine","sp":"heldout","u":134,"dk":112,"o":0,"m":3,"r":131,"y0":1970,"bw":4,"bwm":4,"sh":null,"a":null,"oa":null,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,2,19,80,32]},{"n":"Dendera","c":"Egypt","ct":"Africa","t":"tomb/archaeological","sp":"heldout","u":249,"dk":158,"o":249,"m":0,"r":0,"y0":1870,"bw":0,"bwm":0,"sh":null,"a":null,"oa":null,"dec":[0,0,0,249,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"n":"Jasna G\u00f3ra","c":"Poland","ct":"Europe","t":"natural/park","sp":"heldout","u":294,"dk":245,"o":6,"m":1,"r":287,"y0":1908,"bw":3,"bwm":2,"sh":null,"a":null,"oa":null,"dec":[0,0,0,0,0,0,1,1,2,0,2,0,0,0,0,1,38,232,17]},{"n":"Vilnius Cathedral","c":"Lithuania","ct":"Europe","t":"church","sp":"heldout","u":330,"dk":311,"o":48,"m":1,"r":281,"y0":1860,"bw":56,"bwm":16,"sh":null,"a":null,"oa":null,"dec":[0,0,1,1,3,1,5,6,5,26,0,0,0,0,0,1,53,213,15]},{"n":"Yosemite National Park","c":"United States","ct":"North America","t":"natural/park","sp":"heldout","u":357,"dk":228,"o":48,"m":15,"r":294,"y0":1860,"bw":38,"bwm":15,"sh":null,"a":null,"oa":null,"dec":[0,0,12,10,3,3,14,4,0,1,0,0,1,0,14,1,51,235,8]},{"n":"Forth Bridge","c":"United Kingdom","ct":"Europe","t":"bridge","sp":"heldout","u":250,"dk":168,"o":13,"m":7,"r":230,"y0":1870,"bw":19,"bwm":11,"sh":null,"a":null,"oa":null,"dec":[0,0,0,1,0,3,0,0,0,4,2,0,3,3,1,3,55,164,11]},{"n":"Geghard","c":"Armenia","ct":"Asia","t":"church","sp":"heldout","u":309,"dk":256,"o":0,"m":16,"r":293,"y0":1999,"bw":8,"bwm":8,"sh":null,"a":null,"oa":null,"dec":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,16,263,14]}]}</script>
+<script>
+(function () {
+const D = JSON.parse(document.getElementById("data").textContent);
+const R = D.rows, T = R.filter(r => r.sp === "train"), H = R.filter(r => r.sp === "heldout");
+const sum = (a, f) => a.reduce((s, r) => s + f(r), 0);
+const fmt = n => n.toLocaleString("en-US");
+const pct = (a, b) => (100 * a / b).toFixed(a / b < 0.1 ? 1 : 0) + "%";
+const NS = "http://www.w3.org/2000/svg";
+const tip = document.getElementById("tip");
+function el(tag, attrs, parent, text) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; parent && parent.appendChild(e); return e; }
+function hover(node, html) {
+  node.addEventListener("mousemove", ev => { tip.innerHTML = html; tip.hidden = false;
+    tip.style.left = Math.min(ev.clientX + 12, innerWidth - 270) + "px"; tip.style.top = (ev.clientY + 12) + "px"; });
+  node.addEventListener("mouseleave", () => { tip.hidden = true; });
+}
+function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; }
+
+// Vertical bars. items: {label, value, color, tip}
+function vbars(svg, items, opts = {}) {
+  const W = 460, Hh = 220, L = 44, B = 34, Tp = 18, max = niceMax(Math.max(...items.map(i => i.value)));
+  svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`);
+  const y = v => Tp + (Hh - Tp - B) * (1 - v / max), bw = (W - L - 6) / items.length;
+  for (let k = 0; k <= 4; k++) { const v = max * k / 4, yy = y(v);
+    el("line", { x1: L, x2: W - 4, y1: yy, y2: yy, stroke: "var(--grid)" }, svg);
+    el("text", { x: L - 6, y: yy + 4, "text-anchor": "end" }, svg, v >= 1000 ? (v / 1000) + "k" : v); }
+  items.forEach((it, i) => {
+    const x = L + i * bw + 1, h = Math.max(0, y(0) - y(it.value)), w = Math.max(2, bw - 2);
+    const g = el("g", {}, svg);
+    el("rect", { x: L + i * bw, y: Tp, width: bw, height: Hh - Tp - B, fill: "transparent" }, g);
+    if (it.value > 0) el("path", { d: `M${x},${y(0)} v${-Math.max(h - 3, 0)} q0,-3 3,-3 h${w - 6} q3,0 3,3 v${Math.max(h - 3, 0)} z`, fill: it.color }, g);
+    if (opts.labelEvery == null || i % opts.labelEvery === 0) el("text", { x: x + w / 2, y: Hh - B + 14, "text-anchor": "middle" }, svg, it.label);
+    if (opts.showValues) el("text", { x: x + w / 2, y: y(it.value) - 5, "text-anchor": "middle", class: "val" }, svg, fmt(it.value));
+    hover(g, it.tip);
+  });
+  el("line", { x1: L, x2: W - 4, y1: y(0), y2: y(0), stroke: "var(--muted)" }, svg);
+}
+
+// Horizontal stacked bars. items: {label, parts:[{value,color,name}]}
+function hbars(svg, items) {
+  const W = 460, row = 22, L = 150, Tp = 4, Hh = Tp + items.length * row + 4;
+  const max = Math.max(...items.map(i => i.parts.reduce((s, p) => s + p.value, 0)));
+  svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`);
+  const sx = v => (W - L - 40) * v / max;
+  items.forEach((it, i) => {
+    const yy = Tp + i * row, g = el("g", {}, svg); let x = L;
+    el("rect", { x: 0, y: yy, width: W, height: row, fill: "transparent" }, g);
+    el("text", { x: L - 8, y: yy + 15, "text-anchor": "end" }, g, it.label);
+    const parts = it.parts.filter(p => p.value > 0);
+    parts.forEach((p, j) => { const w = sx(p.value); const last = j === parts.length - 1;
+      el("path", { d: last ? `M${x},${yy + 4} h${Math.max(w - 3, 0)} q3,0 3,3 v8 q0,3 -3,3 h${-Math.max(w - 3, 0)} z` : `M${x},${yy + 4} h${w} v14 h${-w} z`, fill: p.color }, g);
+      x += w + (last ? 0 : 2); });
+    const total = it.parts.reduce((s, p) => s + p.value, 0);
+    el("text", { x: x + 6, y: yy + 15, class: "val" }, g, total);
+    hover(g, `<b>${it.label}</b><br>` + it.parts.map(p => `${p.name}: ${p.value}`).join("<br>"));
+  });
+}
+
+const eraColor = d => d < 1970 ? "var(--old)" : d < 2000 ? "var(--mid)" : "var(--new)";
+const decTot = D.decades.map((d, i) => sum(R, r => r.dec[i]));
+const usable = sum(R, r => r.u), old = sum(R, r => r.o), mid = sum(R, r => r.m), modern = sum(R, r => r.r);
+const tUsable = sum(T, r => r.u), tOld = sum(T, r => r.o);
+const oldest = R.reduce((a, r) => r.y0 < a.y0 ? r : a);
+
+document.getElementById("tiles").innerHTML = [
+  [R.length, `places: ${T.length} for training, ${H.length} held out`],
+  [fmt(usable), "usable photos"],
+  [fmt(old), `photos from before 1970 (${pct(old, usable)})`],
+  [oldest.y0, `oldest photo (${oldest.n})`],
+  [Math.round(usable / R.length), "photos per place on average"],
+].map(([b, s]) => `<div class="tile"><b>${b}</b><span>${s}</span></div>`).join("");
+
+const decLabel = d => d === 1840 ? "≤1840s" : d === 2020 ? "2020s" : "'" + String(d).slice(2) + "s";
+vbars(document.getElementById("c-dec-all"), D.decades.map((d, i) => ({ label: d % 40 === 0 || d === 2020 ? d : "", value: decTot[i], color: eraColor(d),
+  tip: `<b>${decLabel(d)}</b><br>${fmt(decTot[i])} photos` })));
+const pre = D.decades.filter(d => d < 2000);
+vbars(document.getElementById("c-dec-old"), pre.map(d => { const i = D.decades.indexOf(d);
+  return { label: d % 20 === 0 ? d : "", value: decTot[i], color: eraColor(d), tip: `<b>${decLabel(d)}</b><br>${fmt(decTot[i])} photos` }; }));
+const share2010 = decTot[D.decades.indexOf(2010)] / usable;
+document.getElementById("take-time").textContent =
+  `Most photos are recent: ${pct(modern, usable)} were taken in 2000 or later, and the 2010s alone are ${pct(share2010, 1)}. ` +
+  `Only ${fmt(old)} photos (${pct(old, usable)}) are from before 1970, spread thinly from the 1840s to the 1960s (left chart). ` +
+  `Zoomed in (right), the old photos are spread fairly evenly: a few hundred per decade from the 1870s on. Old photos are the scarce part of this dataset.`;
+
+const bins = [["none", 0, 0], ["1–9", 1, 9], ["10–19", 10, 19], ["20–49", 20, 49], ["50–99", 50, 99], ["100+", 100, 1e9]];
+vbars(document.getElementById("c-oldbins"), bins.map(([lab, a, b]) => { const n = R.filter(r => r.o >= a && r.o <= b);
+  return { label: lab, value: n.length, color: "var(--old)", tip: `<b>${lab} old photos</b><br>${n.length} places` +
+    (n.length <= 12 ? "<br>" + n.map(r => r.n).join(", ") : "") }; }), { showValues: true });
+const richest = [...R].sort((a, b) => b.o - a.o).slice(0, 5);
+document.getElementById("take-old").textContent =
+  `Old photos are concentrated in a few places. ${R.filter(r => r.o === 0).length} places have none at all, and ${R.filter(r => r.o >= 50).length} have 50 or more. ` +
+  `The richest are ${richest.map(r => `${r.n} (${r.o})`).join(", ")}. ` +
+  `So most places teach the model what the present looks like, and a few dozen teach it what the past looked like.`;
+
+function countBy(key) { const m = new Map(); R.forEach(r => { const k = r[key] || "other"; const v = m.get(k) || [0, 0]; v[r.sp === "train" ? 0 : 1]++; m.set(k, v); });
+  return [...m.entries()].sort((a, b) => (b[1][0] + b[1][1]) - (a[1][0] + a[1][1])); }
+const tw = (key, lim) => { let e = countBy(key); if (lim && e.length > lim) { const rest = e.slice(lim).reduce((s, [, v]) => [s[0] + v[0], s[1] + v[1]], [0, 0]); e = e.slice(0, lim).concat([["other kinds", rest]]); } return e; };
+hbars(document.getElementById("c-cont"), tw("ct").map(([k, v]) => ({ label: k, parts: [{ value: v[0], color: "var(--new)", name: "training" }, { value: v[1], color: "var(--held)", name: "held out" }] })));
+hbars(document.getElementById("c-type"), tw("t", 9).map(([k, v]) => ({ label: k, parts: [{ value: v[0], color: "var(--new)", name: "training" }, { value: v[1], color: "var(--held)", name: "held out" }] })));
+const eu = R.filter(r => r.ct === "Europe").length, countries = new Set(R.map(r => r.c)).size;
+document.getElementById("take-where").textContent =
+  `${countries} countries on 6 continents, but ${pct(eu, R.length)} of the places are in Europe, where Wikimedia has the most old photos. ` +
+  `Churches, archaeological sites and city squares are the most common kinds. The held-out places were chosen to cover different kinds and continents.`;
+
+const nd = R.find(r => r.n.startsWith("Cathédrale Notre-Dame"));
+const anchors = sum(T, r => r.a), oldA = sum(T, r => r.oa), richA = T.filter(r => r.oa >= 10).length;
+const other = T.filter(r => r !== nd), avgShare = (1 - nd.sh) / other.length;
+document.getElementById("mix-tiles").innerHTML = [
+  ["15%", "of samples come from Notre-Dame, our best-studied place"],
+  [(100 * avgShare).toFixed(1) + "%", `of samples per other place on average (larger places get a bit more)`],
+  [fmt(anchors), `anchors in training places, of which ${fmt(oldA)} are old (${pct(oldA, anchors)})`],
+  ["3% → 6%", "of samples built around an old photo: the first job, then from the second job on"],
+].map(([b, s]) => `<div class="tile"><b>${b}</b><span>${s}</span></div>`).join("");
+document.getElementById("take-mix").textContent =
+  `Left alone, only about 3% of samples would ask the model to draw the past, because old photos rarely have enough same-era neighbours to be an anchor. ` +
+  `From the second job (about 36 hours in), the ${richA} places with at least 10 old anchors pick an old anchor 20% of the time, which roughly doubles that to 6%. ` +
+  `The references come from another era half the time, so the model also practises "here is the place today, draw it in 1900" and the reverse.`;
+
+const bw = sum(T, r => r.bw), bwm = sum(T, r => r.bwm);
+document.getElementById("take-bw").textContent =
+  `${fmt(bw)} training photos are black-and-white, and ${fmt(bwm)} of them (${pct(bwm, bw)}) were taken after 1970. ` +
+  `Many old photos are also colour scans with sepia or yellowed tones. If the date had to explain "grey" or "sepia", it would learn the look of old prints instead of how the place changed. ` +
+  `That is why every photo also gets a "look code" (colour, tone, contrast): the look code explains the print, so the date has to explain the place.`;
+
+const mini = r => { const t = r.o + r.m + r.r || 1; return `<span class="mini" aria-hidden="true"><span style="width:${100 * r.o / t}%;background:var(--old)"></span><span style="width:${100 * r.m / t}%;background:var(--mid)"></span><span style="width:${100 * r.r / t}%;background:var(--new)"></span></span>`; };
+document.getElementById("t-held").innerHTML = `<thead><tr><th class="l">Place</th><th class="l">Country</th><th class="l">Kind</th><th>Photos</th><th>Before 1970</th><th>Oldest</th><th class="l">Eras</th></tr></thead><tbody>` +
+  [...H].sort((a, b) => b.o - a.o).map(r => `<tr><td class="l name" title="${r.n}">${r.n}</td><td class="l">${r.c}</td><td class="l">${r.t}</td><td>${r.u}</td><td>${r.o}</td><td>${r.y0}</td><td class="l">${mini(r)}</td></tr>`).join("") + "</tbody>";
+
+const cols = [["n", "Place", "l"], ["c", "Country", "l"], ["t", "Kind", "l"], ["sp", "Set", "l"], ["u", "Photos"], ["dk", "Reliable depth"], ["o", "Before 1970"], ["m", "1970–99"], ["r", "2000+"], ["y0", "Oldest"], ["sh", "Share of samples"], ["mix", "Eras", "l"]];
+let sortKey = "o", sortDir = -1, filt = "all";
+function renderAll() {
+  const q = document.getElementById("f-q").value.trim().toLowerCase();
+  let rows = R.filter(r => filt === "all" || r.sp === filt).filter(r => !q || [r.n, r.c, r.t, r.ct].join(" ").toLowerCase().includes(q));
+  if (sortKey !== "mix") rows.sort((a, b) => { const x = a[sortKey] ?? -1, y = b[sortKey] ?? -1; return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  document.getElementById("t-all").innerHTML = "<thead><tr>" + cols.map(([k, n, c]) => `<th class="${c || ""}" data-k="${k}" tabindex="0">${n}${k === sortKey ? (sortDir < 0 ? " ↓" : " ↑") : ""}</th>`).join("") + "</tr></thead><tbody>" +
+    rows.map(r => `<tr><td class="l name" title="${r.n}">${r.n}</td><td class="l">${r.c ?? ""}</td><td class="l">${r.t ?? ""}</td><td class="l"><span class="pill ${r.sp === "train" ? "" : "h"}">${r.sp === "train" ? "training" : "held out"}</span></td><td>${r.u}</td><td>${r.dk}</td><td>${r.o}</td><td>${r.m}</td><td>${r.r}</td><td>${r.y0}</td><td>${r.sh == null ? "–" : (100 * r.sh).toFixed(1) + "%"}</td><td class="l">${mini(r)}</td></tr>`).join("") + "</tbody>";
+  document.querySelectorAll("#t-all th").forEach(th => { const go = () => { const k = th.dataset.k; if (k === "mix") return; sortDir = k === sortKey ? -sortDir : (["n", "c", "t", "sp"].includes(k) ? 1 : -1); sortKey = k; renderAll(); };
+    th.addEventListener("click", go); th.addEventListener("keydown", e => { if (e.key === "Enter") go(); }); });
+}
+for (const [id, v] of [["f-all", "all"], ["f-train", "train"], ["f-held", "heldout"]]) document.getElementById(id).addEventListener("click", () => {
+  filt = v; ["f-all", "f-train", "f-held"].forEach(b => document.getElementById(b).setAttribute("aria-pressed", b === id)); renderAll(); });
+document.getElementById("f-q").addEventListener("input", renderAll);
+renderAll();
+})();
+</script>
