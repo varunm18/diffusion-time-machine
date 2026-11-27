@@ -1488,3 +1488,8 @@ Inside the changed region:
   - **The date does not yet add or remove what was built in between:** Vilnius 1937 renders include the 1996 Gediminas statue copied from the modern inputs, and 2012 Sydney renders lack the Opera House when the inputs are from the 1930s.
   - **First clear date effect in a picture:** the Royal Palace of Amsterdam (held-out views), a camera on the National Monument under construction in May 1955. At the true date and at 1950 it shows an unfinished pillar, at 2010 the finished monument.
   - **Notre-Dame draws the after-fire state (scaffolding, no spire) for pre-fire targets, from pre-fire inputs, at 2016 and at 2021,** in ms1 and in look1 D alike (D's step-10,000 render probe, set 1). The measured date effects on Notre-Dame do not yet show as the spire in pictures. To investigate.
+- **ms1 on Notre-Dame at step 60,000 (`eval_look1/ms1_step60000/`): the multi-scene model now beats the Notre-Dame-only model on Notre-Dame.** Against look1 D at its step 10,000, on the same held-out sets:
+  - **The date chooses the fire state more strongly:** read-out flip +2.17 ± 0.49 logits (D +1.81, date-only A +2.13), and the wrong date costs +2.8% more inside the region than outside (D +2.1%).
+  - **Image quality is higher:** 14.2 dB with the target's own code (D 14.0) and 12.1 dB at the references' look (D 12.2).
+  - **The date still takes almost no look:** +0.04 sd (D +0.09, A +0.63). Modern targets at an old date with a colour code stay in colour (chroma 11.8; real colour photos 13.4), so an old date does not turn a render grey by itself.
+  - Trajectory of the flip: +0.08 (10k), +0.70 (30k), +2.17 (60k). The held-out wrong-date probe is at +1.12% by step 72,000.
