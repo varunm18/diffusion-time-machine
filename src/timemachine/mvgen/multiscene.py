@@ -93,6 +93,7 @@ class SceneMixture:
     look: LookSettings | None = None
     holdout_fraction: float = 0.1
     old_anchor_share: float | None = None
+    look_stats_fixed: LookStats | None = None      # e.g. a resumed run's: keeps its standardisation when scenes change
 
     def __post_init__(self):
         self.scenes: list[MVGenScene] = []
@@ -133,7 +134,8 @@ class SceneMixture:
         return shares / shares.sum()
 
     def _looks(self) -> list[TrainingLooks]:
-        """One TrainingLooks per scene, all standardised with the statistics of every scene's training views."""
+        """One TrainingLooks per scene, all standardised with the statistics of every scene's training views
+        (or with ``look_stats_fixed``)."""
         missing = [name for name, scene in zip(self.names, self.scenes) if not scene.has_look]
         if missing:
             raise ValueError(f"no look codes in {missing}: run scripts/mvgen/prepare_look.py on them")
@@ -141,7 +143,8 @@ class SceneMixture:
         for scene in self.scenes:
             look = scene.look
             codes.append(np.asarray(look["codes"])[scene.target_ok & np.asarray(look["computed"], dtype=bool)])
-        self.look_stats = LookStats.from_codes(np.concatenate(codes))
+        self.look_stats = (self.look_stats_fixed if self.look_stats_fixed is not None
+                           else LookStats.from_codes(np.concatenate(codes)))
         settings = self.look
         converts = settings.grey + settings.toned > 0
         pooled = None

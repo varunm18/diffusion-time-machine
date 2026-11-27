@@ -51,6 +51,7 @@ from timemachine.mvgen.model import (
     DEFAULT_MODEL_DIR, FinetuneConfig, assert_exact_matmul, load_mvgen, load_trainable_state_dict,
     prepare_for_finetuning, save_checkpoint, trainable_state_dict,
 )
+from timemachine.mvgen.look import LookStats
 from timemachine.mvgen.multiscene import LookSettings, SceneMixture
 from timemachine.mvgen.probes import DateLossProbe, heldout_view_sets, representative_years, scene_view_sets
 from timemachine.mvgen.step import LossConfig, training_loss
@@ -132,10 +133,16 @@ def main() -> None:
                if line.strip() and not line.startswith("#")]
     model = load_mvgen(args.model_dir, device=device)
     look = LookSettings(grey=args.medium_grey, toned=args.medium_toned) if args.look else None
+    # a resumed run keeps the look statistics it was trained with, also if scenes were added to the list
+    latest = args.run_dir / "checkpoints" / "latest.pt"
+    kept_stats = None
+    if args.look and args.resume and latest.exists():
+        stored = torch.load(latest, map_location="cpu", weights_only=False).get("look_stats")
+        kept_stats = None if stored is None else LookStats.from_dict(stored)
     mixture = SceneMixture(folders, ViewSamplingConfig(), seed=args.seed,
                            camera_longest_side=model.config.camera_longest_side,
                            fixed_shares={NOTRE_DAME: args.notre_dame_share}, look=look,
-                           old_anchor_share=args.old_anchor_share)
+                           old_anchor_share=args.old_anchor_share, look_stats_fixed=kept_stats)
     say(f"[multi] {len(mixture.scenes)} scenes, {sum(int(s.target_ok.sum()) for s in mixture.scenes)} training views; "
         f"{world} GPU(s)\n{mixture.summary()}")
 
