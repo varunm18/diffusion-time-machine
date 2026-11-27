@@ -15,7 +15,7 @@ from torch import nn
 from timemachine.model.appearance_film import AppearanceEncoder, AppearanceFiLMConv, AppearanceState
 from timemachine.training.loss import LossConfig, draw_appearance_validity
 
-seva = pytest.importorskip("seva.model", reason="SEVA not installed (scripts/setup_seva.sh)")
+layers = pytest.importorskip("seva.modules.layers", reason="SEVA not installed (scripts/setup_seva.sh)")
 
 from timemachine.model.dated_seva import DatedSGMWrapper               # noqa: E402
 from timemachine.model.finetune import (                               # noqa: E402
@@ -25,18 +25,52 @@ from timemachine.model.finetune import (                               # noqa: E
 from timemachine.training.loss import training_loss                    # noqa: E402
 
 FEATURES = 14
+CHANNELS = 32            # matches tests/test_date_film.py, so both suites test one shape
+
+
+class TinyResSeva(nn.Module):
+    """SEVA's interface and block attributes, with two real ResBlocks.
+
+    The same stand-in tests/test_date_film.py uses. Real ResBlocks matter because
+    the FiLM hook looks for them by type; a fully fake module would make
+    add_appearance_film report that there are no blocks to wrap.
+    """
+
+    model_channels = 8
+
+    def __init__(self):
+        super().__init__()
+        self.time_embed = nn.Linear(1, 4 * self.model_channels)
+        self.input_blocks = nn.ModuleList([
+            layers.ResBlock(CHANNELS, 4 * self.model_channels, CHANNELS, 6, 0.0)])
+        self.middle_block = layers.ResBlock(CHANNELS, 4 * self.model_channels, CHANNELS, 6, 0.0)
+        self.output_blocks = nn.ModuleList()
+        # SEVA's blocks run wide and a final head projects back to the latent width.
+        # Without it the model returns more channels than the noise it is estimating,
+        # and the loss cannot subtract one from the other.
+        self.head = nn.Conv2d(CHANNELS, CHANNELS - 2, 3, padding=1)
+
+    def forward(self, x, t, y, dense_y, num_frames=None):
+        emb = self.time_embed(t[:, None].float())
+        h = self.input_blocks[0](x, emb, dense_y)
+        return self.head(self.middle_block(h, emb, dense_y))
 
 
 def tiny_model(appearance="film", date="film", lora_rank=0):
-    model = DatedSGMWrapper(seva.Seva(model_channels=8, num_res_blocks=2))
+    model = DatedSGMWrapper(TinyResSeva())
     cfg = FinetuneConfig(lora_rank=lora_rank, date_injection=date, appearance_injection=appearance,
                          film_dim=32, appearance_dim=32, grad_checkpointing=False)
     return model, cfg, prepare_for_finetuning(model, cfg)
 
 
 def forward_args(n_views=4):
-    return (torch.randn(n_views, 4, 8, 8), torch.arange(n_views),
-            {"crossattn": None, "dense_vector": None})
+    """Inputs shaped for TinyResSeva: concat rides with x, dense_vector is separate."""
+    torch.manual_seed(1)
+    return (torch.randn(n_views, CHANNELS - 2, 4, 4),
+            torch.tensor([10, 10, 500, 500][:n_views]),
+            {"crossattn": torch.zeros(n_views, 1, 8),
+             "dense_vector": torch.randn(n_views, 6, 4, 4),
+             "concat": torch.zeros(n_views, 2, 4, 4)})
 
 
 # ------------------------------------------------------------------ config
@@ -68,6 +102,13 @@ def test_appearance_dropout_drops_whole_samples_together():
 def test_appearance_adds_its_own_trainable_group_and_freezes_seva():
     model, _, groups = tiny_model()
     assert groups["appearance"] and all(p.requires_grad for p in groups["appearance"])
+    # Everything in a SEVA block except the FiLM layers we inserted stays frozen.
+    # Naming one submodule (the old version used .head) tested less and tied the
+    # test to the full model's layout.
+    frozen = [p for name, p in model.module.middle_block.named_parameters()
+              if "film" not in name and "appearance" not in name]
+    assert frozen and not any(p.requires_grad for p in frozen)
+    assert not any(p.requires_grad for p in model.module.time_embed.time_embed.parameters())
     assert not any(p.requires_grad for p in model.module.head.parameters())
     assert groups["film"] and groups["appearance"]           # both pathways, separately
     assert set(groups) == {"date", "film", "lora", "appearance"}
@@ -145,13 +186,23 @@ def test_classifier_free_guidance_doubles_the_batch_safely():
     for p in groups["appearance"]:
         nn.init.normal_(p, std=0.05)
     stats = torch.randn(4, FEATURES)
-    doubled = model(torch.randn(8, 4, 8, 8), torch.arange(8),
-                    {"crossattn": None, "dense_vector": None}, appearance=stats, num_frames=4)
-    assert doubled.shape == (8, 4, 8, 8)
 
+    def batch(n):
+        return (torch.randn(n, CHANNELS - 2, 4, 4), torch.arange(n),
+                {"crossattn": torch.zeros(n, 1, 8),
+                 "dense_vector": torch.randn(n, 6, 4, 4),
+                 "concat": torch.zeros(n, 2, 4, 4)})
+
+    x, t, c = batch(8)
+    doubled = model(x, t, c, appearance=stats, num_frames=4)
+    # Channel count is the block's business; what this test is about is that eight
+    # rows of latents and four rows of appearance line up without silent recycling.
+    assert doubled.shape[0] == 8 and doubled.shape[-2:] == (4, 4)
+
+    # Six rows cannot be an integer number of repeats of four appearances.
+    x, t, c = batch(6)
     with pytest.raises(ValueError, match="appearance rows"):
-        model(torch.randn(6, 4, 8, 8), torch.arange(6),
-              {"crossattn": None, "dense_vector": None}, appearance=stats, num_frames=4)
+        model(x, t, c, appearance=stats, num_frames=4)
 
 
 def test_unknown_appearance_differs_from_a_given_one():
@@ -196,10 +247,15 @@ def test_a_date_only_checkpoint_still_loads(tmp_path):
 
 # -------------------------------------------------------------- the loss
 def _loss_inputs(n_views=4):
-    latents = torch.randn(n_views, 4, 8, 8)
-    replace = torch.cat([torch.randn(n_views, 4, 8, 8), torch.zeros(n_views, 1, 8, 8)], 1)
+    """Shapes the tiny model accepts: 'concat' rides with x to make up CHANNELS."""
+    latents = torch.randn(n_views, CHANNELS - 2, 4, 4)
+    replace = torch.cat([torch.randn(n_views, CHANNELS - 2, 4, 4),
+                         torch.zeros(n_views, 1, 4, 4)], 1)
     replace[:2, -1] = 1.0                                   # first two views are inputs
-    cond = {"crossattn": None, "dense_vector": None, "replace": replace}
+    cond = {"crossattn": torch.zeros(n_views, 1, 8),
+            "dense_vector": torch.randn(n_views, 6, 4, 4),
+            "concat": torch.zeros(n_views, 2, 4, 4),
+            "replace": replace}
     interval = torch.tensor([[1880., 1881.]] * 2 + [[2015., 2016.]] * 2)
     is_input = torch.tensor([True, True, False, False])
     return latents, cond, interval, is_input

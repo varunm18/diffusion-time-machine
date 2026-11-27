@@ -535,10 +535,14 @@ def test_fallback_columns_are_a_subset_of_the_real_ones():
 
 
 def test_an_uninstalled_package_skips():
-    exc = ModuleNotFoundError("No module named 'seva'", name="seva")
+    # A name that cannot be installed. The first version of this test used "seva",
+    # which passed only while SEVA was missing and then failed once it was there -
+    # the same trap as the tests this commit is fixing.
+    absent = "timemachine_no_such_package_42"
+    exc = ModuleNotFoundError(f"No module named '{absent}'", name=absent)
     check = pf.import_failure("sample builds", exc)
     assert check.skipped and check.ok
-    assert "seva" in check.detail
+    assert absent in check.detail
 
 
 def test_a_missing_name_in_an_installed_module_fails():

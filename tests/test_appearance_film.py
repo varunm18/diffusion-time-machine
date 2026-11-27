@@ -212,11 +212,33 @@ def test_appearance_and_date_are_separate_pathways():
                                                         "inner.weight", "inner.bias"}
 
 
-def test_add_appearance_film_on_real_seva():
-    seva = pytest.importorskip("seva.model", reason="SEVA not installed (scripts/setup_seva.sh)")
+def test_add_appearance_film_on_real_seva_resblocks():
+    """Attach to genuine SEVA ResBlocks, inside a stand-in UNet.
+
+    Not the full Seva model: that takes a SevaParams with thirteen interdependent
+    fields, and inventing a tiny consistent set is how the previous version of this
+    test came to call a constructor that does not exist. The real model is built by
+    the preflight's smoke step, from the real weights, on a GPU.
+    """
+    layers = pytest.importorskip("seva.modules.layers",
+                                 reason="SEVA not installed (scripts/setup_seva.sh)")
     from timemachine.model.appearance_film import add_appearance_film
 
-    model = seva.Seva(model_channels=8, num_res_blocks=1)       # pragma: no cover - needs SEVA
+    channels = 32
+
+    class TinyResSeva(nn.Module):
+        model_channels = 8
+
+        def __init__(self):
+            super().__init__()
+            self.time_embed = nn.Linear(1, 4 * self.model_channels)
+            self.input_blocks = nn.ModuleList([
+                layers.ResBlock(channels, 4 * self.model_channels, channels, 6, 0.0)])
+            self.middle_block = layers.ResBlock(channels, 4 * self.model_channels,
+                                                channels, 6, 0.0)
+            self.output_blocks = nn.ModuleList()
+
+    model = TinyResSeva()
     state = AppearanceState()
     names = add_appearance_film(model, state, feature_dim=16)
     assert names and len(appearance_film_layers(model)) == len(names)
