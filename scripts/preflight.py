@@ -42,8 +42,12 @@ def main() -> int:
                         default=Path("scripts/train_dated_seva.py"),
                         help="training entrypoint for --smoke")
     parser.add_argument("--train-arg", action="append", default=[], metavar="FLAG",
-                        help="extra flag to pass to the smoke run; repeatable. Flags the "
-                             "script does not advertise are dropped rather than failing it")
+                        help="extra argument to pass to the smoke run; repeatable (a flag's "
+                             "value is its own --train-arg). A flag the script does not "
+                             "advertise fails the check")
+    parser.add_argument("--step-flag", default=None, metavar="FLAG",
+                        help="the training script's step-limit flag (default: the first of "
+                             "--max-steps, --steps, --train-steps it offers)")
     parser.add_argument("--no-appearance", action="store_true",
                         help="build samples without appearance features")
     parser.add_argument("--timeout", type=int, default=1800, metavar="SECONDS",
@@ -55,7 +59,7 @@ def main() -> int:
         args.dataset, hub=args.hub, image_root=args.image_root, min_old=args.min_old,
         train_script=args.train_script if args.smoke else None,
         extra=args.train_arg, appearance=not args.no_appearance,
-        timeout=args.timeout, progress=lambda msg: print(f"  ..   {msg}\n"),
+        timeout=args.timeout, step_flag=args.step_flag, progress=lambda msg: print(f"  ..   {msg}\n"),
     )
     print(report.render())
     return 0 if report.ok else 1

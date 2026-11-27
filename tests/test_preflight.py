@@ -380,13 +380,71 @@ def test_failing_step_gives_back_a_runnable_command(tmp_path: Path, dataset: Pat
     assert "--max-steps 1" in check.fix and str(dataset) in check.fix
 
 
-def test_unsupported_flags_are_dropped_rather_than_crashing_the_run(tmp_path: Path, dataset: Path):
-    """The caller's extra flags may target a newer script than the one on disk."""
+def test_an_unsupported_extra_flag_fails_loudly(tmp_path: Path, dataset: Path):
+    """The check verifies one specific configuration. Dropping a requested flag
+    quietly verified a different one - it discarded --appearance-remove-era once."""
     script = _fake_script(tmp_path, flags="--max-steps N --dataset D",
-                          body="import sys; "
-                               "raise SystemExit('unrecognized' if '--appearance-remove-era' "
-                               "in sys.argv else 0)")
+                          body="raise SystemExit('should not have run')")
     check = pf.check_smoke_train(script, [dataset], extra=["--appearance-remove-era"],
+                                 python=sys.executable)
+    assert not check.ok
+    assert "--appearance-remove-era" in check.detail
+
+
+def test_an_unsupported_flag_with_a_value_fails_too(tmp_path: Path, dataset: Path):
+    script = _fake_script(tmp_path, flags="--max-steps N --dataset D")
+    check = pf.check_smoke_train(script, [dataset], extra=["--appearance-dim=8"],
+                                 python=sys.executable)
+    assert not check.ok
+    assert "--appearance-dim" in check.detail
+
+
+def test_extra_flag_values_reach_the_script(tmp_path: Path, dataset: Path):
+    script = _fake_script(tmp_path, flags="--max-steps N --dataset D --appearance-dim N",
+                          body="import sys; i = sys.argv.index('--appearance-dim'); "
+                               "raise SystemExit(0 if sys.argv[i + 1] == '8' else 'lost value')")
+    check = pf.check_smoke_train(script, [dataset], extra=["--appearance-dim", "8"],
+                                 python=sys.executable)
+    assert check.ok, check.detail
+
+
+def test_the_step_flag_is_detected_when_named_steps(tmp_path: Path, dataset: Path):
+    """The real trainer calls it --steps."""
+    script = _fake_script(tmp_path, flags="--steps N --dataset D",
+                          body="import sys; i = sys.argv.index('--steps'); "
+                               "raise SystemExit(0 if sys.argv[i + 1] == '1' else 'not one step')")
+    check = pf.check_smoke_train(script, [dataset], python=sys.executable)
+    assert check.ok, check.detail
+
+
+def test_an_explicit_step_flag_is_used(tmp_path: Path, dataset: Path):
+    script = _fake_script(tmp_path, flags="--iters N --dataset D",
+                          body="import sys; raise SystemExit(0 if '--iters' in sys.argv else 1)")
+    check = pf.check_smoke_train(script, [dataset], python=sys.executable, step_flag="--iters")
+    assert check.ok, check.detail
+
+
+def test_an_explicit_step_flag_the_script_lacks_names_the_one_it_has(tmp_path: Path):
+    script = _fake_script(tmp_path, flags="--steps N")
+    check = pf.check_smoke_train(script, [], python=sys.executable, step_flag="--max-steps")
+    assert not check.ok
+    assert "--step-flag --steps" in check.fix
+
+
+def test_a_required_run_name_is_filled_in(tmp_path: Path, dataset: Path):
+    """The real trainer requires --run-name; without it the step dies in argparse."""
+    script = _fake_script(tmp_path, flags="--steps N --dataset D --run-name R --runs-root P",
+                          body="import sys; raise SystemExit(0 if '--run-name' in sys.argv "
+                               "and '--runs-root' in sys.argv else 'no run name')")
+    check = pf.check_smoke_train(script, [dataset], python=sys.executable)
+    assert check.ok, check.detail
+
+
+def test_a_given_run_name_is_not_overridden(tmp_path: Path, dataset: Path):
+    script = _fake_script(tmp_path, flags="--steps N --dataset D --run-name R",
+                          body="import sys; raise SystemExit(0 if sys.argv.count('--run-name') == 1 "
+                               "and 'mine' in sys.argv else 'duplicated')")
+    check = pf.check_smoke_train(script, [dataset], extra=["--run-name", "mine"],
                                  python=sys.executable)
     assert check.ok, check.detail
 

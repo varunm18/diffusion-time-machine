@@ -32,6 +32,7 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -378,14 +379,27 @@ def script_flags(script: Path, python: str = "python") -> set[str]:
     return set(re.findall(r"--[\w-]+", helped.stdout + helped.stderr))
 
 
+# Step-limit spellings tried in order when the caller names none.
+STEP_FLAGS = ("--max-steps", "--steps", "--train-steps")
+
+
+def _flag_name(arg: str) -> str:
+    return arg.split("=", 1)[0]
+
+
 def check_smoke_train(script: Path, folders: Sequence[Path], extra: Sequence[str] = (),
                       python: str = "python", timeout: int = 1800,
-                      step_flag: str = "--max-steps") -> Check:
+                      step_flag: str | None = None) -> Check:
     """Run the real training script for one step.
 
     This is the check worth waiting for. It exercises the path a submitted job takes
     - argument parsing, weight loading, the model build, a forward and a backward
     pass, the optimizer - using the script that will actually be submitted.
+
+    ``step_flag`` names the script's step limit; by default the first of
+    :data:`STEP_FLAGS` that ``--help`` advertises. Every flag in ``extra`` must be
+    one the script accepts: the check verifies one specific configuration, so a
+    flag it cannot pass is a failure, not something to drop quietly.
     """
     if not script.is_file():
         return Check("smoke train", False, f"{script} not found",
@@ -394,27 +408,50 @@ def check_smoke_train(script: Path, folders: Sequence[Path], extra: Sequence[str
     if not flags:
         return Check("smoke train", False, f"{script} --help produced nothing",
                      "the script fails before parsing arguments; run it by hand to see why")
-    if step_flag not in flags:
+    if step_flag is None:
+        step_flag = next((f for f in STEP_FLAGS if f in flags), None)
+        if step_flag is None:
+            return Check("smoke train", False,
+                         f"{script} has none of {', '.join(STEP_FLAGS)}",
+                         "a one-step run needs a step limit; pass --step-flag with the "
+                         "script's name for it")
+    elif step_flag not in flags:
+        offered = [f for f in STEP_FLAGS if f in flags]
         return Check("smoke train", False, f"{script} has no {step_flag}",
-                     f"a one-step run needs a step limit; add {step_flag} to the script "
-                     "or pass --step-flag with the right name")
+                     f"the script's step limit is {offered[0]}; pass --step-flag {offered[0]}"
+                     if offered else
+                     "a one-step run needs a step limit; pass --step-flag with the right name")
+    unknown = [a for a in extra if a.startswith("--") and _flag_name(a) not in flags]
+    if unknown:
+        return Check("smoke train", False,
+                     f"{script} does not accept {', '.join(unknown)}",
+                     "the configuration you asked to verify cannot run with this script; "
+                     "check the flag's spelling, or that the script on disk is the one "
+                     "that implements it")
 
+    given = {_flag_name(a) for a in extra if a.startswith("--")}
     cmd = [python, str(script), step_flag, "1"]
-    for flag, values in (("--dataset", [str(f) for f in folders]),):
-        if flag in flags:
-            cmd += [flag, *values]
-    # Skip the things a one-step run has no reason to do, where the script offers it.
-    for flag in ("--no-save", "--no-wandb", "--no-eval"):
-        if flag in flags:
-            cmd.append(flag)
-    cmd += [a for a in extra if not a.startswith("--") or a.split("=")[0] in flags]
+    if "--dataset" in flags:
+        cmd += ["--dataset", *(str(f) for f in folders)]
+    # Arguments the script requires that a smoke run can fill in for itself; a run
+    # folder in a temporary directory so the step leaves nothing behind.
+    with tempfile.TemporaryDirectory(prefix="preflight_") as scratch:
+        if "--run-name" in flags and "--run-name" not in given:
+            cmd += ["--run-name", "preflight_smoke"]
+        if "--runs-root" in flags and "--runs-root" not in given:
+            cmd += ["--runs-root", scratch]
+        # Skip the things a one-step run has no reason to do, where the script offers it.
+        for flag in ("--no-save", "--no-wandb", "--no-eval"):
+            if flag in flags:
+                cmd.append(flag)
+        cmd += list(extra)
 
-    try:
-        done = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return Check("smoke train", False, f"no step finished in {timeout}s",
-                     "one step should not take this long; check the GPU is visible "
-                     "and the dataset is on fast local storage")
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return Check("smoke train", False, f"no step finished in {timeout}s",
+                         "one step should not take this long; check the GPU is visible "
+                         "and the dataset is on fast local storage")
     if done.returncode != 0:
         tail = (done.stderr or done.stdout).strip().splitlines()[-3:]
         return Check("smoke train", False, f"exit {done.returncode}: {' / '.join(tail)}",
@@ -430,6 +467,7 @@ def run_checks(folders: Sequence[Path], hub: Path | None = None,
                extra: Sequence[str] = (), appearance: bool = True,
                min_old: int = MIN_OLD_VIEWS,
                python: str = "python", timeout: int = 1800,
+               step_flag: str | None = None,
                progress: Callable[[str], None] = lambda _: None) -> Report:
     """Every check, cheapest first, each independent of the rest."""
     report = Report()
@@ -442,5 +480,6 @@ def run_checks(folders: Sequence[Path], hub: Path | None = None,
         report.add(Check("smoke train", True, skipped=True, detail="--no-smoke"))
     else:
         progress(f"running one training step via {train_script} (this takes a few minutes) ...")
-        report.add(check_smoke_train(train_script, folders, extra, python, timeout))
+        report.add(check_smoke_train(train_script, folders, extra, python, timeout,
+                                      step_flag=step_flag))
     return report

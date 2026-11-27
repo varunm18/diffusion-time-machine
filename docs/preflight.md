@@ -66,11 +66,17 @@ python scripts/preflight.py --dataset "$DATA_ROOT"/datasets/*_model0 \
 ```
 
 It shells out to `scripts/train_dated_seva.py` rather than assembling a step in
-process, and reads `--help` first so it only passes flags that are really there. So
-it tests the command you are about to submit, not a parallel reimplementation that
-can drift from it. Flags you pass with `--train-arg` that the script does not
-advertise are dropped rather than failing the check, which keeps the preflight
-usable across branches where the trainer has different options.
+process, so it tests the command you are about to submit, not a parallel
+reimplementation that can drift from it. It reads `--help` first to find the step
+limit (the first of `--max-steps`, `--steps`, `--train-steps` the script offers, or
+whatever `--step-flag` names) and to fill in `--run-name` and a throwaway
+`--runs-root` when the script wants them.
+
+A flag passed with `--train-arg` that the script does not advertise **fails the
+check**. It used to be dropped quietly, which meant a smoke run asked to verify
+`--appearance-remove-era` verified a configuration without it and reported success.
+A flag's value is its own `--train-arg` (`--train-arg --appearance-dim --train-arg 8`),
+or use `--train-arg=--appearance-dim=8`.
 
 When the step fails, the fix line gives the exact command back, so you can
 reproduce it by hand without reconstructing the arguments.
