@@ -47,6 +47,12 @@ def main() -> None:
                    help="how a view's appearance (colour, tone, grain) reaches the model: a per-block "
                         "scale-and-shift, or not at all. Our dates are largely readable from the medium "
                         "alone (docs/findings.md), so without this the date path can learn film stock.")
+    p.add_argument("--appearance-remove-era", action="store_true",
+                   help="project the era subspace out of the appearance statistics before the encoder, "
+                        "fitted on this run's own views (written to <run>/era_directions.json), so the "
+                        "appearance path cannot carry the year either. Needs --appearance-injection film.")
+    p.add_argument("--era-stats-samples", type=int, default=TrainConfig.era_stats_samples,
+                   help="with --appearance-remove-era: samples drawn to fit the normalization and era subspace")
     p.add_argument("--appearance-dim", type=int, default=FinetuneConfig.appearance_dim)
     p.add_argument("--appearance-dropout", type=float, default=LossConfig.appearance_dropout,
                    help="share of samples whose appearance is marked unknown")
@@ -143,6 +149,7 @@ def main() -> None:
         grad_clip=args.grad_clip or None, grad_clip_factor=args.grad_clip_factor or None,
         seed=args.seed, num_workers=args.num_workers, log_every=args.log_every, gap_every=args.gap_every,
         gap_samples=args.gap_samples,
+        era_stats_samples=args.era_stats_samples,
         render_every=args.render_every, save_every=args.save_every, latest_every=args.latest_every,
         render_steps=args.render_steps, render_uncond_dates=args.render_uncond_dates,
         render_frames=args.render_frames or None,
@@ -164,7 +171,8 @@ def main() -> None:
                                 date_max_abs=args.date_max_abs, date_injection=args.date_injection,
                                 film_dim=args.film_dim, film_freqs=args.film_freqs,
                                 appearance_injection=args.appearance_injection,
-                                appearance_dim=args.appearance_dim),
+                                appearance_dim=args.appearance_dim,
+                                appearance_remove_era=args.appearance_remove_era),
         heldout_every=args.heldout_every, heldout_pairs=args.heldout_pairs,
         holdout=HoldoutConfig(fraction=args.holdout_fraction, probe_targets=args.holdout_probe_targets,
                               scenes=tuple(args.holdout_scenes), seed=args.holdout_seed),

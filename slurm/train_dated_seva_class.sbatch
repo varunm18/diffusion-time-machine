@@ -46,15 +46,18 @@ python scripts/preflight.py \
     --image-root "$DATA_ROOT/images" \
     --no-smoke
 
+# Arm 3: date FiLM + era-residualized appearance FiLM. Every flag here is checked
+# against the trainer's real --help by tests/test_era_residual_seva.py.
+# Not passed, deliberately: precision (fp32 is the default; bf16 was measured to
+# make same-seed runs diverge), resolution (576 is TrainConfig's default and not a
+# flag) and gradient checkpointing (on by default; --no-grad-checkpointing is off).
 python scripts/train_dated_seva.py \
     --dataset "$DATA_ROOT"/datasets/*_model0 \
-    --out "$DATA_ROOT/runs/$SLURM_JOB_ID" \
+    --runs-root "$DATA_ROOT/runs" \
+    --run-name "era_residual_$SLURM_JOB_ID" \
     --date-injection film \
     --appearance-injection film \
     --appearance-remove-era \
-    --resolution 576 \
-    --n-targets 8 \
-    --grad-checkpointing \
-    --precision bf16
+    --n-targets 8
 
 echo "=== finished $(date) ==="

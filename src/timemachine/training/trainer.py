@@ -36,6 +36,7 @@ from timemachine.data.appearance import dataset_appearance_stats
 from timemachine.data.dataset import DatedViewsDataset
 from timemachine.data.holdout import HoldoutConfig, heldout_rows
 from timemachine.data.sampling import SamplingConfig
+from timemachine.model.appearance_film import fit_era_directions
 from timemachine.model.diagnostics import finetune_stats
 from timemachine.model.finetune import FinetuneConfig, load_trainable_state_dict, prepare_for_finetuning, save_checkpoint
 from timemachine.model.loading import SevaComponents, load_components
@@ -67,6 +68,7 @@ class TrainConfig:
     camera_scale: float = 2.0
     group_weight_power: float = 0.5                 # scene sampling weight = training views ** this
     appearance_stats_samples: int = 64              # samples used to standardize the appearance encoder
+    era_stats_samples: int = 256                    # with appearance_remove_era: samples for normalization + era fit
     seed: int = 0
     num_workers: int = 4
     log_every: int = 25
@@ -155,8 +157,12 @@ class Trainer:
         if self.with_appearance:
             # The raw statistics are on very different scales; standardize the encoder on
             # the data this run will actually see. The buffers travel with the checkpoint.
-            self.model.date_module.appearance_encoder.fit_normalization(
-                dataset_appearance_stats(self.dataset, n_samples=cfg.appearance_stats_samples, seed=cfg.seed))
+            encoder = self.model.date_module.appearance_encoder
+            if cfg.finetune.appearance_remove_era:
+                self.fit_era_residual(encoder)
+            else:
+                encoder.fit_normalization(
+                    dataset_appearance_stats(self.dataset, n_samples=cfg.appearance_stats_samples, seed=cfg.seed))
         lrs = {"date": cfg.lr_date, "film": cfg.lr_film, "lora": cfg.lr_lora,
                "appearance": cfg.lr_appearance}
         param_groups = [{"params": groups[name], "lr": lr, "name": name} for name, lr in lrs.items() if groups[name]]
@@ -199,6 +205,33 @@ class Trainer:
                            "weight": round(float(weights.get(g, 0.0)), 4)})
             print(f"[train]   scene {scenes[-1]}", flush=True)
         (self.run_dir / "scenes.json").write_text(json.dumps(scenes, indent=1))
+
+    def fit_era_residual(self, encoder) -> dict:
+        """Standardize the appearance encoder and install the era subspace, from one draw.
+
+        One draw for both, because the era directions are only in the encoder's basis
+        on the sample its normalization was fitted on. More samples than plain
+        normalization uses: the stopping rule is a held-out AUC, and with the default
+        64 it would rest on a few dozen old views. Writes ``era_directions.json``.
+        """
+        cfg = self.cfg
+        stats, years = dataset_appearance_stats(
+            self.dataset, n_samples=max(cfg.appearance_stats_samples, cfg.era_stats_samples),
+            seed=cfg.seed, with_dates=True)
+        encoder.fit_normalization(stats)
+        report = fit_era_directions(encoder, stats, years.numpy(), seed=cfg.seed)
+        (self.run_dir / "era_directions.json").write_text(json.dumps(
+            {**report, "directions": encoder.era_directions.cpu().tolist()}, indent=1))
+        print(f"[train] era residual: removed {report['dims_removed']} of {report['n_features']} "
+              f"appearance dimensions ({report['n_old']} old of {report['n_rows']} views); era AUC "
+              f"{report['era_auc_full']:.3f} -> {report['era_auc_residual']:.3f}, "
+              f"{report['variance_kept']:.0%} of variance kept", flush=True)
+        if not report["era_removed"]:
+            print(f"[train] WARNING: era is still readable from the residual appearance "
+                  f"(AUC {report['era_auc_residual']:.3f} >= {report['target_auc']}) after "
+                  f"{report['dims_removed']} removals; this run does not test an era-free "
+                  f"appearance pathway", flush=True)
+        return report
 
     def hold_out_views(self) -> None:
         """Remove the hold-out from training: random views per scene and era, the render probes'

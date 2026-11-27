@@ -64,6 +64,15 @@ class AppearanceEncoder(nn.Module):
     unknown" vector instead, so the model also learns to run without it - needed
     for classifier-free guidance and for sampling when no appearance has been
     chosen.
+
+    **Era residualization** (``--appearance-remove-era``). The statistics predict
+    era at AUC ~0.87 on their own, so handing them to the model as-is gives the
+    date pathway a way to read the year off the film stock. ``era_directions``
+    holds k orthonormal directions in *standardized* feature space (one per row)
+    that :func:`fit_era_directions` found to carry era; :meth:`forward` projects
+    them out before the MLP, so the encoder never sees that part of appearance.
+    k = 0 (the default) is exactly the unresidualized encoder. The buffer travels
+    with the checkpoint, and loading resizes it to the checkpoint's k.
     """
 
     def __init__(self, n_features: int = N_APPEARANCE_FEATURES, dim: int = 256, hidden_dim: int = 256):
@@ -72,9 +81,55 @@ class AppearanceEncoder(nn.Module):
         self.n_features = n_features
         self.register_buffer("mean", torch.zeros(n_features))
         self.register_buffer("scale", torch.ones(n_features))
+        self.register_buffer("era_directions", torch.zeros(0, n_features))
         self.unknown = nn.Parameter(torch.randn(n_features) * 0.5)
         self.mlp = nn.Sequential(nn.Linear(n_features, hidden_dim), nn.SiLU(),
                                  nn.Linear(hidden_dim, dim), nn.SiLU())
+
+    @property
+    def removes_era(self) -> bool:
+        return self.era_directions.shape[0] > 0
+
+    @torch.no_grad()
+    def set_era_directions(self, dirs) -> "AppearanceEncoder":
+        """Install (k, F) directions in standardized feature space; k = 0 turns removal off.
+
+        They are orthonormalized here, so :meth:`forward` can project with a single
+        matrix product. Directions that are linearly dependent are refused rather than
+        silently collapsed: the caller asked for k independent removals.
+        """
+        dirs = torch.as_tensor(dirs, dtype=torch.float32)
+        if dirs.numel() == 0:
+            dirs = dirs.reshape(0, self.n_features)
+        if dirs.ndim != 2 or dirs.shape[1] != self.n_features:
+            raise ValueError(f"Expected (k, {self.n_features}) era directions, got {tuple(dirs.shape)}")
+        if dirs.shape[0] > self.n_features:
+            raise ValueError(f"{dirs.shape[0]} directions cannot be independent in {self.n_features} dimensions")
+        if dirs.shape[0]:
+            q, r = torch.linalg.qr(dirs.double().T)          # columns of q: orthonormal basis of the span
+            if (r.diagonal().abs() < 1e-6).any():
+                raise ValueError("Era directions are linearly dependent")
+            dirs = q.T.float()
+        self.era_directions = dirs.to(self.mean.device)
+        return self
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys,
+                              unexpected_keys, error_msgs):
+        # The buffer's first dimension is k, which a fresh module does not know: it is
+        # built with k = 0 and only a checkpoint says otherwise. Without resizing first,
+        # every resume and every evaluation of an era-residualized run fails with a size
+        # mismatch. Checkpoints from before this buffer existed load as k = 0.
+        key = prefix + "era_directions"
+        incoming = state_dict.get(key)
+        if incoming is not None and incoming.ndim == 2 and incoming.shape[1] == self.n_features:
+            self.era_directions = torch.empty(incoming.shape, dtype=self.era_directions.dtype,
+                                              device=self.era_directions.device)
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys,
+                                      unexpected_keys, error_msgs)
+        if incoming is None:
+            self.era_directions = torch.zeros(0, self.n_features, device=self.mean.device)
+            if key in missing_keys:
+                missing_keys.remove(key)
 
     @torch.no_grad()
     def fit_normalization(self, stats: torch.Tensor) -> "AppearanceEncoder":
@@ -90,9 +145,73 @@ class AppearanceEncoder(nn.Module):
 
     def forward(self, stats: torch.Tensor, valid: torch.Tensor | None = None) -> torch.Tensor:
         z = (stats.float() - self.mean) / self.scale
+        if self.removes_era:
+            # After standardization: the directions were fitted in this basis, and in the
+            # raw one a unit step means wildly different things per statistic.
+            d = self.era_directions
+            z = z - (z @ d.T) @ d
         if valid is not None:
             z = torch.where(valid[:, None].bool(), z, self.unknown.to(z.dtype).expand_as(z))
         return self.mlp(z)
+
+
+def fit_era_directions(encoder: AppearanceEncoder, stats, years, old_before: float = 1945.0,
+                       target_auc: float = 0.60, max_dims: int = 8, test_fraction: float = 0.3,
+                       seed: int = 0) -> dict:
+    """Find the era subspace of this run's appearance statistics and install it on ``encoder``.
+
+    Uses :func:`timemachine.analysis.entanglement.era_subspace`, the measurement that
+    found era in 6 of the 14 standardized dimensions: remove the best era direction,
+    refit a fresh classifier on what is left, and repeat until it falls below
+    ``target_auc`` (held-out rows) or ``max_dims`` are gone. So the directions removed
+    are the ones the shortcut probe actually used, not a guess.
+
+    ``stats`` must be the sample :meth:`AppearanceEncoder.fit_normalization` was fitted
+    on. The fit runs on the encoder's own standardized features, and on that sample
+    they are exactly zero-mean with equal column scales, so the directions found are
+    in the basis :meth:`AppearanceEncoder.forward` projects in (``era_subspace``
+    re-standardizes, which on such features is a uniform rescale and leaves unit
+    directions unchanged). Rows without a finite year or with non-finite statistics
+    are left out of the fit, which makes that only approximately true.
+
+    Returns the measurement (``dims_removed``, ``era_removed``, the AUC trace, ...), as
+    plain values that can be written next to the run.
+    """
+    import numpy as np
+
+    from timemachine.analysis.entanglement import era_subspace
+
+    stats = torch.as_tensor(stats, dtype=torch.float32)
+    years = np.asarray(years, dtype=np.float64).reshape(-1)
+    if stats.ndim != 2 or stats.shape[1] != encoder.n_features or len(stats) != len(years):
+        raise ValueError(f"Expected (N, {encoder.n_features}) statistics and N years, "
+                         f"got {tuple(stats.shape)} and {len(years)}")
+    with torch.no_grad():
+        z = ((stats.to(encoder.mean.device) - encoder.mean) / encoder.scale).double().cpu().numpy()
+    keep = np.isfinite(years) & np.isfinite(z).all(axis=1)
+    z, years = z[keep], years[keep]
+    old = years < old_before
+    if old.sum() < 2 or (~old).sum() < 2:
+        raise ValueError(f"Need old and modern views to find the era direction: {int(old.sum())} before "
+                         f"{old_before:g}, {int((~old).sum())} after, of {len(years)} usable rows")
+
+    rng = np.random.default_rng(seed)
+    train = np.ones(len(years), dtype=bool)
+    # Split each era separately, so both sides of the held-out AUC always have rows.
+    for side in (old, ~old):
+        rows = np.flatnonzero(side)
+        train[rng.choice(rows, size=max(1, int(round(test_fraction * len(rows)))), replace=False)] = False
+
+    sub = era_subspace(z, years, train, old_before=old_before, target_auc=target_auc, max_dims=max_dims)
+    encoder.set_era_directions(sub["directions"])
+    trace = sub["trace"]
+    return {"dims_removed": int(len(sub["directions"])), "n_features": encoder.n_features,
+            "era_removed": bool(sub["era_removed"]), "target_auc": target_auc,
+            "era_auc_full": float(trace["era_auc"].iloc[0]),
+            "era_auc_residual": float(trace["era_auc"].iloc[-1]),
+            "variance_kept": float(trace["variance_kept"].iloc[-1]),
+            "n_rows": int(len(years)), "n_old": int(old.sum()), "n_test": int((~train).sum()),
+            "trace": trace.to_dict(orient="records")}
 
 
 def _in_channels(module: nn.Module) -> int:

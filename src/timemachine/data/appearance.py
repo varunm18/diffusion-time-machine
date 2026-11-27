@@ -38,17 +38,40 @@ def appearance_batch(images: torch.Tensor) -> torch.Tensor:
     return torch.from_numpy(np.stack([appearance_from_tensor(x) for x in images])).float()
 
 
-def dataset_appearance_stats(dataset, n_samples: int = 64, seed: int = 0) -> torch.Tensor:
+def dataset_appearance_stats(dataset, n_samples: int = 64, seed: int = 0, with_dates: bool = False):
     """Appearance statistics of a few samples, for
     :meth:`~timemachine.model.appearance_film.AppearanceEncoder.fit_normalization`.
 
     The raw statistics are on very different scales, so the encoder standardizes
     them with buffers fitted once on the training data. Drawing whole samples
     (rather than random views) keeps the era mix the model will actually see.
+
+    ``with_dates``: return ``(stats, years)``, each view's ``date_mid`` alongside its
+    statistics, for :func:`~timemachine.model.appearance_film.fit_era_directions`.
+    Views drawn by more than one sample are kept once, so a repeated view neither
+    counts double in the era fit nor lands on both sides of its train/test split.
     """
     rng = np.random.default_rng(seed)
     indices = rng.choice(len(dataset), size=min(n_samples, len(dataset)), replace=False)
-    rows = [dataset[int(i)] for i in indices]
-    if any("appearance" not in r for r in rows):
-        raise KeyError("Samples carry no 'appearance' field; build the dataset with with_appearance=True.")
-    return torch.cat([r["appearance"] for r in rows]).float()
+    # Keep only the small fields of each sample as it is drawn. A whole sample is
+    # ~30 MiB of images at 576px, so holding 256 of them would pin ~7.6 GiB of
+    # pixels this never reads (it killed a 256-sample draw on the login node).
+    wanted = ("appearance", "date_mid", "file_keys")
+    rows = []
+    for i in indices:
+        sample = dataset[int(i)]
+        if "appearance" not in sample:
+            raise KeyError("Samples carry no 'appearance' field; build the dataset with with_appearance=True.")
+        rows.append({k: sample[k] for k in wanted if k in sample})
+        del sample
+    stats = torch.cat([r["appearance"] for r in rows]).float()
+    if not with_dates:
+        return stats
+    years = torch.cat([r["date_mid"] for r in rows]).double()
+    keys = [k for r in rows for k in r.get("file_keys", [None] * len(r["appearance"]))]
+    seen, first = set(), []
+    for i, key in enumerate(keys):
+        if key is None or key not in seen:          # a view with no key cannot be matched: keep it
+            seen.add(key)
+            first.append(i)
+    return stats[first], years[first]

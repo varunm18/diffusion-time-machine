@@ -53,12 +53,19 @@ class FinetuneConfig:
     film_freqs: int = 8                 # Fourier octaves for FiLM: periods 200 / 2^k years, k < film_freqs
     appearance_injection: str = "none"  # one of APPEARANCE_INJECTIONS (see module docstring)
     appearance_dim: int = 256           # width of the shared appearance features
+    # Project the era subspace out of the appearance statistics before the encoder
+    # (AppearanceEncoder.era_directions), so the appearance path cannot carry the year.
+    # The directions are fitted by the trainer from the run's own data.
+    appearance_remove_era: bool = False
 
     def __post_init__(self):
         if self.date_injection not in DATE_INJECTIONS:
             raise ValueError(f"date_injection must be one of {DATE_INJECTIONS}")
         if self.appearance_injection not in APPEARANCE_INJECTIONS:
             raise ValueError(f"appearance_injection must be one of {APPEARANCE_INJECTIONS}")
+        if self.appearance_remove_era and self.appearance_injection == "none":
+            raise ValueError("appearance_remove_era needs an appearance pathway "
+                             "(appearance_injection='film')")
 
 
 DATE_INJECTIONS = ("film", "timestep", "none")
