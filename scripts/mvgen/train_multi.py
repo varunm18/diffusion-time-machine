@@ -37,7 +37,7 @@ import math
 import os
 import time
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -195,8 +195,14 @@ def main() -> None:
         nd = mixture.scenes[mixture.names.index(NOTRE_DAME)]
         swap = representative_years(nd.dates[nd.target_ok], nd.config.period_edges)
         options = dict(look_stats=model.look_stats, look_axis=False) if args.look else {}
-        for name, sets in (("nd_heldout", heldout_view_sets(nd, args.probe_samples)),
-                           ("nd_train", scene_view_sets(nd, args.probe_samples))):
+        # the probe's view sets are drawn with the scene's natural anchor weights, so that a run resumed with
+        # another --old-anchor-share keeps the same sets (and its first evaluation stays the baseline)
+        sampling = nd.config
+        nd.config = replace(sampling, anchor_period_weights=None)
+        drawn = (("nd_heldout", heldout_view_sets(nd, args.probe_samples)),
+                 ("nd_train", scene_view_sets(nd, args.probe_samples)))
+        nd.config = sampling
+        for name, sets in drawn:
             if sets:
                 probes[name] = DateLossProbe(nd, sets, 3, loss_cfg, swap, run_dir / "probes" / f"{name}_baseline.json",
                                              **options)
