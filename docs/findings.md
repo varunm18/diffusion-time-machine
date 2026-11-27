@@ -1493,3 +1493,9 @@ Inside the changed region:
   - **Image quality is higher:** 14.2 dB with the target's own code (D 14.0) and 12.1 dB at the references' look (D 12.2).
   - **The date still takes almost no look:** +0.04 sd (D +0.09, A +0.63). Modern targets at an old date with a colour code stay in colour (chroma 11.8; real colour photos 13.4), so an old date does not turn a render grey by itself.
   - Trajectory of the flip: +0.08 (10k), +0.70 (30k), +2.17 (60k). The held-out wrong-date probe is at +1.12% by step 72,000.
+
+**ms1 at step 100,000: the date controls Notre-Dame's spire in pictures** (2026-11-27; `eval_look1/ms1_step100000/`, renders under `renders/mod-mod_*` and `renders/mod-aft_*`)
+- On held-out views, from pre-fire input photos: pre-fire targets get the spire at their true date, lose it (with scaffolding on the crossing) at a date after the fire, and keep it at an old date; after-fire targets get scaffolding at their true date and the spire back at a pre-fire date. Parts of the cathedral the fire did not touch do not change. At step 50,000 every render was after-fire.
+- Numbers: fire-state flip +4.11 ± 0.76 logits (step 60,000 +2.17; look1 D +1.81); the wrong date costs +5.7% more inside the region than outside (D +2.1%); PSNR with the target's own code 14.4 dB (D 14.0); the date takes little look (+0.06 sd; A +0.63).
+- Held-out places at step 100,000 (neutral-look sweeps): the year still changes mostly the tone (grey for old years, colour for 2015 when the look code is the neutral average) and not the buildings: Vilnius keeps its 1996 statue at 1880.
+- **ms1's second job (8581426) failed at its first probe:** with `--old-anchor-share` the Notre-Dame probe drew other view sets than its stored baseline. Fixed (`train_multi.py` draws probe sets with the natural anchor weights; checked to give the stored rows); resumed as 8600889 from step 122,000, about an hour lost.
